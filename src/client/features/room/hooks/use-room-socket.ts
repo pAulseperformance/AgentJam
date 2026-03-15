@@ -4,6 +4,7 @@ import type {
   RoomState,
   ServerMessage,
   NoteEvent,
+  MetricsSnapshot,
 } from '@/shared/protocol';
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
@@ -29,6 +30,12 @@ interface UseRoomSocketReturn {
   sendMessage: (message: string) => void;
   sendNoteEvent: (event: NoteEvent) => void;
   disconnect: () => void;
+  /** TAS-106: Latest metrics snapshot from server */
+  metrics: MetricsSnapshot | null;
+  /** TAS-106: Client-measured WebSocket RTT in ms */
+  wsRtt: number | null;
+  /** TAS-106: Client SNTP clock offset in ms */
+  clockOffset: number | null;
 }
 
 const RECONNECT_DELAYS = [500, 1000, 2000, 4000, 8000] as const;
@@ -40,6 +47,11 @@ const RECONNECT_DELAYS = [500, 1000, 2000, 4000, 8000] as const;
  * - Note events bypass React state (routed via onNoteEvent callback)
  * - Automatic reconnection with exponential backoff
  * - Room state + peer list managed in React state (infrequent updates)
+ *
+ * Phase 3 additions:
+ * - Metrics snapshot tracking (TAS-106)
+ * - Event backfill handling on reconnect (TAS-105)
+ * - WS RTT + clock offset measurement (TAS-106)
  */
 export function useRoomSocket({
   roomId,
@@ -51,12 +63,18 @@ export function useRoomSocket({
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [roomState, setRoomState] = useState<RoomState | null>(null);
   const [peers, setPeers] = useState<Peer[]>([]);
+  const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null);
+  const [wsRtt, setWsRtt] = useState<number | null>(null);
+  const [clockOffset, setClockOffset] = useState<number | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttempt = useRef(0);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onNoteEventRef = useRef(onNoteEvent);
   onNoteEventRef.current = onNoteEvent;
+
+  // Track clock sync pings for RTT measurement
+  const clockPingT0 = useRef<number>(0);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -78,13 +96,15 @@ export function useRoomSocket({
         kind: playerKind,
         instrument: instrument ?? 'PolySynth',
       }));
+
+      // Start clock sync ping cycle for RTT measurement
+      startClockSync(ws);
     };
 
     ws.onmessage = (event: MessageEvent) => {
       if (typeof event.data !== 'string') return;
 
       // ── Hot path: Note events bypass React ──
-      // Check raw string before JSON.parse — same marker as server
       if (event.data.includes('"type":"note_o')) {
         try {
           const noteEvent = JSON.parse(event.data) as NoteEvent;
@@ -108,10 +128,32 @@ export function useRoomSocket({
           case 'peer_left':
             setPeers((prev) => prev.filter((p) => p.peerId !== msg.peerId));
             break;
+          case 'agent_spawned':
+            // Agent also triggers peer_joined, so just log
+            break;
+          case 'metrics_snapshot':
+            setMetrics(msg);
+            break;
+          case 'event_backfill':
+            // TAS-105: Replay backfilled events silently
+            for (const noteEvent of msg.events) {
+              onNoteEventRef.current?.(noteEvent);
+            }
+            break;
+          case 'clock_sync_pong':
+            // Measure RTT and clock offset
+            if (clockPingT0.current > 0) {
+              const t3 = performance.now();
+              const rtt = t3 - clockPingT0.current;
+              setWsRtt(Math.round(rtt));
+              // Offset = ((t1 - t0) + (t2 - t3)) / 2
+              const offset = ((msg.t1 - clockPingT0.current) + (msg.t2 - t3)) / 2;
+              setClockOffset(Math.round(offset));
+            }
+            break;
           case 'error':
             console.warn('[useRoomSocket] Server error:', msg.message);
             break;
-          // clock_sync_pong handled by clock-sync.ts (TAS-69)
         }
       } catch {
         console.warn('[useRoomSocket] Failed to parse message');
@@ -128,6 +170,27 @@ export function useRoomSocket({
       // onclose will fire after onerror
     };
   }, [roomId, playerName, playerKind, instrument]);
+
+  const startClockSync = useCallback((ws: WebSocket) => {
+    // Send clock sync ping every 30s for RTT measurement
+    const sendPing = () => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      clockPingT0.current = performance.now();
+      ws.send(JSON.stringify({
+        type: 'clock_sync_ping',
+        t0: clockPingT0.current,
+        peerId: 'local',
+      }));
+    };
+
+    // Initial ping after 1s
+    setTimeout(sendPing, 1000);
+    // Then every 30s
+    const interval = setInterval(sendPing, 30000);
+
+    // Clean up on disconnect
+    ws.addEventListener('close', () => clearInterval(interval));
+  }, []);
 
   const scheduleReconnect = useCallback(() => {
     const delay = RECONNECT_DELAYS[
@@ -174,5 +237,15 @@ export function useRoomSocket({
     };
   }, [connect]);
 
-  return { status, roomState, peers, sendMessage, sendNoteEvent, disconnect };
+  return {
+    status,
+    roomState,
+    peers,
+    sendMessage,
+    sendNoteEvent,
+    disconnect,
+    metrics,
+    wsRtt,
+    clockOffset,
+  };
 }

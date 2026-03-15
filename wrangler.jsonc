@@ -12,6 +12,11 @@
     "not_found_handling": "single-page-application"
   },
 
+  // Workers AI binding — free for Llama models
+  "ai": {
+    "binding": "AI"
+  },
+
   // Durable Objects binding
   "durable_objects": {
     "bindings": [

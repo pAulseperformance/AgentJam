@@ -5,6 +5,9 @@ import {
   NOTE_EVENT_TYPE_MARKER,
   FLUSH_INTERVAL_MS,
   MAX_NOTES_PER_SECOND,
+  MAX_AGENTS_PER_ROOM,
+  METRICS_INTERVAL_MS,
+  BACKFILL_WINDOW_MS,
   WS_CLOSE_NORMAL,
 } from '@/shared/protocol/constants';
 import {
@@ -12,7 +15,15 @@ import {
   type Peer,
   type RoomState,
   type NoteEvent,
+  type PeerMetrics,
 } from '@/shared/protocol/types';
+import { generateMeasure, type AgentStyle } from '@/shared/music';
+import { generateMeasureWithAi } from './llm-planner';
+
+/** Env bindings defined in wrangler.jsonc */
+interface Env {
+  AI?: { run(model: string, inputs: Record<string, unknown>): Promise<{ response?: string }> };
+}
 
 interface PeerConnection {
   peer: Peer;
@@ -22,16 +33,21 @@ interface PeerConnection {
   lastNoteWindow: number; // timestamp of current rate-limit window start
 }
 
+interface InProcessAgent {
+  peer: Peer;
+  style: AgentStyle;
+  measureTimer: ReturnType<typeof setInterval>;
+  activeNotes: Set<string>;
+  noteCount: number;
+}
+
 /**
  * JamRoom Durable Object — the central hub for a jam session.
  *
- * Responsibilities:
- * - WebSocket lifecycle (connect, message, close, error)
- * - Room state management (BPM, key, transport)
- * - Peer tracking with color assignment
- * - Hot-path note relay (string-match, no JSON.parse)
- * - Active note tracking for MIDI panic on disconnect
- * - Batch SQLite persistence for note events
+ * Phase 3 additions:
+ * - In-process agent spawning (TAS-104)
+ * - Reconnection event backfill (TAS-105)
+ * - Metrics snapshot broadcasting (TAS-106)
  */
 export class JamRoom implements DurableObject {
   private peers: Map<WebSocket, PeerConnection> = new Map();
@@ -39,11 +55,18 @@ export class JamRoom implements DurableObject {
   private colorIndex = 0;
   private pendingFlush: string[] = [];
   private flushInterval: ReturnType<typeof setInterval> | null = null;
+  private metricsInterval: ReturnType<typeof setInterval> | null = null;
+  private agents: Map<string, InProcessAgent> = new Map();
+  private startTime = Date.now();
+  private env: Env;
+  private isRecording = false;
+  private recordingStartTime: number | null = null;
 
   constructor(
     private readonly ctx: DurableObjectState,
-    _env: unknown,
+    env: Env,
   ) {
+    this.env = env;
     this.roomState = {
       bpm: DEFAULT_BPM,
       key: DEFAULT_KEY,
@@ -87,8 +110,10 @@ export class JamRoom implements DurableObject {
     if (url.pathname.endsWith('/health')) {
       return Response.json({
         peers: this.peers.size,
+        agents: this.agents.size,
         bpm: this.roomState.bpm,
         key: this.roomState.key,
+        uptimeMs: Date.now() - this.startTime,
       });
     }
 
@@ -98,8 +123,6 @@ export class JamRoom implements DurableObject {
   // ─── Hibernation API Callbacks ──────────────────────────────────────────────
 
   webSocketOpen(ws: WebSocket): void {
-    // Peer is not yet registered — they must send a join_room message first.
-    // We do NOT add to this.peers until join_room is received.
     void ws; // connection registered, awaiting join
   }
 
@@ -142,9 +165,39 @@ export class JamRoom implements DurableObject {
       case 'clock_sync_ping':
         this.handleClockSyncPing(ws, msg.t0);
         break;
+      case 'spawn_agent':
+        this.handleSpawnAgent(ws, msg.name, msg.style);
+        break;
+      case 'despawn_agent':
+        this.handleDespawnAgent(ws, msg.agentPeerId);
+        break;
+      case 'instrument_change':
+        // Broadcast to all peers so they can update per-peer synth routing
+        this.broadcastAll(JSON.stringify({
+          type: 'instrument_change',
+          peerId: this.findPeerIdByWs(ws),
+          instrument: msg.instrument,
+        }));
+        break;
+      case 'recording_start':
+        this.isRecording = true;
+        this.recordingStartTime = Date.now();
+        this.broadcastAll(JSON.stringify({
+          type: 'recording_status',
+          isRecording: true,
+          startTime: this.recordingStartTime,
+        }));
+        break;
+      case 'recording_stop':
+        this.isRecording = false;
+        this.broadcastAll(JSON.stringify({
+          type: 'recording_status',
+          isRecording: false,
+          startTime: this.recordingStartTime,
+        }));
+        break;
       case 'note_on':
       case 'note_off':
-        // Fallback for note events that didn't match hot-path string
         this.handleNoteColdPath(ws, msg);
         break;
     }
@@ -180,20 +233,24 @@ export class JamRoom implements DurableObject {
       lastNoteWindow: Date.now(),
     });
 
-    // Start flush interval on first peer
+    // Start intervals on first peer
     if (this.peers.size === 1 && !this.flushInterval) {
       this.flushInterval = setInterval(() => this.flushToSQLite(), FLUSH_INTERVAL_MS);
+      this.metricsInterval = setInterval(() => this.broadcastMetrics(), METRICS_INTERVAL_MS);
     }
 
-    // Send room state + full peer list to the new peer
+    // Send room state + full peer list (including agents) to the new peer
     this.roomState.serverTime = Date.now();
-    const peers = Array.from(this.peers.values()).map((c) => c.peer);
+    const allPeers = this.getAllPeers();
 
     this.send(ws, {
       type: 'room_state',
       roomState: this.roomState,
-      peers,
+      peers: allPeers,
     });
+
+    // Send event backfill if we have recent events
+    this.sendBackfill(ws);
 
     // Broadcast new peer to everyone else
     this.broadcast(ws, { type: 'peer_joined', peer });
@@ -211,7 +268,7 @@ export class JamRoom implements DurableObject {
           type: 'note_off',
           peerId: conn.peer.peerId,
           pitch,
-          beatTime: 0, // immediate
+          beatTime: 0,
           velocity: 0,
           timestamp: now,
         };
@@ -227,11 +284,9 @@ export class JamRoom implements DurableObject {
       peerId: conn.peer.peerId,
     }));
 
-    // Clean up flush interval if room is empty
-    if (this.peers.size === 0 && this.flushInterval) {
-      clearInterval(this.flushInterval);
-      this.flushInterval = null;
-      void this.flushToSQLite(); // final flush
+    // Clean up intervals if room is empty (no WS peers and no agents)
+    if (this.peers.size === 0 && this.agents.size === 0) {
+      this.cleanupIntervals();
     }
 
     try { ws.close(); } catch { /* already closed */ }
@@ -248,7 +303,7 @@ export class JamRoom implements DurableObject {
       conn.lastNoteWindow = now;
     }
     conn.noteCount++;
-    if (conn.noteCount > MAX_NOTES_PER_SECOND) return; // silently drop
+    if (conn.noteCount > MAX_NOTES_PER_SECOND) return;
 
     // Track active notes for MIDI panic
     if (rawMessage.includes('"note_on"')) {
@@ -267,7 +322,6 @@ export class JamRoom implements DurableObject {
   }
 
   private handleNoteColdPath(ws: WebSocket, msg: NoteEvent): void {
-    // Fallback path — note events that didn't match the hot-path string marker
     const conn = this.peers.get(ws);
     if (!conn) return;
 
@@ -286,10 +340,17 @@ export class JamRoom implements DurableObject {
     this.roomState.bpm = bpm;
     this.roomState.serverTime = Date.now();
     void this.ctx.storage.put('roomState', this.roomState);
+
+    // Restart all agent measure timers at new BPM
+    for (const agent of this.agents.values()) {
+      clearInterval(agent.measureTimer);
+      agent.measureTimer = this.createAgentMeasureTimer(agent);
+    }
+
     this.broadcastAll(JSON.stringify({
       type: 'room_state',
       roomState: this.roomState,
-      peers: Array.from(this.peers.values()).map((c) => c.peer),
+      peers: this.getAllPeers(),
     }));
   }
 
@@ -300,20 +361,239 @@ export class JamRoom implements DurableObject {
     this.broadcastAll(JSON.stringify({
       type: 'room_state',
       roomState: this.roomState,
-      peers: Array.from(this.peers.values()).map((c) => c.peer),
+      peers: this.getAllPeers(),
     }));
   }
 
   private handleClockSyncPing(ws: WebSocket, _t0: number): void {
-    const t1 = Date.now(); // server receive time
+    const t1 = Date.now();
     this.send(ws, {
       type: 'clock_sync_pong',
       t1,
-      t2: Date.now(), // server send time
+      t2: Date.now(),
     });
   }
 
+  // ─── TAS-104: In-Process Agent Spawning ─────────────────────────────────────
+
+  private handleSpawnAgent(ws: WebSocket, name: string, style: AgentStyle): void {
+    if (this.agents.size >= MAX_AGENTS_PER_ROOM) {
+      this.sendError(ws, `Max ${MAX_AGENTS_PER_ROOM} agents per room`);
+      return;
+    }
+
+    const color = PEER_COLORS[this.colorIndex % PEER_COLORS.length] ?? '#6366f1';
+    this.colorIndex++;
+
+    const peer: Peer = {
+      peerId: crypto.randomUUID(),
+      name,
+      kind: 'agent',
+      instrument: 'PolySynth',
+      color,
+    };
+
+    const agent: InProcessAgent = {
+      peer,
+      style,
+      measureTimer: 0 as unknown as ReturnType<typeof setInterval>, // set below
+      activeNotes: new Set(),
+      noteCount: 0,
+    };
+
+    agent.measureTimer = this.createAgentMeasureTimer(agent);
+    this.agents.set(peer.peerId, agent);
+
+    // Start intervals if this is the first entity
+    if (!this.flushInterval) {
+      this.flushInterval = setInterval(() => this.flushToSQLite(), FLUSH_INTERVAL_MS);
+      this.metricsInterval = setInterval(() => this.broadcastMetrics(), METRICS_INTERVAL_MS);
+    }
+
+    // Broadcast agent_spawned + peer_joined to all WS peers
+    this.broadcastAll(JSON.stringify({ type: 'agent_spawned', peer, style }));
+    this.broadcastAll(JSON.stringify({ type: 'peer_joined', peer }));
+  }
+
+  private handleDespawnAgent(_ws: WebSocket, agentPeerId: string): void {
+    const agent = this.agents.get(agentPeerId);
+    if (!agent) return;
+
+    clearInterval(agent.measureTimer);
+
+    // MIDI panic for agent's active notes
+    const now = Date.now();
+    for (const pitch of agent.activeNotes) {
+      this.broadcastAll(JSON.stringify({
+        type: 'note_off',
+        peerId: agent.peer.peerId,
+        pitch,
+        beatTime: 0,
+        velocity: 0,
+        timestamp: now,
+      }));
+    }
+
+    this.agents.delete(agentPeerId);
+
+    this.broadcastAll(JSON.stringify({
+      type: 'peer_left',
+      peerId: agentPeerId,
+    }));
+
+    // Clean up if room is empty
+    if (this.peers.size === 0 && this.agents.size === 0) {
+      this.cleanupIntervals();
+    }
+  }
+
+  private createAgentMeasureTimer(agent: InProcessAgent): ReturnType<typeof setInterval> {
+    const measureDurationMs = (60 / this.roomState.bpm) * 4 * 1000;
+
+    return setInterval(() => {
+      this.agentGenerateMeasure(agent);
+    }, measureDurationMs);
+  }
+
+  private agentGenerateMeasure(agent: InProcessAgent): void {
+    // Collect recent notes from the event buffer for LLM context
+    const recentNotes = this.pendingFlush
+      .map(raw => { try { return JSON.parse(raw); } catch { return null; } })
+      .filter((e): e is NoteEvent => e?.type === 'note_on' && e?.peerId !== agent.peer.peerId)
+      .slice(-20)
+      .map(e => ({ pitch: e.pitch, peerId: e.peerId, beatTime: e.beatTime }));
+
+    // Try LLM generation (async), fall back to pattern generator
+    void generateMeasureWithAi(this.env.AI, {
+      key: this.roomState.key,
+      bpm: this.roomState.bpm,
+      style: agent.style,
+      recentNotes,
+      currentBeat: 0,
+    }).then(notes => {
+      this.scheduleAgentNotes(agent, notes);
+    });
+  }
+
+  private scheduleAgentNotes(agent: InProcessAgent, notes: ReturnType<typeof generateMeasure>): void {
+    const beatDurationMs = (60 / this.roomState.bpm) * 1000;
+
+    agent.noteCount = 0;
+
+    for (const note of notes) {
+      const delayMs = note.beatTime * beatDurationMs;
+
+      // Schedule note_on
+      setTimeout(() => {
+        const noteOn = JSON.stringify({
+          type: 'note_on',
+          peerId: agent.peer.peerId,
+          pitch: note.pitch,
+          beatTime: note.beatTime,
+          velocity: note.velocity,
+          timestamp: Date.now(),
+        });
+        agent.activeNotes.add(note.pitch);
+        agent.noteCount++;
+        this.broadcastAll(noteOn);
+        this.pendingFlush.push(noteOn);
+      }, delayMs);
+
+      // Schedule note_off
+      setTimeout(() => {
+        const noteOff = JSON.stringify({
+          type: 'note_off',
+          peerId: agent.peer.peerId,
+          pitch: note.pitch,
+          beatTime: note.beatTime + note.duration,
+          velocity: 0,
+          timestamp: Date.now(),
+        });
+        agent.activeNotes.delete(note.pitch);
+        this.broadcastAll(noteOff);
+        this.pendingFlush.push(noteOff);
+      }, delayMs + note.duration * beatDurationMs);
+    }
+  }
+
+  // ─── TAS-105: Reconnection Backfill ─────────────────────────────────────────
+
+  private sendBackfill(ws: WebSocket): void {
+    try {
+      this.ensureNoteEventsTable();
+      const cutoff = Date.now() - BACKFILL_WINDOW_MS;
+      const rows = this.ctx.storage.sql.exec(
+        'SELECT data FROM note_events WHERE created_at > ? ORDER BY created_at ASC LIMIT 200',
+        Math.floor(cutoff / 1000),
+      );
+
+      const events: NoteEvent[] = [];
+      for (const row of rows) {
+        try {
+          const parsed = JSON.parse(row.data as string) as NoteEvent;
+          events.push(parsed);
+        } catch { /* skip malformed */ }
+      }
+
+      if (events.length > 0) {
+        this.send(ws, {
+          type: 'event_backfill',
+          events,
+          backfillFromTimestamp: cutoff,
+        });
+      }
+    } catch {
+      // Table may not exist yet — that's fine
+    }
+  }
+
+  // ─── TAS-106: Metrics Broadcast ─────────────────────────────────────────────
+
+  private broadcastMetrics(): void {
+    if (this.peers.size === 0) return;
+
+    const peerMetrics: PeerMetrics[] = [];
+
+    // WS peer metrics
+    for (const conn of this.peers.values()) {
+      peerMetrics.push({
+        peerId: conn.peer.peerId,
+        notesPerSec: conn.noteCount,
+        activeNoteCount: conn.activeNotes.size,
+      });
+    }
+
+    // Agent metrics
+    for (const agent of this.agents.values()) {
+      peerMetrics.push({
+        peerId: agent.peer.peerId,
+        notesPerSec: agent.noteCount,
+        activeNoteCount: agent.activeNotes.size,
+      });
+    }
+
+    const totalNotesPerSec = peerMetrics.reduce((sum, m) => sum + m.notesPerSec, 0);
+
+    this.broadcastAll(JSON.stringify({
+      type: 'metrics_snapshot',
+      peerCount: this.peers.size + this.agents.size,
+      agentCount: this.agents.size,
+      totalNotesPerSec,
+      peerMetrics,
+      uptimeMs: Date.now() - this.startTime,
+      serverTime: Date.now(),
+      isRecording: this.isRecording,
+    }));
+  }
+
   // ─── Utilities ──────────────────────────────────────────────────────────────
+
+  /** Get all peers: WS connections + in-process agents */
+  private getAllPeers(): Peer[] {
+    const wsPeers = Array.from(this.peers.values()).map(c => c.peer);
+    const agentPeers = Array.from(this.agents.values()).map(a => a.peer);
+    return [...wsPeers, ...agentPeers];
+  }
 
   private send(ws: WebSocket, data: Record<string, unknown>): void {
     try {
@@ -332,15 +612,46 @@ export class JamRoom implements DurableObject {
     }
   }
 
-  /** Broadcast to ALL peers including sender */
-  private broadcastAll(message: string): void {
+  /** Broadcast to ALL WS peers (optionally exclude one) */
+  private broadcastAll(message: string, exclude?: WebSocket): void {
     for (const [ws] of this.peers) {
+      if (ws === exclude) continue;
       try { ws.send(message); } catch { /* peer disconnected */ }
     }
   }
 
+  /** Look up peerId from a WS reference */
+  private findPeerIdByWs(ws: WebSocket): string {
+    for (const [peerWs, conn] of this.peers) {
+      if (peerWs === ws) return conn.peer.peerId;
+    }
+    return 'unknown';
+  }
+
   private sendError(ws: WebSocket, message: string): void {
     this.send(ws, { type: 'error', message });
+  }
+
+  private cleanupIntervals(): void {
+    if (this.flushInterval) {
+      clearInterval(this.flushInterval);
+      this.flushInterval = null;
+      void this.flushToSQLite();
+    }
+    if (this.metricsInterval) {
+      clearInterval(this.metricsInterval);
+      this.metricsInterval = null;
+    }
+  }
+
+  private ensureNoteEventsTable(): void {
+    this.ctx.storage.sql.exec(
+      `CREATE TABLE IF NOT EXISTS note_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        data TEXT NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+      )`,
+    );
   }
 
   /** Batch-insert pending note events to SQLite — runs every FLUSH_INTERVAL_MS */
@@ -350,13 +661,7 @@ export class JamRoom implements DurableObject {
     const batch = this.pendingFlush.splice(0);
 
     try {
-      this.ctx.storage.sql.exec(
-        `CREATE TABLE IF NOT EXISTS note_events (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          data TEXT NOT NULL,
-          created_at INTEGER NOT NULL DEFAULT (unixepoch())
-        )`,
-      );
+      this.ensureNoteEventsTable();
 
       for (const raw of batch) {
         this.ctx.storage.sql.exec(
@@ -365,9 +670,7 @@ export class JamRoom implements DurableObject {
         );
       }
     } catch (err) {
-      // Log but don't crash — note events are ephemeral
       console.error('[JamRoom] flushToSQLite failed:', err);
-      // Re-queue failed batch for next attempt
       this.pendingFlush.unshift(...batch);
     }
   }

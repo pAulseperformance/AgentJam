@@ -1,4 +1,5 @@
 import type { RoomState } from '@/shared/protocol';
+import { INSTRUMENT_LIST, type InstrumentType } from '@/client/features/synth';
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
 
@@ -7,6 +8,10 @@ interface TransportBarProps {
   status: ConnectionStatus;
   onBpmChange?: (bpm: number) => void;
   onKeyChange?: (key: string) => void;
+  onInstrumentChange?: (instrument: InstrumentType) => void;
+  currentInstrument?: InstrumentType;
+  isRecording?: boolean;
+  onToggleRecording?: () => void;
 }
 
 const KEYS = [
@@ -24,6 +29,10 @@ export function TransportBar({
   status,
   onBpmChange,
   onKeyChange,
+  onInstrumentChange,
+  currentInstrument = 'PolySynth',
+  isRecording = false,
+  onToggleRecording,
 }: TransportBarProps) {
   const bpm = roomState?.bpm ?? 120;
   const key = roomState?.key ?? 'C major';
@@ -45,6 +54,17 @@ export function TransportBar({
         />
         <span className="transport-bar__status-text">{status}</span>
       </div>
+
+      {/* Record button (TAS-103) */}
+      <button
+        className={`transport-bar__btn transport-bar__record${isRecording ? ' transport-bar__record--active' : ''}`}
+        onClick={onToggleRecording}
+        disabled={status !== 'connected'}
+        aria-label={isRecording ? 'Stop Recording' : 'Start Recording'}
+        title={isRecording ? 'Stop Recording' : 'Start Recording'}
+      >
+        ⏺
+      </button>
 
       {/* BPM controls */}
       <div className="transport-bar__bpm">
@@ -83,6 +103,26 @@ export function TransportBar({
         >
           {KEYS.map((k) => (
             <option key={k} value={k}>{k}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Instrument picker */}
+      <div className="transport-bar__key">
+        <label htmlFor="instrument-select" className="transport-bar__label">
+          Instrument:
+        </label>
+        <select
+          id="instrument-select"
+          className="transport-bar__select"
+          value={currentInstrument}
+          onChange={(e) => onInstrumentChange?.(e.target.value as InstrumentType)}
+          disabled={status !== 'connected'}
+        >
+          {INSTRUMENT_LIST.map((inst) => (
+            <option key={inst.value} value={inst.value}>
+              {inst.icon} {inst.label}
+            </option>
           ))}
         </select>
       </div>

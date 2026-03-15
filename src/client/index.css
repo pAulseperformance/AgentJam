@@ -337,6 +337,24 @@ body {
 
 .transport-bar__select:focus { border-color: var(--accent-indigo); }
 
+/* Record button */
+.transport-bar__record {
+  font-size: 1.2rem;
+  transition: all 0.2s;
+}
+
+.transport-bar__record--active {
+  background: var(--accent-rose);
+  border-color: var(--accent-rose);
+  box-shadow: 0 0 12px rgba(244, 63, 94, 0.5);
+  animation: recordPulse 1s infinite;
+}
+
+@keyframes recordPulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(244, 63, 94, 0.5); }
+  50% { box-shadow: 0 0 20px rgba(244, 63, 94, 0.8); }
+}
+
 /* ─── Peer List + Mixer ──────────────────────────────────────────────────── */
 
 .peer-list-container {
@@ -574,3 +592,438 @@ body {
   background: var(--bg-primary);
   box-shadow: inset 0 0 20px rgba(99, 102, 241, 0.05);
 }
+
+/* ─── Agent Panel (TAS-104) ──────────────────────────────────────────────── */
+
+.agent-panel {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.agent-panel__title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.75rem;
+}
+
+.agent-panel__spawn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.agent-panel__name-input {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.65rem;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-family: var(--font-sans);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.agent-panel__name-input:focus {
+  border-color: var(--accent-indigo);
+}
+
+.agent-panel__style-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.agent-panel__style-btn {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.3rem;
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+
+.agent-panel__style-btn:hover {
+  border-color: var(--accent-indigo);
+  color: var(--text-primary);
+}
+
+.agent-panel__style-btn--active {
+  background: var(--accent-indigo);
+  border-color: var(--accent-indigo);
+  color: white;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.3);
+}
+
+.agent-panel__spawn-btn {
+  background: linear-gradient(135deg, var(--accent-emerald), #059669);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.agent-panel__spawn-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+.agent-panel__spawn-btn:active { transform: translateY(0); }
+.agent-panel__spawn-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.agent-panel__limit {
+  font-size: 0.75rem;
+  color: var(--accent-amber);
+  font-style: italic;
+}
+
+.agent-panel__list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 0.5rem;
+}
+
+.agent-panel__agent {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.agent-panel__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: agentPulse 1.5s infinite;
+}
+
+@keyframes agentPulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 4px currentColor; }
+  50% { opacity: 0.6; box-shadow: 0 0 8px currentColor; }
+}
+
+.agent-panel__agent-name {
+  font-size: 0.8rem;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-panel__despawn-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-muted);
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.7rem;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.agent-panel__despawn-btn:hover {
+  background: var(--accent-rose);
+  border-color: var(--accent-rose);
+  color: white;
+}
+
+.agent-panel__empty {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-top: 0.25rem;
+}
+
+/* ─── Metrics Panel (TAS-106) ────────────────────────────────────────────── */
+
+.metrics-panel {
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  transition: max-height 0.3s ease;
+}
+
+.metrics-panel--collapsed .metrics-panel__body {
+  display: none;
+}
+
+.metrics-panel__toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.5rem;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s;
+  text-align: left;
+}
+
+.metrics-panel__toggle:hover {
+  color: var(--text-primary);
+}
+
+.metrics-panel__summary {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.metrics-panel__body {
+  padding: 0 1.5rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.metrics-panel__row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.metric-card {
+  flex: 1;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  transition: border-color 0.2s;
+}
+
+.metric-card--warning {
+  border-color: var(--accent-rose);
+  box-shadow: 0 0 8px rgba(244, 63, 94, 0.15);
+}
+
+.metric-card__value {
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.metric-card--warning .metric-card__value {
+  color: var(--accent-rose);
+}
+
+.metric-card__unit {
+  font-size: 0.65rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+.metric-card__label {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.metrics-panel__peers {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.65rem;
+}
+
+.metrics-panel__subtitle {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.35rem;
+}
+
+.metrics-panel__peer-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+}
+
+.metrics-panel__peer-id {
+  color: var(--text-secondary);
+  min-width: 70px;
+}
+
+.metrics-panel__peer-stat {
+  color: var(--text-muted);
+  min-width: 50px;
+}
+
+/* ─── MIDI Status (TAS-116) ───────────────────────────────────────────────── */
+
+.midi-status {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.midi-status__device {
+  font-size: 0.75rem;
+  color: var(--accent-emerald);
+  font-family: var(--font-mono);
+  margin-top: 0.25rem;
+}
+
+/* ─── Mobile Responsive (TAS-117) ─────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .jam-room__main {
+    flex-direction: column;
+  }
+
+  .jam-room__sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 0.75rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: flex-start;
+  }
+
+  .jam-room__section-title {
+    width: 100%;
+    margin-bottom: 0;
+  }
+
+  .peer-list-container {
+    flex: 1;
+    min-width: 180px;
+  }
+
+  .agent-panel {
+    flex: 1;
+    min-width: 180px;
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+  }
+
+  .jam-room__content {
+    padding: 1rem;
+  }
+
+  .visualizer {
+    max-width: 100%;
+  }
+
+  .keyboard {
+    max-width: 100%;
+  }
+
+  .keyboard__key--white {
+    height: 100px;
+  }
+
+  .keyboard__key--black {
+    height: 65px;
+  }
+
+  .transport-bar {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding: 0.5rem 1rem;
+  }
+
+  .transport-bar__key {
+    margin-left: 0;
+  }
+
+  .metrics-panel__row {
+    flex-wrap: wrap;
+  }
+
+  .metric-card {
+    min-width: calc(50% - 0.25rem);
+  }
+}
+
+@media (max-width: 480px) {
+  .landing__card {
+    padding: 1.5rem;
+    margin: 1rem;
+  }
+
+  .landing__title {
+    font-size: 1.75rem;
+  }
+
+  .jam-room__header {
+    padding: 0.75rem 1rem;
+  }
+
+  .jam-room__title {
+    font-size: 1rem;
+  }
+
+  .jam-room__room-id {
+    font-size: 0.7rem;
+  }
+
+  .jam-room__sidebar {
+    flex-direction: column;
+  }
+
+  .keyboard__key--white {
+    height: 80px;
+  }
+
+  .keyboard__key--black {
+    height: 50px;
+    width: 10%;
+  }
+
+  .keyboard__label {
+    font-size: 0.5rem;
+  }
+
+  .transport-bar__bpm-value {
+    font-size: 0.9rem;
+    min-width: 60px;
+  }
+
+  .metric-card {
+    min-width: 100%;
+  }
+}
+
+/* Touch-friendly: prevent text selection on keyboard */
+.keyboard {
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+}
+

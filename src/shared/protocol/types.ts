@@ -63,6 +63,37 @@ export const ClockSyncPingSchema = z.object({
 });
 export type ClockSyncPing = z.infer<typeof ClockSyncPingSchema>;
 
+// ─── Phase 3: Agent Control ──────────────────────────────────────────────────
+
+export const SpawnAgentMessageSchema = z.object({
+  type: z.literal('spawn_agent'),
+  name: z.string(),
+  style: z.enum(['jazz', 'ambient', 'funk', 'random']),
+});
+export type SpawnAgentMessage = z.infer<typeof SpawnAgentMessageSchema>;
+
+export const DespawnAgentMessageSchema = z.object({
+  type: z.literal('despawn_agent'),
+  agentPeerId: z.string(),
+});
+export type DespawnAgentMessage = z.infer<typeof DespawnAgentMessageSchema>;
+
+export const InstrumentChangeMessageSchema = z.object({
+  type: z.literal('instrument_change'),
+  instrument: z.string(),
+});
+export type InstrumentChangeMessage = z.infer<typeof InstrumentChangeMessageSchema>;
+
+export const RecordingStartMessageSchema = z.object({
+  type: z.literal('recording_start'),
+});
+export type RecordingStartMessage = z.infer<typeof RecordingStartMessageSchema>;
+
+export const RecordingStopMessageSchema = z.object({
+  type: z.literal('recording_stop'),
+});
+export type RecordingStopMessage = z.infer<typeof RecordingStopMessageSchema>;
+
 // ─── Server → Client Messages ────────────────────────────────────────────────
 
 export const RoomStateMessageSchema = z.object({
@@ -98,6 +129,40 @@ export const ErrorMessageSchema = z.object({
 });
 export type ErrorMessage = z.infer<typeof ErrorMessageSchema>;
 
+// ─── Phase 3: Server → Client ────────────────────────────────────────────────
+
+export const AgentSpawnedMessageSchema = z.object({
+  type: z.literal('agent_spawned'),
+  peer: PeerSchema,
+  style: z.string(),
+});
+export type AgentSpawnedMessage = z.infer<typeof AgentSpawnedMessageSchema>;
+
+export const PeerMetricsSchema = z.object({
+  peerId: z.string(),
+  notesPerSec: z.number(),
+  activeNoteCount: z.number(),
+});
+export type PeerMetrics = z.infer<typeof PeerMetricsSchema>;
+
+export const MetricsSnapshotSchema = z.object({
+  type: z.literal('metrics_snapshot'),
+  peerCount: z.number(),
+  agentCount: z.number(),
+  totalNotesPerSec: z.number(),
+  peerMetrics: z.array(PeerMetricsSchema),
+  uptimeMs: z.number(),
+  serverTime: z.number(),
+});
+export type MetricsSnapshot = z.infer<typeof MetricsSnapshotSchema>;
+
+export const EventBackfillMessageSchema = z.object({
+  type: z.literal('event_backfill'),
+  events: z.array(NoteEventSchema),
+  backfillFromTimestamp: z.number(),
+});
+export type EventBackfillMessage = z.infer<typeof EventBackfillMessageSchema>;
+
 // ─── Discriminated Union for Inbound (Client → Server) ───────────────────────
 
 export const ClientMessageSchema = z.discriminatedUnion('type', [
@@ -106,6 +171,11 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   BpmChangeMessageSchema,
   KeyChangeMessageSchema,
   ClockSyncPingSchema,
+  SpawnAgentMessageSchema,
+  DespawnAgentMessageSchema,
+  InstrumentChangeMessageSchema,
+  RecordingStartMessageSchema,
+  RecordingStopMessageSchema,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 
@@ -118,5 +188,8 @@ export const ServerMessageSchema = z.discriminatedUnion('type', [
   ClockSyncPongSchema,
   NoteEventSchema, // note events are relayed server → client too
   ErrorMessageSchema,
+  AgentSpawnedMessageSchema,
+  MetricsSnapshotSchema,
+  EventBackfillMessageSchema,
 ]);
 export type ServerMessage = z.infer<typeof ServerMessageSchema>;

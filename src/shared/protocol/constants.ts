@@ -20,6 +20,15 @@ export const MAX_NOTES_PER_SECOND = 100;
 /** Max peers per room before sharding is recommended */
 export const MAX_PEERS_PER_ROOM = 50;
 
+/** Max AI agents per room */
+export const MAX_AGENTS_PER_ROOM = 4;
+
+/** Metrics snapshot broadcast interval */
+export const METRICS_INTERVAL_MS = 5_000;
+
+/** How far back to backfill events on reconnect (ms) */
+export const BACKFILL_WINDOW_MS = 10_000;
+
 // ─── Room Defaults ───────────────────────────────────────────────────────────
 
 export const DEFAULT_BPM = 120;

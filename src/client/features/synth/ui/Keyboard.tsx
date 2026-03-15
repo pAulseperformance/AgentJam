@@ -55,10 +55,15 @@ export function Keyboard({ engine, peerId, onNoteEvent }: KeyboardProps) {
     onNoteEventRef.current?.('note_off', pitch, 0);
   }, [engine]);
 
-  // QWERTY keyboard bindings
+  // QWERTY keyboard bindings — skip when user is typing in inputs
   useEffect(() => {
+    const isTyping = () => {
+      const tag = document.activeElement?.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    };
+
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.repeat) return;
+      if (e.repeat || isTyping()) return;
       const pitch = KEY_MAP[e.key.toLowerCase()];
       if (pitch) {
         e.preventDefault();
@@ -67,6 +72,7 @@ export function Keyboard({ engine, peerId, onNoteEvent }: KeyboardProps) {
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
+      if (isTyping()) return;
       const pitch = KEY_MAP[e.key.toLowerCase()];
       if (pitch) {
         e.preventDefault();

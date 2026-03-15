@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState, useMemo } from 'react';
-import { useRoomSocket, PeerList, TransportBar } from '@/client/features/room';
-import { useSynthEngine, Keyboard } from '@/client/features/synth';
+import { useRoomSocket, PeerList, TransportBar, AgentPanel, MetricsPanel } from '@/client/features/room';
+import { useSynthEngine, Keyboard, useMidi, type InstrumentType } from '@/client/features/synth';
 import { Visualizer } from '@/client/features/visualizer';
 import type { NoteEvent, Peer } from '@/shared/protocol';
 
@@ -12,17 +12,23 @@ interface JamRoomProps {
 /**
  * JamRoom — the main page that assembles all features.
  *
- * Wiring:
- * - useRoomSocket → WebSocket connection to DO
- * - useSynthEngine → AudioEngine (vanilla TS, not React state)
- * - Keyboard → local note input → AudioEngine + WebSocket broadcast
- * - onNoteEvent (from WS) → AudioEngine (bypass React) + Visualizer buffer
- * - Visualizer → rAF loop reading mutable ref buffer
- * - PeerList → per-peer mute/volume → AudioEngine Gain nodes
+ * Phase 3 additions:
+ * - AgentPanel for spawning/despawning AI agents (TAS-104)
+ * - MetricsPanel for live performance stats (TAS-106)
+ * - Event backfill handled by useRoomSocket (TAS-105)
  */
 export function JamRoom({ roomId, playerName }: JamRoomProps) {
   const { engine, startAudio } = useSynthEngine();
   const [audioStarted, setAudioStarted] = useState(false);
+  const [currentInstrument, setCurrentInstrument] = useState<InstrumentType>('PolySynth');
+  const [isRecording, setIsRecording] = useState(false);
+
+  // MIDI controller support (TAS-116)
+  const { connected: midiConnected, devices: midiDevices } = useMidi({
+    onNoteOn: (pitch, velocity) => handleLocalNoteEvent('note_on', pitch, velocity),
+    onNoteOff: (pitch) => handleLocalNoteEvent('note_off', pitch, 0),
+    enabled: audioStarted,
+  });
   const visualizerNotesRef = useRef<Array<{
     pitch: string;
     peerId: string;
@@ -78,7 +84,16 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     }
   }, [engine]);
 
-  const { status, roomState, peers, sendMessage, sendNoteEvent } = useRoomSocket({
+  const {
+    status,
+    roomState,
+    peers,
+    sendMessage,
+    sendNoteEvent,
+    metrics,
+    wsRtt,
+    clockOffset,
+  } = useRoomSocket({
     roomId,
     playerName,
     playerKind: 'human',
@@ -141,6 +156,18 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     sendMessage(JSON.stringify({ type: 'key_change', key }));
   }, [sendMessage]);
 
+  const handleInstrumentChange = useCallback((instrument: InstrumentType) => {
+    setCurrentInstrument(instrument);
+    engine?.changeInstrument(instrument);
+    sendMessage(JSON.stringify({ type: 'instrument_change', instrument }));
+  }, [sendMessage, engine]);
+
+  const handleToggleRecording = useCallback(() => {
+    const newState = !isRecording;
+    setIsRecording(newState);
+    sendMessage(JSON.stringify({ type: newState ? 'recording_start' : 'recording_stop' }));
+  }, [isRecording, sendMessage]);
+
   const handleStartAudio = useCallback(async () => {
     await startAudio();
     setAudioStarted(true);
@@ -171,6 +198,10 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
         status={status}
         onBpmChange={handleBpmChange}
         onKeyChange={handleKeyChange}
+        onInstrumentChange={handleInstrumentChange}
+        currentInstrument={currentInstrument}
+        isRecording={isRecording}
+        onToggleRecording={handleToggleRecording}
       />
 
       <div className="jam-room__main">
@@ -181,6 +212,21 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
             engine={engine}
             localPeerId={localPeerId}
           />
+
+          <AgentPanel
+            sendMessage={sendMessage}
+            peers={peers}
+          />
+
+          {/* MIDI status (TAS-116) */}
+          {midiConnected && (
+            <div className="midi-status">
+              <h2 className="jam-room__section-title">🎛️ MIDI</h2>
+              {midiDevices.map(d => (
+                <p key={d.id} className="midi-status__device">✅ {d.name}</p>
+              ))}
+            </div>
+          )}
         </aside>
 
         <div className="jam-room__content">
@@ -195,6 +241,12 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
           )}
         </div>
       </div>
+
+      <MetricsPanel
+        metrics={metrics}
+        wsRtt={wsRtt}
+        clockOffset={clockOffset}
+      />
     </div>
   );
 }
