@@ -22,6 +22,9 @@ export class AudioEngine {
   private masterGain: Tone.Gain | null = null;
   /** Muted peers set */
   private mutedPeers: Set<string> = new Set();
+  /** Master volume as a plain number (0-1) — applied as velocity multiplier */
+  private masterVolumeLevel = 1;
+  private masterMutedState = false;
 
   async start(): Promise<void> {
     if (this.started) return;
@@ -107,16 +110,14 @@ export class AudioEngine {
     return this.peerGains.get(peerId)?.gain.value ?? 1;
   }
 
-  /** Set master volume (local player) */
+  /** Set master volume (local player) — stored as field, applied in playNote */
   setMasterVolume(volume: number): void {
-    if (this.masterGain) {
-      this.masterGain.gain.value = Math.max(0, Math.min(1, volume));
-    }
+    this.masterVolumeLevel = Math.max(0, Math.min(1, volume));
   }
 
   /** Get master volume */
   getMasterVolume(): number {
-    return this.masterGain?.gain.value ?? 1;
+    return this.masterVolumeLevel;
   }
 
   /** Mute/unmute a peer */
@@ -138,9 +139,7 @@ export class AudioEngine {
 
   /** Mute/unmute local (master) */
   setMasterMuted(muted: boolean): void {
-    if (this.masterGain) {
-      this.masterGain.gain.value = muted ? 0 : 1;
-    }
+    this.masterMutedState = muted;
   }
 
   // ── Note Playback ───────────────────────────────────────────────────
@@ -154,6 +153,8 @@ export class AudioEngine {
 
     // If this is a muted peer, skip entirely
     if (peerId && this.mutedPeers.has(peerId)) return;
+    // If local and master is muted, skip
+    if (!isRemote && this.masterMutedState) return;
 
     const normalizedVelocity = velocity / 127;
     const key = peerId ? `${peerId}:${pitch}` : pitch;
@@ -161,14 +162,14 @@ export class AudioEngine {
     const delay = isRemote ? PLAYOUT_DELAY_MS / 1000 : 0;
     const when = Tone.now() + delay;
 
-    // For remote peers with per-peer gain, temporarily connect synth
-    // through peer's gain node (Tone.js handles the routing)
+    // For remote peers with per-peer gain, apply peer volume
     if (peerId && isRemote) {
       const peerGain = this.getOrCreatePeerGain(peerId);
       const peerVol = peerGain.gain.value;
       this.synth.triggerAttack(pitch, when, normalizedVelocity * peerVol);
     } else {
-      this.synth.triggerAttack(pitch, when, normalizedVelocity);
+      // Local notes: apply master volume so user can balance with agents
+      this.synth.triggerAttack(pitch, when, normalizedVelocity * this.masterVolumeLevel);
     }
 
     const releaseTimer = setTimeout(() => {
