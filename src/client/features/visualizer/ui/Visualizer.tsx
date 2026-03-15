@@ -27,6 +27,8 @@ function pitchToY(pitch: string, height: number): number {
 interface VisualizerProps {
   width?: number;
   height?: number;
+  /** External note buffer — if provided, reads from this instead of internal ref */
+  notesRef?: React.RefObject<NoteRect[]>;
 }
 
 /**
@@ -37,9 +39,10 @@ interface VisualizerProps {
  * are pushed into the buffer by the WebSocket handler (imperative),
  * and the rAF loop reads them without triggering React re-renders.
  */
-export function Visualizer({ width = 800, height = 300 }: VisualizerProps) {
+export function Visualizer({ width = 800, height = 300, notesRef: externalNotesRef }: VisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const notesRef = useRef<NoteRect[]>([]);
+  const internalNotesRef = useRef<NoteRect[]>([]);
+  const effectiveNotesRef = externalNotesRef ?? internalNotesRef;
   const animFrameRef = useRef<number | null>(null);
 
   // rAF render loop
@@ -69,7 +72,7 @@ export function Visualizer({ width = 800, height = 300 }: VisualizerProps) {
       }
 
       // Draw note rectangles
-      const notes = notesRef.current;
+      const notes = effectiveNotesRef.current;
       for (const note of notes) {
         const endTime = note.endTime ?? now;
 
@@ -89,7 +92,7 @@ export function Visualizer({ width = 800, height = 300 }: VisualizerProps) {
       }
 
       // Prune old notes (>10s old and ended)
-      notesRef.current = notes.filter((n) => {
+      effectiveNotesRef.current = notes.filter((n) => {
         if (n.endTime === null) return true;
         return n.endTime > now - 10000;
       });

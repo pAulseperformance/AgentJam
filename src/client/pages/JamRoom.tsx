@@ -152,7 +152,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
         </aside>
 
         <div className="jam-room__content">
-          <Visualizer width={800} height={250} />
+          <Visualizer width={800} height={250} notesRef={visualizerNotesRef} />
 
           {engine && (
             <Keyboard
