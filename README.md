@@ -8,4 +8,4 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full RFC.
 
 ## Status
 
-��️ Pre-alpha — architecture planning phase.
+🏗️ Pre-alpha — architecture planning phase.
