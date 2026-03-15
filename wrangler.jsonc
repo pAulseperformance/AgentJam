@@ -3,6 +3,7 @@
   // Frontend assets + DO served from the same origin (no CORS friction)
   "name": "agent-jam",
   "compatibility_date": "2025-03-15",
+  "workers_dev": true,
   "main": "src/server/index.ts",
 
   // Unified Worker: assets fallthrough for SPA routing
@@ -27,5 +28,10 @@
       "tag": "v1",
       "new_sqlite_classes": ["JamRoom"]
     }
+  ],
+
+  // Custom domain — auto-provisions SSL
+  "routes": [
+    { "pattern": "jam.paulseperformance.com", "custom_domain": true }
   ]
 }
