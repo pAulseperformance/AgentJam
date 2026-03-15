@@ -337,7 +337,13 @@ body {
 
 .transport-bar__select:focus { border-color: var(--accent-indigo); }
 
-/* ─── Peer List ──────────────────────────────────────────────────────────── */
+/* ─── Peer List + Mixer ──────────────────────────────────────────────────── */
+
+.peer-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
 
 .peer-list {
   list-style: none;
@@ -352,10 +358,16 @@ body {
   font-style: italic;
 }
 
+.peer-list__divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.25rem 0;
+}
+
 .peer-list__item {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.35rem;
   padding: 0.5rem 0.6rem;
   background: var(--bg-surface);
   border-radius: var(--radius-sm);
@@ -364,6 +376,12 @@ body {
 }
 
 .peer-list__item:hover { border-color: var(--accent-indigo); }
+
+.peer-list__info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
 
 .peer-list__dot {
   width: 10px;
@@ -388,6 +406,95 @@ body {
   font-family: var(--font-mono);
   font-size: 0.7rem;
   color: var(--text-muted);
+}
+
+/* ─── Peer Mixer Controls ────────────────────────────────────────────────── */
+
+.peer-mixer {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.peer-mixer--master {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.peer-mixer__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.peer-mixer__mute {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  flex-shrink: 0;
+}
+
+.peer-mixer__mute:hover {
+  border-color: var(--accent-indigo);
+}
+
+.peer-mixer__mute--active {
+  background: var(--accent-rose);
+  border-color: var(--accent-rose);
+  box-shadow: 0 0 8px rgba(244, 63, 94, 0.4);
+}
+
+.peer-mixer__slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-elevated);
+  outline: none;
+  cursor: pointer;
+  min-width: 60px;
+}
+
+.peer-mixer__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent-indigo);
+  border: 2px solid var(--bg-primary);
+  cursor: pointer;
+  box-shadow: 0 0 6px rgba(99, 102, 241, 0.4);
+  transition: box-shadow 0.2s;
+}
+
+.peer-mixer__slider::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.6);
+}
+
+.peer-mixer__slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent-indigo);
+  border: 2px solid var(--bg-primary);
+  cursor: pointer;
 }
 
 /* ─── Keyboard ───────────────────────────────────────────────────────────── */

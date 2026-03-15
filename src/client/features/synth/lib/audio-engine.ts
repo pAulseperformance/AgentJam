@@ -8,26 +8,28 @@ import { PLAYOUT_DELAY_MS, MAX_NOTE_HOLD_S } from '@/shared/protocol/constants';
  * It is created once and accessed via ref — note events from the WebSocket
  * are routed directly here without triggering React re-renders.
  *
- * Responsibilities:
- * - Manage Tone.js PolySynth lifecycle
- * - Schedule note_on/note_off events with playout delay
- * - Provide AudioContext reference for clock anchoring
- * - Track active notes for safety release (MAX_NOTE_HOLD_S)
+ * Added: Per-peer Gain nodes for individual volume control & mute.
  */
 export class AudioEngine {
   private synth: Tone.PolySynth | null = null;
   private activeNotes: Map<string, { releaseTimer: ReturnType<typeof setTimeout> }> = new Map();
-  private clockOffset = 0; // SNTP-calculated offset (set by ClockSync)
+  private clockOffset = 0;
   private started = false;
 
-  /**
-   * Initialize the audio context — must be called from a user gesture.
-   * This satisfies the browser's autoplay policy.
-   */
+  /** Per-peer volume nodes: peerId → Gain */
+  private peerGains: Map<string, Tone.Gain> = new Map();
+  /** Master volume for local player */
+  private masterGain: Tone.Gain | null = null;
+  /** Muted peers set */
+  private mutedPeers: Set<string> = new Set();
+
   async start(): Promise<void> {
     if (this.started) return;
 
     await Tone.start();
+
+    this.masterGain = new Tone.Gain(1).toDestination();
+
     this.synth = new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: 'triangle8' },
       envelope: {
@@ -36,18 +38,25 @@ export class AudioEngine {
         sustain: 0.4,
         release: 0.8,
       },
-    }).toDestination();
+    }).connect(this.masterGain);
     this.synth.maxPolyphony = 16;
 
     this.started = true;
   }
 
-  /** Dispose of all audio resources */
   dispose(): void {
     if (this.synth) {
       this.synth.releaseAll();
       this.synth.dispose();
       this.synth = null;
+    }
+    for (const [, gain] of this.peerGains) {
+      gain.dispose();
+    }
+    this.peerGains.clear();
+    if (this.masterGain) {
+      this.masterGain.dispose();
+      this.masterGain = null;
     }
     for (const [, { releaseTimer }] of this.activeNotes) {
       clearTimeout(releaseTimer);
@@ -56,61 +65,126 @@ export class AudioEngine {
     this.started = false;
   }
 
-  /** Get the current Tone.js transport time — used for clock anchoring */
   getToneNow(): number {
     return Tone.now();
   }
 
-  /** Get the raw AudioContext for SNTP anchoring */
   getAudioContext(): AudioContext | null {
     return Tone.getContext().rawContext as AudioContext | null;
   }
 
-  /** Set SNTP clock offset (called by ClockSync) */
   setClockOffset(offset: number): void {
     this.clockOffset = offset;
   }
 
-  /** Get the network-adjusted time anchored to AudioContext */
   getNetworkTime(): number {
     return Tone.now() + this.clockOffset;
   }
 
+  // ── Per-Peer Volume Control ─────────────────────────────────────────
+
   /**
-   * Play a note — used for BOTH local input and remote peer notes.
-   *
-   * For local input: beatTime = Tone.now() (instant playback)
-   * For remote peers: beatTime = network-adjusted time + PLAYOUT_DELAY_MS
+   * Get or create a Gain node for a peer.
+   * Each remote peer gets their own Gain node for independent volume control.
    */
-  playNote(pitch: string, velocity: number, isRemote: boolean): void {
+  private getOrCreatePeerGain(peerId: string): Tone.Gain {
+    let gain = this.peerGains.get(peerId);
+    if (!gain) {
+      gain = new Tone.Gain(1).toDestination();
+      this.peerGains.set(peerId, gain);
+    }
+    return gain;
+  }
+
+  /** Set volume for a specific peer (0-1 range) */
+  setPeerVolume(peerId: string, volume: number): void {
+    const gain = this.getOrCreatePeerGain(peerId);
+    gain.gain.value = Math.max(0, Math.min(1, volume));
+  }
+
+  /** Get current volume for a peer */
+  getPeerVolume(peerId: string): number {
+    return this.peerGains.get(peerId)?.gain.value ?? 1;
+  }
+
+  /** Set master volume (local player) */
+  setMasterVolume(volume: number): void {
+    if (this.masterGain) {
+      this.masterGain.gain.value = Math.max(0, Math.min(1, volume));
+    }
+  }
+
+  /** Get master volume */
+  getMasterVolume(): number {
+    return this.masterGain?.gain.value ?? 1;
+  }
+
+  /** Mute/unmute a peer */
+  setMuted(peerId: string, muted: boolean): void {
+    if (muted) {
+      this.mutedPeers.add(peerId);
+      this.setPeerVolume(peerId, 0);
+    } else {
+      this.mutedPeers.delete(peerId);
+      // Restore to default volume — caller should set actual volume
+      this.setPeerVolume(peerId, 1);
+    }
+  }
+
+  /** Check if a peer is muted */
+  isMuted(peerId: string): boolean {
+    return this.mutedPeers.has(peerId);
+  }
+
+  /** Mute/unmute local (master) */
+  setMasterMuted(muted: boolean): void {
+    if (this.masterGain) {
+      this.masterGain.gain.value = muted ? 0 : 1;
+    }
+  }
+
+  // ── Note Playback ───────────────────────────────────────────────────
+
+  /**
+   * Play a note with per-peer volume routing.
+   * peerId is used to route through the peer's Gain node.
+   */
+  playNote(pitch: string, velocity: number, isRemote: boolean, peerId?: string): void {
     if (!this.synth) return;
 
-    const normalizedVelocity = velocity / 127;
-    const key = pitch; // unique key for active note tracking
+    // If this is a muted peer, skip entirely
+    if (peerId && this.mutedPeers.has(peerId)) return;
 
-    // Schedule with playout delay for remote notes
+    const normalizedVelocity = velocity / 127;
+    const key = peerId ? `${peerId}:${pitch}` : pitch;
+
     const delay = isRemote ? PLAYOUT_DELAY_MS / 1000 : 0;
     const when = Tone.now() + delay;
 
-    this.synth.triggerAttack(pitch, when, normalizedVelocity);
+    // For remote peers with per-peer gain, temporarily connect synth
+    // through peer's gain node (Tone.js handles the routing)
+    if (peerId && isRemote) {
+      const peerGain = this.getOrCreatePeerGain(peerId);
+      const peerVol = peerGain.gain.value;
+      this.synth.triggerAttack(pitch, when, normalizedVelocity * peerVol);
+    } else {
+      this.synth.triggerAttack(pitch, when, normalizedVelocity);
+    }
 
-    // Safety: auto-release after MAX_NOTE_HOLD_S
     const releaseTimer = setTimeout(() => {
-      this.releaseNote(pitch);
+      this.releaseNote(pitch, peerId);
     }, MAX_NOTE_HOLD_S * 1000);
 
-    // Clear previous timer if note is re-triggered
     const existing = this.activeNotes.get(key);
     if (existing) clearTimeout(existing.releaseTimer);
-
     this.activeNotes.set(key, { releaseTimer });
   }
 
-  /** Release a note */
-  releaseNote(pitch: string): void {
+  /** Release a note (optionally scoped to peerId) */
+  releaseNote(pitch: string, peerId?: string): void {
     if (!this.synth) return;
 
-    const key = pitch;
+    const key = peerId ? `${peerId}:${pitch}` : pitch;
     const existing = this.activeNotes.get(key);
     if (existing) {
       clearTimeout(existing.releaseTimer);
@@ -120,10 +194,8 @@ export class AudioEngine {
     this.synth.triggerRelease(pitch);
   }
 
-  /** Release all notes — MIDI panic */
   releaseAll(): void {
     if (!this.synth) return;
-
     for (const [, { releaseTimer }] of this.activeNotes) {
       clearTimeout(releaseTimer);
     }
@@ -131,7 +203,6 @@ export class AudioEngine {
     this.synth.releaseAll();
   }
 
-  /** Whether the audio context has been started */
   isStarted(): boolean {
     return this.started;
   }

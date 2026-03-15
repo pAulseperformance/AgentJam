@@ -1,8 +1,8 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, useMemo } from 'react';
 import { useRoomSocket, PeerList, TransportBar } from '@/client/features/room';
 import { useSynthEngine, Keyboard } from '@/client/features/synth';
 import { Visualizer } from '@/client/features/visualizer';
-import type { NoteEvent } from '@/shared/protocol';
+import type { NoteEvent, Peer } from '@/shared/protocol';
 
 interface JamRoomProps {
   roomId: string;
@@ -18,6 +18,7 @@ interface JamRoomProps {
  * - Keyboard → local note input → AudioEngine + WebSocket broadcast
  * - onNoteEvent (from WS) → AudioEngine (bypass React) + Visualizer buffer
  * - Visualizer → rAF loop reading mutable ref buffer
+ * - PeerList → per-peer mute/volume → AudioEngine Gain nodes
  */
 export function JamRoom({ roomId, playerName }: JamRoomProps) {
   const { engine, startAudio } = useSynthEngine();
@@ -31,19 +32,32 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     color: string;
   }>>([]);
 
+  // Build a peerId → color lookup from the latest peer list
+  const peerColorMapRef = useRef<Map<string, string>>(new Map());
+
+  const updateColorMap = useCallback((peers: Peer[]) => {
+    const map = peerColorMapRef.current;
+    map.clear();
+    for (const peer of peers) {
+      map.set(peer.peerId, peer.color);
+    }
+  }, []);
+
   // Handle incoming remote note events — bypass React entirely
   const handleRemoteNoteEvent = useCallback((event: NoteEvent) => {
     if (!engine) return;
 
-    // Route to AudioEngine (v5: direct, no React state)
+    // Route to AudioEngine with peerId for per-peer volume
     if (event.type === 'note_on') {
-      engine.playNote(event.pitch, event.velocity, true); // isRemote = true → playout delay
+      engine.playNote(event.pitch, event.velocity, true, event.peerId);
     } else {
-      engine.releaseNote(event.pitch);
+      engine.releaseNote(event.pitch, event.peerId);
     }
 
-    // Push to visualizer buffer (mutable ref, no re-render)
+    // Push to visualizer buffer with peer-specific color
     const notes = visualizerNotesRef.current;
+    const peerColor = peerColorMapRef.current.get(event.peerId) ?? '#6366f1';
+
     if (event.type === 'note_on') {
       notes.push({
         pitch: event.pitch,
@@ -51,7 +65,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
         startTime: performance.now(),
         endTime: null,
         velocity: event.velocity,
-        color: '#6366f1', // will be overridden by visualizer's color map
+        color: peerColor,
       });
     } else {
       for (let i = notes.length - 1; i >= 0; i--) {
@@ -71,11 +85,25 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     onNoteEvent: handleRemoteNoteEvent,
   });
 
+  // Keep color map in sync with peer list
+  useMemo(() => updateColorMap(peers), [peers, updateColorMap]);
+
+  // Derive local peerId — the peer whose name matches ours
+  const localPeerId = useMemo(() => {
+    const me = peers.find(p => p.name === playerName && p.kind === 'human');
+    return me?.peerId;
+  }, [peers, playerName]);
+
+  // Local peer's assigned color
+  const localColor = useMemo(() =>
+    localPeerId ? peerColorMapRef.current.get(localPeerId) : undefined
+  , [localPeerId, peers]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Handle local note events from Keyboard → broadcast to peers
   const handleLocalNoteEvent = useCallback((type: 'note_on' | 'note_off', pitch: string, velocity: number) => {
     const event: NoteEvent = {
       type,
-      peerId: 'local', // server will assign real peerId
+      peerId: 'local',
       pitch,
       beatTime: 0,
       velocity,
@@ -83,7 +111,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     };
     sendNoteEvent(event);
 
-    // Also push to visualizer for local notes
+    // Also push to visualizer for local notes with own color
     const notes = visualizerNotesRef.current;
     if (type === 'note_on') {
       notes.push({
@@ -92,7 +120,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
         startTime: performance.now(),
         endTime: null,
         velocity,
-        color: '#10b981', // local peer color
+        color: localColor ?? '#10b981',
       });
     } else {
       for (let i = notes.length - 1; i >= 0; i--) {
@@ -103,7 +131,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
         }
       }
     }
-  }, [sendNoteEvent]);
+  }, [sendNoteEvent, localColor]);
 
   const handleBpmChange = useCallback((bpm: number) => {
     sendMessage(JSON.stringify({ type: 'bpm_change', bpm }));
@@ -148,7 +176,11 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
       <div className="jam-room__main">
         <aside className="jam-room__sidebar">
           <h2 className="jam-room__section-title">Peers</h2>
-          <PeerList peers={peers} />
+          <PeerList
+            peers={peers}
+            engine={engine}
+            localPeerId={localPeerId}
+          />
         </aside>
 
         <div className="jam-room__content">
