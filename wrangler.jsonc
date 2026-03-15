@@ -1,0 +1,31 @@
+{
+  // Agent-First Web DAW Jam Room — Unified Worker Pattern
+  // Frontend assets + DO served from the same origin (no CORS friction)
+  "name": "agent-jam",
+  "compatibility_date": "2025-03-15",
+  "main": "src/server/index.ts",
+
+  // Unified Worker: assets fallthrough for SPA routing
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  },
+
+  // Durable Objects binding
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "JAM_ROOM",
+        "class_name": "JamRoom"
+      }
+    ]
+  },
+
+  // SQLite-backed DO storage (default for new DOs)
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["JamRoom"]
+    }
+  ]
+}

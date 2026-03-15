@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment
+.env
+.env.local
+
+# Wrangler
+.wrangler/
+.dev.vars
+
+# OS
+.DS_Store
+
+# Editor
+.vscode/
+*.swp
+
+# Task Master
+.taskmaster/
