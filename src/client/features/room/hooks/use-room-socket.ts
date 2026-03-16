@@ -36,6 +36,9 @@ interface UseRoomSocketReturn {
   wsRtt: number | null;
   /** TAS-106: Client SNTP clock offset in ms */
   clockOffset: number | null;
+  /** AI debug entries — last prompt/response/metadata per agent */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic debug payload from server
+  aiDebugEntries: any[];
 }
 
 const RECONNECT_DELAYS = [500, 1000, 2000, 4000, 8000] as const;
@@ -66,6 +69,8 @@ export function useRoomSocket({
   const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null);
   const [wsRtt, setWsRtt] = useState<number | null>(null);
   const [clockOffset, setClockOffset] = useState<number | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic debug payload from server
+  const [aiDebugEntries, setAiDebugEntries] = useState<any[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttempt = useRef(0);
@@ -153,6 +158,12 @@ export function useRoomSocket({
             break;
           case 'error':
             console.warn('[useRoomSocket] Server error:', msg.message);
+            break;
+          default:
+            // Handle ai_debug and other dynamic messages
+            if ('type' in msg && (msg as { type: string }).type === 'ai_debug') {
+              setAiDebugEntries(prev => [...prev.slice(-19), msg]);
+            }
             break;
         }
       } catch {
@@ -247,5 +258,6 @@ export function useRoomSocket({
     metrics,
     wsRtt,
     clockOffset,
+    aiDebugEntries,
   };
 }

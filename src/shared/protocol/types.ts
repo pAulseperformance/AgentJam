@@ -176,6 +176,7 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   InstrumentChangeMessageSchema,
   RecordingStartMessageSchema,
   RecordingStopMessageSchema,
+  z.object({ type: z.literal('set_agent_model'), agentPeerId: z.string(), model: z.string() }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 

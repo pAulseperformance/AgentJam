@@ -1027,3 +1027,143 @@ body {
   touch-action: none;
 }
 
+/* ─── AI Debug Panel (TAS-113 Observability) ─────────────────────────────── */
+
+.ai-debug-panel {
+  background: var(--surface-3);
+  border-top: 1px solid var(--border-light);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.ai-debug-panel__toggle {
+  width: 100%;
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font-mono);
+}
+
+.ai-debug-panel__toggle:hover {
+  color: var(--text-primary);
+  background: var(--surface-4);
+}
+
+.ai-debug-panel__body {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  border-top: 1px solid var(--border-light);
+}
+
+.ai-debug-panel__tabs {
+  display: flex;
+  gap: 0.25rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+
+.ai-debug-panel__tab {
+  background: var(--surface-4);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ai-debug-panel__tab:hover {
+  border-color: var(--accent-indigo);
+  color: var(--text-primary);
+}
+
+.ai-debug-panel__tab--active {
+  background: var(--accent-indigo);
+  color: var(--text-primary);
+  border-color: var(--accent-indigo);
+}
+
+.ai-debug-panel__detail {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.ai-debug-panel__row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.ai-debug-panel__badge {
+  color: #fff;
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.ai-debug-panel__stat {
+  background: var(--surface-4);
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+}
+
+.ai-debug-panel__error {
+  color: var(--accent-rose);
+  background: rgba(244, 63, 94, 0.1);
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+}
+
+.ai-debug-panel__model-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ai-debug-panel__label {
+  color: var(--text-primary);
+}
+
+.ai-debug-panel__select {
+  background: var(--surface-1);
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.ai-debug-panel__select:focus {
+  outline: none;
+  border-color: var(--accent-indigo);
+}
+
+.ai-debug-panel__section > summary {
+  cursor: pointer;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+  user-select: none;
+}
+
+.ai-debug-panel__code {
+  background: var(--surface-1);
+  color: var(--text-primary);
+  padding: 0.75rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  border: 1px solid var(--border-light);
+  white-space: pre-wrap;
+  max-height: 300px;
+  overflow-y: auto;
+}

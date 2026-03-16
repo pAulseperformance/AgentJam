@@ -36,6 +36,7 @@ interface PeerConnection {
 interface InProcessAgent {
   peer: Peer;
   style: AgentStyle;
+  model: string;
   measureTimer: ReturnType<typeof setInterval>;
   activeNotes: Set<string>;
   noteCount: number;
@@ -196,6 +197,13 @@ export class JamRoom implements DurableObject {
           startTime: this.recordingStartTime,
         }));
         break;
+      case 'set_agent_model': {
+        const agent = this.agents.get((msg as { agentPeerId: string }).agentPeerId);
+        if (agent) {
+          agent.model = (msg as { model: string }).model;
+        }
+        break;
+      }
       case 'note_on':
       case 'note_off':
         this.handleNoteColdPath(ws, msg);
@@ -396,6 +404,7 @@ export class JamRoom implements DurableObject {
     const agent: InProcessAgent = {
       peer,
       style,
+      model: '@cf/meta/llama-3.1-8b-instruct',
       measureTimer: 0 as unknown as ReturnType<typeof setInterval>, // set below
       activeNotes: new Set(),
       noteCount: 0,
@@ -470,8 +479,16 @@ export class JamRoom implements DurableObject {
       style: agent.style,
       recentNotes,
       currentBeat: 0,
-    }).then(notes => {
-      this.scheduleAgentNotes(agent, notes);
+    }, agent.model).then(result => {
+      this.scheduleAgentNotes(agent, result.notes);
+
+      // Broadcast AI debug metadata to all connected peers
+      this.broadcastAll(JSON.stringify({
+        type: 'ai_debug',
+        agentPeerId: agent.peer.peerId,
+        agentName: agent.peer.name,
+        meta: result.meta,
+      }));
     });
   }
 

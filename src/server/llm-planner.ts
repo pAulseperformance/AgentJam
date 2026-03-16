@@ -2,13 +2,10 @@
  * LLM Planner — Uses Cloudflare Workers AI to generate context-aware
  * musical responses based on what peers are currently playing.
  *
- * TAS-113: LLM-Powered Agent
+ * TAS-113: LLM-Powered Agent + AI Observability
  *
- * The planner:
- * 1. Aggregates the last N measures from all peers
- * 2. Sends context to Workers AI (Llama 3.1)
- * 3. Parses the response into GeneratedNote[]
- * 4. Falls back to pattern generator on error/timeout
+ * Returns both notes AND metadata (prompt, response, timing, source)
+ * so the client can display what the AI is "thinking."
  */
 
 import { generateMeasure, type GeneratedNote, type AgentStyle } from '@/shared/music';
@@ -18,15 +15,39 @@ interface AiBinding {
   run(model: string, inputs: Record<string, unknown>): Promise<{ response?: string }>;
 }
 
-interface MeasureContext {
+export interface MeasureContext {
   key: string;
   bpm: number;
   style: AgentStyle;
-  /** Recent notes from all peers in the room — pitch + timing info */
   recentNotes: Array<{ pitch: string; peerId: string; beatTime: number }>;
-  /** Current beat position in the room */
   currentBeat: number;
 }
+
+/** Metadata returned alongside notes for observability */
+export interface AiCallMeta {
+  source: 'llm' | 'pattern' | 'fallback';
+  model: string;
+  prompt: string;
+  response: string;
+  noteCount: number;
+  latencyMs: number;
+  error?: string;
+}
+
+export interface MeasureResult {
+  notes: GeneratedNote[];
+  meta: AiCallMeta;
+}
+
+/** Available Workers AI models for music generation */
+export const AI_MODELS = [
+  { id: '@cf/meta/llama-3.1-8b-instruct', label: 'Llama 3.1 8B', tier: 'fast' },
+  { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', label: 'Llama 3.3 70B', tier: 'quality' },
+  { id: '@cf/google/gemma-7b-it-lora', label: 'Gemma 7B', tier: 'fast' },
+  { id: '@cf/mistral/mistral-7b-instruct-v0.2-lora', label: 'Mistral 7B', tier: 'fast' },
+] as const;
+
+export type AiModelId = typeof AI_MODELS[number]['id'];
 
 const SYSTEM_PROMPT = `You are a musical AI agent in a collaborative jam room. You generate MIDI-like note sequences that complement what other musicians are playing.
 
@@ -54,7 +75,6 @@ Generate your next measure:`;
 
 function parseAiResponse(response: string): GeneratedNote[] | null {
   try {
-    // Strip any markdown fences the LLM might add
     let cleaned = response.trim();
     if (cleaned.startsWith('```')) {
       cleaned = cleaned.replace(/^```\w*\n?/, '').replace(/\n?```$/, '');
@@ -88,36 +108,90 @@ function parseAiResponse(response: string): GeneratedNote[] | null {
 
 /**
  * Generate a measure using Cloudflare Workers AI.
- * Falls back to pattern generator on any failure.
+ * Returns notes + full metadata for observability.
  */
 export async function generateMeasureWithAi(
   ai: AiBinding | undefined,
   ctx: MeasureContext,
-): Promise<GeneratedNote[]> {
+  model: string = '@cf/meta/llama-3.1-8b-instruct',
+): Promise<MeasureResult> {
+  const prompt = buildUserPrompt(ctx);
+
   // If no AI binding available, use pattern generator
   if (!ai) {
-    return generateMeasure(ctx.style, ctx.key, ctx.bpm);
+    const notes = generateMeasure(ctx.style, ctx.key, ctx.bpm);
+    return {
+      notes,
+      meta: {
+        source: 'pattern',
+        model: 'none',
+        prompt,
+        response: '(no AI binding — using pattern generator)',
+        noteCount: notes.length,
+        latencyMs: 0,
+      },
+    };
   }
 
+  const startTime = Date.now();
   try {
-    const result = await ai.run('@cf/meta/llama-3.1-8b-instruct', {
+    const result = await ai.run(model, {
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: buildUserPrompt(ctx) },
+        { role: 'user', content: prompt },
       ],
       max_tokens: 512,
       temperature: 0.7,
     });
 
-    if (result.response) {
-      const notes = parseAiResponse(result.response);
-      if (notes) return notes;
+    const latencyMs = Date.now() - startTime;
+    const rawResponse = result.response ?? '';
+
+    if (rawResponse) {
+      const notes = parseAiResponse(rawResponse);
+      if (notes) {
+        return {
+          notes,
+          meta: {
+            source: 'llm',
+            model,
+            prompt,
+            response: rawResponse,
+            noteCount: notes.length,
+            latencyMs,
+          },
+        };
+      }
     }
 
-    // AI returned garbage — fallback
-    return generateMeasure(ctx.style, ctx.key, ctx.bpm);
-  } catch {
-    // AI call failed — fallback
-    return generateMeasure(ctx.style, ctx.key, ctx.bpm);
+    // AI returned unparseable response — fallback
+    const fallbackNotes = generateMeasure(ctx.style, ctx.key, ctx.bpm);
+    return {
+      notes: fallbackNotes,
+      meta: {
+        source: 'fallback',
+        model,
+        prompt,
+        response: rawResponse || '(empty response)',
+        noteCount: fallbackNotes.length,
+        latencyMs,
+        error: 'Failed to parse AI response',
+      },
+    };
+  } catch (err: unknown) {
+    const latencyMs = Date.now() - startTime;
+    const fallbackNotes = generateMeasure(ctx.style, ctx.key, ctx.bpm);
+    return {
+      notes: fallbackNotes,
+      meta: {
+        source: 'fallback',
+        model,
+        prompt,
+        response: '(AI call failed)',
+        noteCount: fallbackNotes.length,
+        latencyMs,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      },
+    };
   }
 }

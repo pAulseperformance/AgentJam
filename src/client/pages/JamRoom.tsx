@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, useMemo } from 'react';
-import { useRoomSocket, PeerList, TransportBar, AgentPanel, MetricsPanel } from '@/client/features/room';
+import { useRoomSocket, PeerList, TransportBar, AgentPanel, MetricsPanel, AiDebugPanel } from '@/client/features/room';
 import { useSynthEngine, Keyboard, useMidi, type InstrumentType } from '@/client/features/synth';
 import { Visualizer } from '@/client/features/visualizer';
 import type { NoteEvent, Peer } from '@/shared/protocol';
@@ -93,12 +93,17 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     metrics,
     wsRtt,
     clockOffset,
+    aiDebugEntries,
   } = useRoomSocket({
     roomId,
     playerName,
     playerKind: 'human',
     onNoteEvent: handleRemoteNoteEvent,
   });
+
+  const handleModelChange = useCallback((agentPeerId: string, model: string) => {
+    sendMessage(JSON.stringify({ type: 'set_agent_model', agentPeerId, model }));
+  }, [sendMessage]);
 
   // Keep color map in sync with peer list
   useMemo(() => updateColorMap(peers), [peers, updateColorMap]);
@@ -246,6 +251,11 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
         metrics={metrics}
         wsRtt={wsRtt}
         clockOffset={clockOffset}
+      />
+
+      <AiDebugPanel
+        entries={aiDebugEntries}
+        onModelChange={handleModelChange}
       />
     </div>
   );
