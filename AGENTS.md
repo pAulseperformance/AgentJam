@@ -168,6 +168,17 @@ When storing machine-readable state that agents read and update (feature lists, 
 
 ---
 
+## 30. Compile-Time Rule Architecture Mandate
+
+Rules are stored modularly in `~/.gemini/rules-src/` and `.agent/rules/`. IDEs (Claude/Gemini) read the flattened `GEMINI.md` / `AGENTS.md` artifacts compiled from these sources.
+
+**Rule:** Any time you (an AI agent) are instructed to add, remove, or modify a rule:
+1. You MUST edit the source fragments in `~/.gemini/rules-src/` (for globals) or `.agent/rules/` (for project-specifics). NEVER edit the compiled `GEMINI.md` / `AGENTS.md` directly.
+2. You MUST immediately run the compiler script (`~/.gemini/rules-src/compile.sh ...`) for the current workspace to regenerate the flat artifacts.
+3. If modifying a global rule, you MUST run `~/.gemini/sync-workspaces.sh` to push the update to all tracked repositories instantly.
+
+---
+
 ## Standalone Rules
 
 - **baseURL**: Never derive from `request.headers.get('host')` in a Worker with Assets. Use env binding directly.
