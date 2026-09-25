@@ -152,9 +152,9 @@ Options:
 
 All styles are **scale-aware** — they read the room's current key and only play notes from that scale.
 
-## Agent SDK
+## Agent SDK Extraction (Pending)
 
-The agent SDK (`src/agent-sdk/`) is a standalone library for building custom AI agents:
+The agent SDK (`src/agent-sdk/`) is designed to be a standalone library for building custom AI agents. Currently, the LLM generation logic (`llm-planner.ts`) is tightly coupled to the server. A pending refactor will extract this into a standalone client library:
 
 ```typescript
 import {

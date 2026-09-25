@@ -1,7 +1,7 @@
 import { env, runInDurableObject } from 'cloudflare:test';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { JamRoom } from './jam-room';
-import type { RoomState, Peer } from '../shared/protocol/types';
+
 
 describe('JamRoom Durable Object', () => {
   const getRoomStub = () => {

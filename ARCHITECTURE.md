@@ -292,9 +292,11 @@ Use **Cloudflare Durable Objects** with Hibernation WebSocket API as the central
 | 22 | NEW | `src/client/features/synth/index.ts` | 5 | |
 | 23 | NEW | `src/client/features/visualizer/ui/Visualizer.tsx` | 80 | v5: reads from `noteBufferRef.current` via `requestAnimationFrame` loop — not React state. Canvas-based rendering. |
 | 24 | NEW | `src/client/features/visualizer/index.ts` | 5 | |
-| | | **Total** | **~1,340** | +120 LOC from v4 (new `clock-sync.ts` + `audio-engine.ts` + expanded `jam-room.ts`) |
+| 25 | NEW | `vitest.config.ts`, `wrangler.test.jsonc`, `package.json` | ~60 | Added Phase 4.1 testing infrastructure |
+| 26 | NEW | `src/**/*.test.ts` | ~250 | Unit and integration tests for DO and SDK logic |
+| | | **Total** | **~1,600** | +260 LOC from testing additions |
 
-Agent SDK (`src/agent-sdk/index.ts`, ~80 LOC) deferred to Phase 1b after core room works.
+Agent SDK (`src/agent-sdk/index.ts`, ~80 LOC) is currently tightly coupled in `src/server/llm-planner.ts` and deferred to be extracted into a standalone client library.
 
 ### 9d: Pre-Execution Prerequisites
 
@@ -306,7 +308,7 @@ Agent SDK (`src/agent-sdk/index.ts`, ~80 LOC) deferred to Phase 1b after core ro
 
 ### 9e: End-Result Vision
 
-**What you CAN do after Phase 1**:
+**What you CAN do after Phase 1 / Phase 4.1**:
 - Open `https://jam-room.example.com/room/my-room` in two browser tabs
 - Play notes on a virtual keyboard (or MIDI controller) — hear them in both tabs
 - See a peer list showing who's connected with color-coded note attribution
@@ -315,15 +317,14 @@ Agent SDK (`src/agent-sdk/index.ts`, ~80 LOC) deferred to Phase 1b after core ro
 - Experience tight rhythmic sync thanks to SNTP clock anchoring
 - No audio glitches even at high note density thanks to React-decoupled AudioEngine
 - Notes properly cleaned up when a peer disconnects (no hanging drones)
+- **LLM Agent Measure Aggregation** runs efficiently via `llm-planner.ts` on the server, generating context-aware music.
 
-**What's explicitly DEFERRED**:
-- Agent SDK (Phase 1b — after core room proven)
-- LLM Agent Measure Aggregation (Phase 1b — `measure_complete` event bundling for Foundation Models. The DO emits a JSON bundle of all notes at the end of each measure, allowing LLMs to receive bounded context windows instead of a real-time firehose. LLM agents can sit dormant, receive the measure summary, take 2 seconds to "think", and schedule their response to drop at the start of Measure N+2.)
-- Multi-instrument selection
-- Step sequencer / pattern recording
-- AI composition endpoint
-- Room persistence / lobby
-- Authentication
+**What's explicitly DEFERRED (For Issue Backlog)**:
+- Agent SDK Sandbox (Currently LLM logic is tightly bound; needs extraction to run as standalone Node process)
+- Frontend Agent Controls (Spawn an agent from UI)
+- Persistent Jam Session Records & User Authentication (Better Auth)
+- Advanced Synth Engine (Swap MVP Tone.js for Elementary Audio)
+- Decentralized P2P Audio Streaming (WebRTC)
 
 **What DOESN'T change**: No existing projects affected. Greenfield workspace.
 
@@ -353,7 +354,7 @@ Agent SDK (`src/agent-sdk/index.ts`, ~80 LOC) deferred to Phase 1b after core ro
 | # | Dragon | Root Cause | Mitigation | Integrated In |
 |---|--------|-----------|------------|---------------|
 | 5 | **Hanging Notes / MIDI Panic** | `note_on` without `note_off` due to disconnect → infinite drone | DO tracks `activeNotes` per peer. `webSocketClose` broadcasts fabricated `note_off`. | Phase 2 #9, Phase 6, `jam-room.ts` |
-| 6 | **LLM Agent Firehose** | Foundation Models can't process continuous 150-byte frames — need bounded context windows | `measure_complete` event bundles all notes at measure end. LLMs receive, think, respond 2 measures later. | Phase 9e (deferred to Phase 1b) |
+| 6 | **LLM Agent Firehose** | Foundation Models can't process continuous 150-byte frames — need bounded context windows | `MeasureComplete` event bundles all notes at measure end. LLMs receive, think, respond 2 measures later. | Integrated via `llm-planner.ts` |
 
 ---
 

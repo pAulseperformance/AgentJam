@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import type { Peer } from '@/shared/protocol';
-import type { AudioEngine } from '@/client/features/synth/lib/audio-engine';
+import type { AudioEngine } from '@/client/features/synth';
 
 interface PeerMixState {
   volume: number;
