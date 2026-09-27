@@ -37,6 +37,7 @@
 
   // Custom domain — auto-provisions SSL
   "routes": [
-    { "pattern": "jam.paulseperformance.com", "custom_domain": true }
+    { "pattern": "jam.paulseperformance.com", "custom_domain": true },
+    { "pattern": "jam.zpe.vc", "custom_domain": true }
   ]
 }
