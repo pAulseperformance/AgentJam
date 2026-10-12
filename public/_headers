@@ -1,0 +1,16 @@
+# Response headers for the app, served from a PATH (zpe.vc/jam).
+#
+# The shell must never be stored: it names content-hashed bundles, each deploy deletes the previous
+# ones, and a cached shell then points at files that 404 (a white page, not a degraded one). The
+# hashed assets are content-addressed, so they can be cached for a year.
+#
+# _headers matches by PATH and is only read at the ROOT of the assets directory, which is why the
+# build copies this file to dist/_headers as well as leaving it under dist/jam/.
+/jam/index.html
+  Cache-Control: no-store
+
+/jam/
+  Cache-Control: no-store
+
+/jam/assets/*
+  Cache-Control: public, max-age=31536000, immutable

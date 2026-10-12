@@ -6,10 +6,17 @@
   "workers_dev": true,
   "main": "src/server/index.ts",
 
-  // Unified Worker: assets fallthrough for SPA routing
+  // Unified Worker: assets fallthrough for SPA routing.
+  //
+  // The build nests its output under ./dist/jam because the app lives at a PATH now, and the asset
+  // layer finds a request by its path. `not_found_handling: "none"` is deliberate: with the SPA
+  // fallback on, the asset layer answers every navigation BEFORE this Worker runs and serves the
+  // assets-directory ROOT shell, which is the wrong door's bundle. The binding is what lets the
+  // Worker serve the mount's own shell for a client route.
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "single-page-application"
+    "binding": "ASSETS",
+    "not_found_handling": "none"
   },
 
   // Workers AI binding — free for Llama models
@@ -37,7 +44,21 @@
 
   // Custom domain — auto-provisions SSL. One name only: the paulseperformance.com alias was
   // retired on 2026-09-27 (redundant + confusing with the zpe.vc door); jam.zpe.vc is canonical.
+  // TWO DOORS, ONE DEPLOYMENT. The custom domain is the app's own name, which now redirects page
+  // requests to the path; the two routes are the mount. A path pattern needs `zone_name` (a
+  // custom_domain does not), and the mount takes TWO patterns because a trailing * in a route
+  // pattern is a string wildcard that would also capture /jam-other.
   "routes": [
-    { "pattern": "jam.zpe.vc", "custom_domain": true }
-  ]
+    { "pattern": "jam.zpe.vc", "custom_domain": true },
+    { "pattern": "zpe.vc/jam", "zone_name": "zpe.vc" },
+    { "pattern": "zpe.vc/jam/*", "zone_name": "zpe.vc" }
+  ],
+  "vars": {
+    // WHERE THE APP IS MOUNTED, and the host that owns the mount. A page request on the app's own
+    // name is 301'd to the mount; its socket and API keep answering on both names, and the
+    // workers.dev address is left alone (it is neither).
+    "PATH_PREFIX": "/jam",
+    "MOUNT_ORIGIN": "https://zpe.vc",
+    "CANONICAL_HOST": "jam.zpe.vc"
+  }
 }

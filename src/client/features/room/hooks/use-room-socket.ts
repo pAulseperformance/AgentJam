@@ -87,7 +87,12 @@ export function useRoomSocket({
     setStatus('connecting');
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/api/room/${roomId}/ws`);
+    // THE MOUNT IS BAKED AT BUILD TIME (see vite.config.ts): served from zpe.vc/jam the socket
+    // lives at /jam/api/room/<id>/ws, and a bare /api/... would open a socket to whatever answers
+    // /api on the apex, which is a different app. An absolute URL built from location.host is the
+    // reference a `fetch(` scan does not see, so it is carried here by hand.
+    const mount = (import.meta.env.BASE_URL || '/').replace(/\/+$/, '');
+    const ws = new WebSocket(`${protocol}//${window.location.host}${mount}/api/room/${roomId}/ws`);
     wsRef.current = ws;
 
     ws.onopen = () => {
