@@ -39,6 +39,20 @@ body {
   min-height: 100vh;
 }
 
+/* ─── Keyboard focus ─────────────────────────────────────────────────────────
+   WCAG 2.4.7. Measured on the live page 2026-10-28 under a real Tab: every
+   landing input reported `outline 3px none` and a box-shadow still at
+   `rgba(0,0,0,0) 0px 0px 0px 0px`, because `.landing__input` sets `outline:
+   none` (weight 0,1,0, an author rule, so it beats the UA ring) and the only
+   replacement is a 20%-alpha shadow that fades in over 200ms. Nothing is
+   visible at the moment the key is pressed, and 20% indigo on the page is
+   1.2:1 at best once it arrives. The ring is an outline again, it is forced
+   so no component class can remove it, and it does not transition. */
+:focus-visible {
+  outline: 3px solid var(--accent-indigo) !important;
+  outline-offset: 2px !important;
+}
+
 /* ─── Landing Page ──────────────────────────────────────────────────────── */
 
 .landing {
