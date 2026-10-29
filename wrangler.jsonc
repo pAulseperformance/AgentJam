@@ -4,6 +4,9 @@
   "name": "agent-jam",
   "compatibility_date": "2025-03-15",
   "workers_dev": true,
+  // A PREVIEW URL per uploaded version, so a change is exercised on Cloudflare's edge (real AI,
+  // real routes) before it takes the live traffic. Set by `wrangler versions upload`.
+  "preview_urls": true,
   "main": "src/server/index.ts",
 
   // Unified Worker: assets fallthrough for SPA routing.
@@ -59,6 +62,13 @@
     // workers.dev address is left alone (it is neither).
     "PATH_PREFIX": "/jam",
     "MOUNT_ORIGIN": "https://zpe.vc",
-    "CANONICAL_HOST": "jam.zpe.vc"
+    "CANONICAL_HOST": "jam.zpe.vc",
+
+    // THE SIGNED-IN DECISION LAYER. Jev (TypeSafe System One) never renders text: it answers typed
+    // questions about what to play, and the model below renders them. The endpoint and slug are
+    // public facts (the router prefixes the slug: `jev-latest` is the direct-call name); the key is a
+    // secret (`wrangler secret put JEV_API_KEY`), never a var. Unset key = every room is public.
+    "JEV_ENDPOINT": "https://openrouter.ai/api/alpha/decisions",
+    "JEV_MODEL": "typesafe/jev-1.13"
   }
 }

@@ -1,12 +1,18 @@
 import { useState } from 'react';
+import { NO_MODEL, selectableModels } from '@/shared/ai/models';
 
 /** Matches the AiCallMeta shape from the server */
 interface AiDebugEntry {
   agentPeerId: string;
   agentName: string;
+  tier?: 'public' | 'signed';
   meta: {
-    source: 'llm' | 'pattern' | 'fallback';
+    source: 'llm' | 'pattern' | 'fallback' | 'rest';
+    tier?: 'public' | 'signed';
     model: string;
+    /** 'jev' when the measure was judged before it was rendered */
+    decider?: 'jev' | 'none';
+    brief?: { density: string; register: string; play: boolean; latencyMs: number } | null;
     prompt: string;
     response: string;
     noteCount: number;
@@ -15,15 +21,10 @@ interface AiDebugEntry {
   };
 }
 
-const AI_MODELS = [
-  { id: '@cf/meta/llama-3.1-8b-instruct', label: 'Llama 3.1 8B' },
-  { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', label: 'Llama 3.3 70B' },
-  { id: '@cf/google/gemma-7b-it-lora', label: 'Gemma 7B' },
-  { id: '@cf/mistral/mistral-7b-instruct-v0.2-lora', label: 'Mistral 7B' },
-];
-
 interface AiDebugPanelProps {
   entries: AiDebugEntry[];
+  /** the same answer the server used: which models this viewer may select */
+  signedIn?: boolean;
   onModelChange: (agentPeerId: string, model: string) => void;
 }
 
@@ -32,7 +33,8 @@ interface AiDebugPanelProps {
  * Displays prompt, response, latency, source (llm/pattern/fallback),
  * model selector per agent.
  */
-export function AiDebugPanel({ entries, onModelChange }: AiDebugPanelProps) {
+export function AiDebugPanel({ entries, signedIn = false, onModelChange }: AiDebugPanelProps) {
+  const models = selectableModels(signedIn);
   const [expanded, setExpanded] = useState(true);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 
@@ -49,6 +51,7 @@ export function AiDebugPanel({ entries, onModelChange }: AiDebugPanelProps) {
 
   const sourceColor = (s: string) => {
     if (s === 'llm') return 'var(--accent-emerald)';
+    if (s === 'rest') return 'var(--accent-amber)';
     if (s === 'pattern') return 'var(--accent-indigo)';
     return 'var(--accent-rose)';
   };
@@ -97,6 +100,14 @@ export function AiDebugPanel({ entries, onModelChange }: AiDebugPanelProps) {
                 <span className="ai-debug-panel__stat">
                   {active.meta.noteCount} notes
                 </span>
+                {active.meta.decider === 'jev' && active.meta.brief && (
+                  <span
+                    className="ai-debug-panel__stat"
+                    title="Jev judged this measure before the model rendered it"
+                  >
+                    🧭 jev · {active.meta.brief.density}/{active.meta.brief.register} · {active.meta.brief.latencyMs}ms
+                  </span>
+                )}
                 {active.meta.error && (
                   <span className="ai-debug-panel__error">⚠ {active.meta.error}</span>
                 )}
@@ -113,10 +124,12 @@ export function AiDebugPanel({ entries, onModelChange }: AiDebugPanelProps) {
                   value={active.meta.model}
                   onChange={(e) => onModelChange(active.agentPeerId, e.target.value)}
                 >
-                  {AI_MODELS.map(m => (
-                    <option key={m.id} value={m.id}>{m.label}</option>
+                  {models.map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.label} · {m.measuredMs}ms
+                    </option>
                   ))}
-                  <option value="none">Pattern Generator (no AI)</option>
+                  <option value={NO_MODEL}>Pattern Generator (no AI)</option>
                 </select>
               </div>
 

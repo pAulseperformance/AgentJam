@@ -18,11 +18,24 @@ import {
   type PeerMetrics,
 } from '@/shared/protocol/types';
 import { generateMeasure, type AgentStyle } from '@/shared/music';
-import { generateMeasureWithAi } from './llm-planner';
+import {
+  generateMeasureWithAi,
+  FREE_MODEL,
+  SIGNED_MODEL,
+  isFreeModel,
+  type Tier,
+} from './llm-planner';
+import { decideWithJev, jevConfigFromEnv, type JevState } from './jev';
 
-/** Env bindings defined in wrangler.jsonc */
+/** Set by the Worker entry on the upgrade request, computed from the door's answer. */
+const TIER_HEADER = 'x-jam-tier';
+
+/** Env bindings defined in wrangler.jsonc, plus the signed-in decision layer's secrets. */
 interface Env {
-  AI?: { run(model: string, inputs: Record<string, unknown>): Promise<{ response?: string }> };
+  AI?: { run(model: string, inputs: Record<string, unknown>): Promise<{ response?: unknown }> };
+  JEV_ENDPOINT?: string;
+  JEV_MODEL?: string;
+  JEV_API_KEY?: string;
 }
 
 interface PeerConnection {
@@ -37,6 +50,10 @@ interface InProcessAgent {
   peer: Peer;
   style: AgentStyle;
   model: string;
+  /** who spawned it: a public agent renders notes, a signed-in agent is judged by Jev first */
+  tier: Tier;
+  /** a decision or a render already in flight — a measure that cannot fit is skipped, never queued */
+  busy: boolean;
   measureTimer: ReturnType<typeof setInterval>;
   activeNotes: Set<string>;
   noteCount: number;
@@ -101,6 +118,11 @@ export class JamRoom implements DurableObject {
 
       const pair = new WebSocketPair();
       const [client, server] = [pair[0], pair[1]];
+
+      // THE TIER RIDES THE SOCKET, not the message: it was computed by the Worker entry from the
+      // door's answer and attached here, so a client message can never promote itself to signed.
+      const tier: Tier = request.headers.get(TIER_HEADER) === 'signed' ? 'signed' : 'public';
+      try { server.serializeAttachment({ tier }); } catch { /* attachment is an optimisation */ }
 
       this.ctx.acceptWebSocket(server);
 
@@ -199,9 +221,15 @@ export class JamRoom implements DurableObject {
         break;
       case 'set_agent_model': {
         const agent = this.agents.get((msg as { agentPeerId: string }).agentPeerId);
-        if (agent) {
-          agent.model = (msg as { model: string }).model;
+        if (!agent) break;
+        const requested = (msg as { model: string }).model;
+        // AN ANONYMOUS ROOM MAY NOT BILL A LARGER MODEL. The public tier is a budget, not a hint:
+        // the free model is the only one an unauthenticated socket can select.
+        if (agent.tier === 'public' && !isFreeModel(requested)) {
+          this.sendError(ws, 'Sign in to choose a larger model');
+          break;
         }
+        agent.model = requested;
         break;
       }
       case 'note_on':
@@ -291,6 +319,17 @@ export class JamRoom implements DurableObject {
       type: 'peer_left',
       peerId: conn.peer.peerId,
     }));
+
+    // NOBODY IS LISTENING, SO NOTHING MAY BE PLAYING. An in-process agent has no client to control
+    // it, and every measure it renders is a billed Workers AI call (plus a Jev decision for a signed
+    // room). Leaving one running after the last peer left would spend unattended, forever.
+    if (this.peers.size === 0 && this.agents.size > 0) {
+      for (const agent of this.agents.values()) clearInterval(agent.measureTimer);
+      for (const agentPeerId of this.agents.keys()) {
+        this.broadcastAll(JSON.stringify({ type: 'peer_left', peerId: agentPeerId }));
+      }
+      this.agents.clear();
+    }
 
     // Clean up intervals if room is empty (no WS peers and no agents)
     if (this.peers.size === 0 && this.agents.size === 0) {
@@ -390,6 +429,8 @@ export class JamRoom implements DurableObject {
       return;
     }
 
+    const tier = this.tierOf(ws);
+
     const color = PEER_COLORS[this.colorIndex % PEER_COLORS.length] ?? '#6366f1';
     this.colorIndex++;
 
@@ -404,7 +445,9 @@ export class JamRoom implements DurableObject {
     const agent: InProcessAgent = {
       peer,
       style,
-      model: '@cf/meta/llama-3.1-8b-instruct',
+      model: tier === 'signed' ? SIGNED_MODEL : FREE_MODEL,
+      tier,
+      busy: false,
       measureTimer: 0 as unknown as ReturnType<typeof setInterval>, // set below
       activeNotes: new Set(),
       noteCount: 0,
@@ -420,7 +463,7 @@ export class JamRoom implements DurableObject {
     }
 
     // Broadcast agent_spawned + peer_joined to all WS peers
-    this.broadcastAll(JSON.stringify({ type: 'agent_spawned', peer, style }));
+    this.broadcastAll(JSON.stringify({ type: 'agent_spawned', peer, style, tier }));
     this.broadcastAll(JSON.stringify({ type: 'peer_joined', peer }));
   }
 
@@ -464,6 +507,23 @@ export class JamRoom implements DurableObject {
     }, measureDurationMs);
   }
 
+  /** The tier the socket was handed at upgrade; a session that lost its attachment is public. */
+  private tierOf(ws: WebSocket): Tier {
+    try {
+      const a = ws.deserializeAttachment?.() as { tier?: Tier } | undefined;
+      return a?.tier === 'signed' ? 'signed' : 'public';
+    } catch {
+      return 'public';
+    }
+  }
+
+  /**
+   * One measure, in two layers for a signed-in room: Jev judges what to play, the model renders it.
+   *
+   * THE MEASURE IS A HARD BUDGET (2s at 120 BPM), so nothing here queues. A call still in flight when
+   * the next beat arrives skips its turn and the agent plays a deterministic measure instead: the
+   * agent never drops a beat, a slow decision only loses its own turn.
+   */
   private agentGenerateMeasure(agent: InProcessAgent): void {
     // Collect recent notes from the event buffer for LLM context
     const recentNotes = this.pendingFlush
@@ -472,14 +532,47 @@ export class JamRoom implements DurableObject {
       .slice(-20)
       .map(e => ({ pitch: e.pitch, peerId: e.peerId, beatTime: e.beatTime }));
 
-    // Try LLM generation (async), fall back to pattern generator
-    void generateMeasureWithAi(this.env.AI, {
+    const ctx = {
       key: this.roomState.key,
       bpm: this.roomState.bpm,
       style: agent.style,
       recentNotes,
       currentBeat: 0,
-    }, agent.model).then(result => {
+    };
+
+    if (agent.busy) {
+      // The turn is skipped, not queued; the panel says so instead of freezing on the last frame.
+      const notes = generateMeasure(agent.style, this.roomState.key, this.roomState.bpm);
+      this.scheduleAgentNotes(agent, notes);
+      this.broadcastAll(JSON.stringify({
+        type: 'ai_debug',
+        agentPeerId: agent.peer.peerId,
+        agentName: agent.peer.name,
+        meta: {
+          source: 'pattern', tier: agent.tier, model: agent.model, decider: 'none', brief: null,
+          prompt: '(previous measure still in flight)',
+          response: '(skipped this measure — the last call had not returned)',
+          noteCount: notes.length, latencyMs: 0,
+        },
+      }));
+      return;
+    }
+    agent.busy = true;
+
+    void (async () => {
+      const jev = agent.tier === 'signed' ? jevConfigFromEnv(this.env) : null;
+      const brief = jev
+        ? await decideWithJev(jev, {
+            key: this.roomState.key,
+            bpm: this.roomState.bpm,
+            style: agent.style,
+            recentNotes,
+            peers: this.peers.size + this.agents.size,
+          } satisfies JevState)
+        : null;
+
+      const result = await generateMeasureWithAi(this.env.AI, ctx, agent.model, brief, agent.tier);
+
       this.scheduleAgentNotes(agent, result.notes);
 
       // Broadcast AI debug metadata to all connected peers
@@ -489,7 +582,7 @@ export class JamRoom implements DurableObject {
         agentName: agent.peer.name,
         meta: result.meta,
       }));
-    });
+    })().finally(() => { agent.busy = false; });
   }
 
   private scheduleAgentNotes(agent: InProcessAgent, notes: ReturnType<typeof generateMeasure>): void {

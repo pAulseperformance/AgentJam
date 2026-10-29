@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, useMemo } from 'react';
+import { useCallback, useRef, useState, useMemo, useEffect } from 'react';
 import { useRoomSocket, PeerList, TransportBar, AgentPanel, MetricsPanel, AiDebugPanel } from '@/client/features/room';
 import { useSynthEngine, Keyboard, useMidi, type InstrumentType } from '@/client/features/synth';
 import { Visualizer } from '@/client/features/visualizer';
@@ -22,6 +22,22 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
   const [audioStarted, setAudioStarted] = useState(false);
   const [currentInstrument, setCurrentInstrument] = useState<InstrumentType>('PolySynth');
   const [isRecording, setIsRecording] = useState(false);
+
+  // WHO IS PLAYING. The socket does not carry the answer to the page, so it is asked once, from the
+  // same origin and with the same cookie the door reads. A failed call leaves the page in public
+  // mode, which is the tier that needs no identity anyway.
+  const [who, setWho] = useState<{ signedIn: boolean; name: string | null; signInUrl: string | null } | null>(null);
+  useEffect(() => {
+    const mount = (import.meta.env.BASE_URL || '/').replace(/\/+$/, '');
+    let alive = true;
+    fetch(`${mount}/api/whoami`, { credentials: 'same-origin' })
+      .then(async (r) => (r.ok ? (await r.json() as { signedIn: boolean; name: string | null; signInUrl: string | null }) : null))
+      .then((body) => {
+        if (alive && body) setWho(body);
+      })
+      .catch(() => { /* public tier */ });
+    return () => { alive = false; };
+  }, []);
 
   // MIDI controller support (TAS-116)
   const { connected: midiConnected, devices: midiDevices } = useMidi({
@@ -196,6 +212,15 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
       <header className="jam-room__header">
         <h1 className="jam-room__title">AgentJam</h1>
         <span className="jam-room__room-id">Room: {roomId}</span>
+        {who?.signedIn ? (
+          <span className="jam-room__tier jam-room__tier--signed">
+            🧭 Jev agent · {who.name ?? 'signed in'}
+          </span>
+        ) : who ? (
+          <a className="jam-room__tier jam-room__tier--public" href={who.signInUrl ?? 'https://auth.zpe.vc/auth'}>
+            🎛 Free agent · sign in for the Jev agent →
+          </a>
+        ) : null}
       </header>
 
       <TransportBar
@@ -255,6 +280,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
 
       <AiDebugPanel
         entries={aiDebugEntries}
+        signedIn={who?.signedIn ?? false}
         onModelChange={handleModelChange}
       />
     </div>

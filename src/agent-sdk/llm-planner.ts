@@ -1,5 +1,6 @@
 import type { AgentMusicContext } from './measure-aggregator';
 import { formatContextForPrompt } from './measure-aggregator';
+import { FREE_MODEL } from '@/shared/ai/models';
 
 /**
  * LLM Note Planner — TAS-99
@@ -24,7 +25,10 @@ export interface LLMPlannerOptions {
   apiKey?: string;
   /** Model identifier */
   model?: string;
-  /** Maximum response time in ms (default: 200) */
+  /**
+   * Maximum response time in ms. A measured Workers AI measure takes 557-1500ms, so the old 200ms
+   * default could only ever return silence.
+   */
   timeoutMs?: number;
 }
 
@@ -67,6 +71,15 @@ function validateNote(raw: unknown): PlannedNote | null {
  * Parse LLM response text into a validated NotePlan.
  * Handles JSON extraction from mixed text/code blocks.
  */
+function parsePlanValue(parsed: unknown): NotePlan {
+  if (!Array.isArray(parsed)) return [];
+  const notes = parsed
+    .map(validateNote)
+    .filter((n): n is PlannedNote => n !== null)
+    .slice(0, 16); // Hard cap: 16 notes per measure
+  return notes;
+}
+
 function parseLLMResponse(text: string): NotePlan {
   // Try to extract JSON array from response
   const jsonMatch = text.match(/\[[\s\S]*?\]/);
@@ -100,7 +113,7 @@ export class LLMNotePlanner {
    */
   async generatePlan(context: AgentMusicContext): Promise<NotePlan> {
     const prompt = formatContextForPrompt(context);
-    const timeoutMs = this.options.timeoutMs ?? 200;
+    const timeoutMs = this.options.timeoutMs ?? 1500;
 
     try {
       const controller = new AbortController();
@@ -113,7 +126,9 @@ export class LLMNotePlanner {
           ...(this.options.apiKey ? { 'Authorization': `Bearer ${this.options.apiKey}` } : {}),
         },
         body: JSON.stringify({
-          model: this.options.model ?? '@cf/meta/llama-3.1-8b-instruct',
+          // The retired slug (`@cf/meta/llama-3.1-8b-instruct`, 5028 since 2026-05-30) lived here too,
+          // in the copy of the planner the SDK ships.
+          model: this.options.model ?? FREE_MODEL,
           messages: [
             { role: 'system', content: 'You are a jazz musician AI. Reply ONLY with a JSON array of notes.' },
             { role: 'user', content: prompt },
@@ -132,7 +147,12 @@ export class LLMNotePlanner {
 
       const data = await response.json() as Record<string, unknown>;
 
-      // Handle different API response shapes
+      // Handle different API response shapes. A current Workers AI model returns the note array
+      // ALREADY PARSED, so a text-only reader silently sees nothing.
+      if (Array.isArray(data['response'])) {
+        return parsePlanValue(data['response']);
+      }
+
       let text = '';
       if (typeof data['response'] === 'string') {
         text = data['response'];

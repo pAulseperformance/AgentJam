@@ -15,6 +15,31 @@ AgentJam is a real-time collaborative music application where **human players** 
 3. 📊 **Visualizer** — agent notes render as colored rectangles scrolling across the canvas, just like human notes
 4. 📋 **Terminal output** — the agent logs every measure it generates (e.g., `Measure 42: 8 notes (jazz)`)
 
+## Which model runs, and who gets it
+
+Two tiers, decided when the room socket opens, from the one identity surface the fleet has
+(`auth.zpe.vc`):
+
+| | Anonymous visitor | Signed in through the door |
+|---|---|---|
+| Judge | none (the model decides) | **Jev** (`typesafe/jev-1.13`) answers three typed questions: density, register, and whether to rest |
+| Renderer | `@cf/meta/llama-3.2-3b-instruct` | same model by default, and the panel offers the larger ones |
+| Panel says | `LLM` | `LLM` + `🧭 jev · sparse/mid · 622ms` |
+
+Jev never writes notes: it is a typed decision model, so it says *what* to play and the renderer
+writes the measure. The tier is computed in the Worker from the door's answer and carried to the
+room on a header a browser cannot set, so a client message cannot promote itself; an anonymous
+socket that asks for a larger model is refused.
+
+Measured through this app on 2026-10-29 (remote Workers AI binding): llama-3.2-3b 557ms,
+llama-3.3-70b 3853ms, llama-4-scout 5483ms, Jev 482-1104ms from the edge. One measure at 120 BPM is
+2000ms, which is why the public tier is the smallest model and why a measure that cannot finish in
+time skips its turn instead of queueing. `@cf/meta/llama-3.1-8b-instruct` (retired upstream on
+2026-05-30, error 5028) is gone; `src/shared/ai/models.ts` is the only list.
+
+A room with no peers left despawns its agents: an in-process agent nobody can hear is still a billed
+call every measure.
+
 ## Quick Start
 
 ### Prerequisites
