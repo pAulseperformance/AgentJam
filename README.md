@@ -40,6 +40,24 @@ time skips its turn instead of queueing. `@cf/meta/llama-3.1-8b-instruct` (retir
 A room with no peers left despawns its agents: an in-process agent nobody can hear is still a billed
 call every measure.
 
+## How it plays in time
+
+An agent runs on the ROOM's transport, not on its own clock. Bars are rendered ahead of the bar
+playing and published on the bar line, with every note addressed to an absolute slot
+(`transportStartTime + bar + beat`), so model latency costs freshness and never phase. The queue is two
+deep because one overrunning render used to leave a random pattern bar between two model bars; an entry
+whose bar has already started is dropped, and the pattern generator covers that bar instead.
+
+After the model writes a bar, `src/server/measure-repair.ts` fixes what code can fix without asking a
+model: sixteenth-grid snap, nearest-in-key pitch (flatter first), drop of a pitch another peer is
+holding, drop of text that is not a note (`Am4` is a chord), one note per slot, density cap. Velocity
+is MIDI 1-127 everywhere, including the pattern generator, which used to emit 0.2-0.8 into an engine
+that divides by 127.
+
+Measured live before and after, 14 bars each with the same probe: phase offset median 923ms to 0ms,
+notes per bar 6.3 to 3.3 with rests now appearing, and key adherence is 100% by construction (before
+this, raw model bars were played unvalidated and contained notes like D#4 and F#4 in C major).
+
 ## Quick Start
 
 ### Prerequisites

@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { getScaleNotes, generateMeasure } from './pattern-generator';
+import {
+  generateMeasure,
+  getScaleNotes,
+  pitchClassOf,
+  scalePitchClasses,
+  snapPitchToKey,
+  isInKey,
+} from './pattern-generator';
 
 describe('Pattern Generator & Music Theory', () => {
   describe('getScaleNotes', () => {
@@ -55,11 +62,15 @@ describe('Pattern Generator & Music Theory', () => {
       }
     });
 
-    it('generates notes with valid velocity (>0)', () => {
-      const notes = generateMeasure('jazz', 'C major', 120);
-      for (const note of notes) {
-        expect(note.velocity).toBeGreaterThan(0);
-        expect(note.velocity).toBeLessThanOrEqual(1.0); // using 0-1 range internally it seems
+    // MIDI 1-127 on the wire. The generator used to emit 0.2-0.8 while the audio engine divides by
+    // 127, so a pattern bar played at under one percent volume.
+    it('generates notes with a MIDI velocity (1-127)', () => {
+      for (const style of ['jazz', 'ambient', 'funk', 'random'] as const) {
+        const notes = generateMeasure(style, 'C major', 120);
+        for (const note of notes) {
+          expect(note.velocity).toBeGreaterThanOrEqual(1);
+          expect(note.velocity).toBeLessThanOrEqual(127);
+        }
       }
     });
 
@@ -68,6 +79,38 @@ describe('Pattern Generator & Music Theory', () => {
       for (const note of notes) {
         expect(note.duration).toBeGreaterThan(0);
       }
+    });
+  });
+
+  describe('key arithmetic', () => {
+    it('reads the pitch class of a note name, accidentals included', () => {
+      expect(pitchClassOf('C4')).toBe(0);
+      expect(pitchClassOf('D#4')).toBe(3);
+      expect(pitchClassOf('Bb3')).toBe(10);
+      expect(pitchClassOf('not-a-note')).toBeNull();
+    });
+
+    it('knows which pitch classes a key allows', () => {
+      expect(scalePitchClasses('C major').sort((a, b) => a - b)).toEqual([0, 2, 4, 5, 7, 9, 11]);
+      expect(scalePitchClasses('A minor').sort((a, b) => a - b)).toEqual([0, 2, 4, 5, 7, 9, 11]);
+      expect(scalePitchClasses('unknown key').sort((a, b) => a - b)).toEqual([0, 2, 4, 5, 7, 9, 11]);
+    });
+
+    it('moves a stray pitch to the nearest one in the key, keeping its register', () => {
+      // F#4 is not in C major; F4 and G4 are both a semitone away, the flat wins (lower first)
+      expect(snapPitchToKey('F#4', 'C major')).toBe('F4');
+      // D#4 (pc 3) sits between D4 (2) and E4 (4)
+      expect(snapPitchToKey('D#4', 'C major')).toBe('D4');
+      // already in key: untouched
+      expect(snapPitchToKey('G4', 'C major')).toBe('G4');
+      // in A minor, G# is out and G is in
+      expect(snapPitchToKey('G#4', 'A minor')).toBe('G4');
+    });
+
+    it('answers isInKey for the accepted spellings', () => {
+      expect(isInKey('E4', 'C major')).toBe(true);
+      expect(isInKey('D#4', 'C major')).toBe(false);
+      expect(isInKey('D#4', 'E major')).toBe(true);
     });
   });
 });

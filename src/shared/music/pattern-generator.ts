@@ -8,6 +8,11 @@
 
 // ─── Music Theory ────────────────────────────────────────────────────────────
 
+/**
+ * NOTE VELOCITIES ARE MIDI 1-127 EVERYWHERE. The generators used to emit 0.2-0.8 and the audio engine
+ * divides by 127, so a pattern bar played at under one percent volume, which is why the fallback path
+ * sounded like silence. One unit, on the wire and in the generator.
+ */
 const SCALES: Record<string, number[]> = {
   'C major':  [0, 2, 4, 5, 7, 9, 11],
   'C minor':  [0, 2, 3, 5, 7, 8, 10],
@@ -42,6 +47,70 @@ export function getScaleNotes(key: string, octaveRange: [number, number] = [3, 5
   return notes;
 }
 
+
+// ─── Key arithmetic ──────────────────────────────────────────────────────────
+//
+// Everything the room plays is in a key, so a pitch has to be placeable in it: the listener needs the
+// open pitch classes, the repairer needs to move a stray note to the nearest one, and the diagnosis
+// needs to say how much of a bar was outside the key.
+
+const NATURAL_PITCH_CLASS: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+
+/** `C4` -> 0, `A#3` -> 10. Returns null for text that is not a pitch. */
+export function pitchClassOf(pitch: string): number | null {
+  const m = /^([A-Ga-g])([#b]?)(-?\d+)?$/.exec(String(pitch).trim());
+  if (!m) return null;
+  const natural = NATURAL_PITCH_CLASS[m[1]!.toUpperCase()];
+  if (natural === undefined) return null;
+  const accidental = m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0;
+  return (((natural + accidental) % 12) + 12) % 12;
+}
+
+/** Absolute MIDI number for `C4` (60). Octave defaults to 4 when the pitch omits it. */
+export function midiOf(pitch: string): number | null {
+  const m = /^([A-Ga-g])([#b]?)(-?\d+)?$/.exec(String(pitch).trim());
+  if (!m) return null;
+  const pc = pitchClassOf(pitch);
+  if (pc === null) return null;
+  const octave = m[3] ? Number(m[3]) : 4;
+  // midi 60 is C4, so a pitch class below C sits in the next octave up at this octave number
+  return (octave + 1) * 12 + pc;
+}
+
+export function noteNameFromMidi(midi: number): string {
+  return midiToNoteName(Math.max(0, Math.min(127, Math.round(midi))));
+}
+
+/** The pitch classes the key allows, as numbers 0-11. */
+export function scalePitchClasses(key: string): number[] {
+  return SCALES[key] ?? SCALES['C major']!;
+}
+
+export function isInKey(pitch: string, key: string): boolean {
+  const pc = pitchClassOf(pitch);
+  return pc !== null && scalePitchClasses(key).includes(pc);
+}
+
+/**
+ * The nearest pitch in the key, keeping the register: distance 0 first, then a semitone either way,
+ * and never more than a whole tone away (a bigger move would rewrite the line instead of tidying it).
+ */
+export function snapPitchToKey(pitch: string, key: string): string {
+  const midi = midiOf(pitch);
+  if (midi === null) return pitch;
+  const allowed = scalePitchClasses(key);
+  // Flatter first: a stray sharp resolves down, which is what a player does with a note that
+  // arrived on the wrong side of the key.
+  for (const distance of [0, 1, 2]) {
+    for (const dir of distance === 0 ? [0] : [-1, 1]) {
+      const candidate = midi + dir * distance;
+      const pc = ((candidate % 12) + 12) % 12;
+      if (allowed.includes(pc)) return noteNameFromMidi(candidate);
+    }
+  }
+  return pitch;
+}
+
 // ─── Pattern Generators ──────────────────────────────────────────────────────
 
 export interface GeneratedNote {
@@ -65,7 +134,7 @@ function generateJazzPattern(scaleNotes: string[], _bpm: number): GeneratedNote[
     notes.push({
       pitch: scaleNotes[Math.floor(Math.random() * scaleNotes.length)]!,
       beatTime: Math.min(beatTime, 3.75),
-      velocity: 0.4 + Math.random() * 0.4,
+      velocity: 50 + Math.random() * 50,
       duration: 0.25 + Math.random() * 0.75,
     });
   }
@@ -81,7 +150,7 @@ function generateAmbientPattern(scaleNotes: string[], _bpm: number): GeneratedNo
     notes.push({
       pitch: scaleNotes[Math.floor(Math.random() * scaleNotes.length)]!,
       beatTime: Math.round(Math.random() * 3 * 4) / 4,
-      velocity: 0.2 + Math.random() * 0.3,
+      velocity: 25 + Math.random() * 40,
       duration: 1.0 + Math.random() * 2.0,
     });
   }
@@ -98,7 +167,7 @@ function generateFunkPattern(scaleNotes: string[], _bpm: number): GeneratedNote[
       notes.push({
         pitch: scaleNotes[Math.floor(Math.random() * Math.min(5, scaleNotes.length))]!,
         beatTime: i * 0.25,
-        velocity: i % 4 === 0 ? 0.8 : 0.5 + Math.random() * 0.2,
+        velocity: i % 4 === 0 ? 105 : 60 + Math.random() * 30,
         duration: 0.125 + Math.random() * 0.125,
       });
     }
@@ -115,7 +184,7 @@ function generateRandomPattern(scaleNotes: string[], _bpm: number): GeneratedNot
     notes.push({
       pitch: scaleNotes[Math.floor(Math.random() * scaleNotes.length)]!,
       beatTime: Math.round(Math.random() * 15) / 4,
-      velocity: 0.3 + Math.random() * 0.5,
+      velocity: 40 + Math.random() * 60,
       duration: 0.125 + Math.random() * 1.0,
     });
   }

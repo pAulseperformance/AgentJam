@@ -17,13 +17,15 @@ import {
   type NoteEvent,
   type PeerMetrics,
 } from '@/shared/protocol/types';
-import { generateMeasure, type AgentStyle } from '@/shared/music';
+import { generateMeasure, type AgentStyle, type GeneratedNote } from '@/shared/music';
+import { repairMeasure } from './measure-repair';
 import {
   generateMeasureWithAi,
   FREE_MODEL,
   SIGNED_MODEL,
   isFreeModel,
   isKnownModel,
+  type AiCallMeta,
   type Tier,
 } from './llm-planner';
 import { decideWithJev, jevConfigFromEnv, type JevState } from './jev';
@@ -53,9 +55,18 @@ interface InProcessAgent {
   model: string;
   /** who spawned it: a public agent renders notes, a signed-in agent is judged by Jev first */
   tier: Tier;
-  /** a decision or a render already in flight, a measure that cannot fit is skipped, never queued */
+  /** a decision or a render already in flight: a measure that cannot fit is skipped, never queued */
   busy: boolean;
-  measureTimer: ReturnType<typeof setInterval>;
+  /**
+   * THE BAR QUEUE, two deep. Bars are rendered AHEAD of the bar playing and published on the bar line,
+   * so the model's latency never reaches the grid. Two slots matter: one render that overruns its bar
+   * (measured tails of 2-3s on llama-3.2-3b) would otherwise leave a random pattern bar between two
+   * model bars, which is the incoherence a listener hears immediately. An entry whose bar has already
+   * started is dropped, never played late.
+   */
+  queue: Array<{ bar: number; notes: GeneratedNote[]; meta: AiCallMeta | null }>;
+  /** fires on the next bar boundary of the ROOM's transport, not on a timer started at spawn */
+  barTimer: ReturnType<typeof setTimeout> | null;
   activeNotes: Set<string>;
   noteCount: number;
 }
@@ -331,7 +342,9 @@ export class JamRoom implements DurableObject {
     // it, and every measure it renders is a billed Workers AI call (plus a Jev decision for a signed
     // room). Leaving one running after the last peer left would spend unattended, forever.
     if (this.peers.size === 0 && this.agents.size > 0) {
-      for (const agent of this.agents.values()) clearInterval(agent.measureTimer);
+      for (const agent of this.agents.values()) {
+        if (agent.barTimer) clearTimeout(agent.barTimer);
+      }
       for (const agentPeerId of this.agents.keys()) {
         this.broadcastAll(JSON.stringify({ type: 'peer_left', peerId: agentPeerId }));
       }
@@ -395,10 +408,13 @@ export class JamRoom implements DurableObject {
     this.roomState.serverTime = Date.now();
     void this.ctx.storage.put('roomState', this.roomState);
 
-    // Restart all agent measure timers at new BPM
+    // Re-arm every agent on the new grid. A bar in flight belongs to the old tempo, so the buffer is
+    // dropped rather than stretched.
     for (const agent of this.agents.values()) {
-      clearInterval(agent.measureTimer);
-      agent.measureTimer = this.createAgentMeasureTimer(agent);
+      if (agent.barTimer) clearTimeout(agent.barTimer);
+      // The queue holds notes addressed to the OLD tempo's grid, so it is dropped, not stretched.
+      agent.queue = [];
+      this.armAgentBar(agent);
     }
 
     this.broadcastAll(JSON.stringify({
@@ -455,13 +471,19 @@ export class JamRoom implements DurableObject {
       model: tier === 'signed' ? SIGNED_MODEL : FREE_MODEL,
       tier,
       busy: false,
-      measureTimer: 0 as unknown as ReturnType<typeof setInterval>, // set below
+      // Nothing is queued at spawn: the first boundary plays a pattern bar (never silence) while two
+      // model renders fill the queue behind it.
+      queue: [],
+      barTimer: null,
       activeNotes: new Set(),
       noteCount: 0,
     };
 
-    agent.measureTimer = this.createAgentMeasureTimer(agent);
+    this.armAgentBar(agent);
     this.agents.set(peer.peerId, agent);
+    // START THE FIRST RENDER NOW, not on the first boundary: the queue is empty at spawn, and waiting
+    // for the bar line would cost the room a pattern bar before the first model bar.
+    void this.renderAgentBar(agent);
 
     // Start intervals if this is the first entity
     if (!this.flushInterval) {
@@ -478,7 +500,7 @@ export class JamRoom implements DurableObject {
     const agent = this.agents.get(agentPeerId);
     if (!agent) return;
 
-    clearInterval(agent.measureTimer);
+    if (agent.barTimer) clearTimeout(agent.barTimer);
 
     // MIDI panic for agent's active notes
     const now = Date.now();
@@ -506,14 +528,6 @@ export class JamRoom implements DurableObject {
     }
   }
 
-  private createAgentMeasureTimer(agent: InProcessAgent): ReturnType<typeof setInterval> {
-    const measureDurationMs = (60 / this.roomState.bpm) * 4 * 1000;
-
-    return setInterval(() => {
-      this.agentGenerateMeasure(agent);
-    }, measureDurationMs);
-  }
-
   /** The tier the socket was handed at upgrade; a session that lost its attachment is public. */
   private tierOf(ws: WebSocket): Tier {
     try {
@@ -524,83 +538,78 @@ export class JamRoom implements DurableObject {
     }
   }
 
-  /**
-   * One measure, in two layers for a signed-in room: Jev judges what to play, the model renders it.
-   *
-   * THE MEASURE IS A HARD BUDGET (2s at 120 BPM), so nothing here queues. A call still in flight when
-   * the next beat arrives skips its turn and the agent plays a deterministic measure instead: the
-   * agent never drops a beat, a slow decision only loses its own turn.
-   */
-  private agentGenerateMeasure(agent: InProcessAgent): void {
-    // Collect recent notes from the event buffer for LLM context
-    const recentNotes = this.pendingFlush
-      .map(raw => { try { return JSON.parse(raw); } catch { return null; } })
-      .filter((e): e is NoteEvent => e?.type === 'note_on' && e?.peerId !== agent.peer.peerId)
-      .slice(-20)
-      .map(e => ({ pitch: e.pitch, peerId: e.peerId, beatTime: e.beatTime }));
+  // ─── The bar clock ─────────────────────────────────────────────────────────
+  //
+  // MEASURED BEFORE THIS EXISTED (12 live bars, 2026-10-29): the agent's notes landed a median of
+  // 923ms (worst 1555ms) after the slot its own beatTime named, on a 2000ms bar. The cause was not
+  // the model: notes were scheduled `beatTime * beatMs` from the instant the API call RETURNED, and
+  // the bar timer was a free-running interval started at spawn. So the agent played half a bar behind
+  // the human, every bar.
+  //
+  // The fix is a bar clock on the ROOM's transport plus a one-bar buffer: a bar is rendered during the
+  // bar before it, published on the bar line, and its notes are addressed to absolute slots. Latency
+  // now costs a bar of freshness, never a bar of phase.
 
-    const ctx = {
-      key: this.roomState.key,
-      bpm: this.roomState.bpm,
-      style: agent.style,
-      recentNotes,
-      currentBeat: 0,
-    };
-
-    if (agent.busy) {
-      // The turn is skipped, not queued; the panel says so instead of freezing on the last frame.
-      const notes = generateMeasure(agent.style, this.roomState.key, this.roomState.bpm);
-      this.scheduleAgentNotes(agent, notes);
-      this.broadcastAll(JSON.stringify({
-        type: 'ai_debug',
-        agentPeerId: agent.peer.peerId,
-        agentName: agent.peer.name,
-        meta: {
-          source: 'pattern', tier: agent.tier, model: agent.model, decider: 'none', brief: null,
-          prompt: '(previous measure still in flight)',
-          response: '(skipped this measure, the last call had not returned)',
-          noteCount: notes.length, latencyMs: 0,
-        },
-      }));
-      return;
-    }
-    agent.busy = true;
-
-    void (async () => {
-      const jev = agent.tier === 'signed' ? jevConfigFromEnv(this.env) : null;
-      const brief = jev
-        ? await decideWithJev(jev, {
-            key: this.roomState.key,
-            bpm: this.roomState.bpm,
-            style: agent.style,
-            recentNotes,
-            peers: this.peers.size + this.agents.size,
-          } satisfies JevState)
-        : null;
-
-      const result = await generateMeasureWithAi(this.env.AI, ctx, agent.model, brief, agent.tier);
-
-      this.scheduleAgentNotes(agent, result.notes);
-
-      // Broadcast AI debug metadata to all connected peers
-      this.broadcastAll(JSON.stringify({
-        type: 'ai_debug',
-        agentPeerId: agent.peer.peerId,
-        agentName: agent.peer.name,
-        meta: result.meta,
-      }));
-    })().finally(() => { agent.busy = false; });
+  private barMs(): number {
+    return (60 / this.roomState.bpm) * 4 * 1000;
   }
 
-  private scheduleAgentNotes(agent: InProcessAgent, notes: ReturnType<typeof generateMeasure>): void {
-    const beatDurationMs = (60 / this.roomState.bpm) * 1000;
+  private barIndexOf(at: number): number {
+    return Math.floor((at - this.roomState.transportStartTime) / this.barMs());
+  }
 
+  /** The instant of the next bar line of the room's transport, as server time. */
+  private nextBarStart(from: number = Date.now()): number {
+    const bar = this.barMs();
+    const elapsed = from - this.roomState.transportStartTime;
+    return this.roomState.transportStartTime + (Math.floor(elapsed / bar) + 1) * bar;
+  }
+
+  private armAgentBar(agent: InProcessAgent): void {
+    const wait = Math.max(0, this.nextBarStart() - Date.now());
+    agent.barTimer = setTimeout(() => this.onAgentBar(agent), wait);
+  }
+
+  /** One bar boundary: publish the bar that was prepared, then render the next one. */
+  private onAgentBar(agent: InProcessAgent): void {
+    agent.barTimer = null;
+    if (!this.agents.has(agent.peer.peerId)) return;
+
+    const bar = this.barIndexOf(Date.now());
+    const beatMs = (60 / this.roomState.bpm) * 1000;
+
+    // PUBLISH. An entry queued for THIS bar plays; anything else is a bar the model missed, and the
+    // pattern generator covers it rather than shifting a stale bar into the present.
+    const index = agent.queue.findIndex(q => q.bar === bar);
+    const ready = index === -1 ? null : agent.queue.splice(index, 1)[0] ?? null;
+    const notes = ready?.notes ?? generateMeasure(agent.style, this.roomState.key, this.roomState.bpm);
+    const meta = ready?.meta ?? this.patternMeta(agent, notes, 'pattern bar, the queue was empty');
+
+    this.emitAgentBar(agent, notes, bar, beatMs);
+
+    this.broadcastAll(JSON.stringify({
+      type: 'ai_debug',
+      agentPeerId: agent.peer.peerId,
+      agentName: agent.peer.name,
+      meta,
+    }));
+
+    // REFILL. Two slots means a slow render costs freshness, not the next bar's coherence.
+    if (agent.queue.length < 2) void this.renderAgentBar(agent);
+
+    this.armAgentBar(agent);
+  }
+
+  /** Notes addressed to absolute slots on the room's grid, so a late scheduler writes no phase error. */
+  private emitAgentBar(agent: InProcessAgent, notes: GeneratedNote[], bar: number, beatMs: number): void {
+    const barStart = this.roomState.transportStartTime + bar * this.barMs();
+    const latestUseful = -beatMs / 4; // a sixteenth late is no longer on its slot
     agent.noteCount = 0;
 
     for (const note of notes) {
-      const delayMs = note.beatTime * beatDurationMs;
+      const onDelay = barStart + note.beatTime * beatMs - Date.now();
+      if (onDelay < latestUseful) continue;
 
-      // Schedule note_on
       setTimeout(() => {
         const noteOn = JSON.stringify({
           type: 'note_on',
@@ -614,9 +623,8 @@ export class JamRoom implements DurableObject {
         agent.noteCount++;
         this.broadcastAll(noteOn);
         this.pendingFlush.push(noteOn);
-      }, delayMs);
+      }, Math.max(0, onDelay));
 
-      // Schedule note_off
       setTimeout(() => {
         const noteOff = JSON.stringify({
           type: 'note_off',
@@ -629,8 +637,92 @@ export class JamRoom implements DurableObject {
         agent.activeNotes.delete(note.pitch);
         this.broadcastAll(noteOff);
         this.pendingFlush.push(noteOff);
-      }, delayMs + note.duration * beatDurationMs);
+      }, Math.max(0, onDelay + note.duration * beatMs));
     }
+  }
+
+  /**
+   * Render the bar after the one now playing. One call, one battery: Jev decides, the model writes,
+   * the repairer puts it in key and on the grid, and the result waits in the buffer.
+   */
+  private async renderAgentBar(agent: InProcessAgent): Promise<void> {
+    if (agent.busy) return;
+    agent.busy = true;
+
+    try {
+      // What someone else is holding RIGHT NOW may not be doubled by this bar.
+      const heldPitches = this.heldByOthers(agent.peer.peerId);
+      const recentNotes = this.recentNotes(agent.peer.peerId);
+
+      const jev = agent.tier === 'signed' ? jevConfigFromEnv(this.env) : null;
+      const brief = jev
+        ? await decideWithJev(jev, {
+            key: this.roomState.key,
+            bpm: this.roomState.bpm,
+            style: agent.style,
+            recentNotes,
+            peers: this.peers.size + this.agents.size,
+          } satisfies JevState)
+        : null;
+
+      const ctx = {
+        key: this.roomState.key,
+        bpm: this.roomState.bpm,
+        style: agent.style,
+        recentNotes,
+        currentBeat: 0,
+      };
+
+      const result = await generateMeasureWithAi(this.env.AI, ctx, agent.model, brief, agent.tier);
+      const repaired = repairMeasure(result.notes, {
+        key: this.roomState.key,
+        heldPitches,
+        maxNotes: 10,
+      });
+
+      // The bar this belongs to: the first one that is neither playing nor already queued.
+      const queuedMax = agent.queue.reduce((max, q) => Math.max(max, q.bar), 0);
+      const target = Math.max(this.barIndexOf(Date.now()) + 1, queuedMax + 1);
+      agent.queue.push({
+        bar: target,
+        notes: repaired.notes,
+        meta: { ...result.meta, noteCount: repaired.notes.length },
+      });
+      agent.queue.sort((a, b) => a.bar - b.bar);
+      agent.queue = agent.queue.slice(0, 2);
+    } finally {
+      agent.busy = false;
+    }
+  }
+
+  private patternMeta(agent: InProcessAgent, notes: GeneratedNote[], why: string): AiCallMeta {
+    return {
+      source: 'pattern', tier: agent.tier, model: agent.model, decider: 'none', brief: null,
+      prompt: '(pattern bar)', response: `(${why})`,
+      noteCount: notes.length, latencyMs: 0,
+    };
+  }
+
+  /** Pitches another peer is holding, which a new bar must not duplicate. */
+  private heldByOthers(agentPeerId: string): string[] {
+    const held = new Set<string>();
+    for (const conn of this.peers.values()) {
+      for (const pitch of conn.activeNotes) held.add(pitch);
+    }
+    for (const other of this.agents.values()) {
+      if (other.peer.peerId === agentPeerId) continue;
+      for (const pitch of other.activeNotes) held.add(pitch);
+    }
+    return [...held];
+  }
+
+  /** What everyone but this agent played recently, flattened for the prompt and for Jev. */
+  private recentNotes(agentPeerId: string): Array<{ pitch: string; peerId: string; beatTime: number }> {
+    return this.pendingFlush
+      .map(raw => { try { return JSON.parse(raw); } catch { return null; } })
+      .filter((e): e is NoteEvent => e?.type === 'note_on' && e?.peerId !== agentPeerId)
+      .slice(-20)
+      .map(e => ({ pitch: e.pitch, peerId: e.peerId, beatTime: e.beatTime }));
   }
 
   // ─── TAS-105: Reconnection Backfill ─────────────────────────────────────────
