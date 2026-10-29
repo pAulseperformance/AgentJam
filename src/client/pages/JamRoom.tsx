@@ -124,6 +124,16 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
   // Keep color map in sync with peer list
   useMemo(() => updateColorMap(peers), [peers, updateColorMap]);
 
+  // EVERY PEER PLAYS ITS OWN INSTRUMENT. The drummer is a membrane voice and the bass sits low; the
+  // engine used to give every remote peer a copy of the classic synth, so a drummer sounded like a
+  // piano. Idempotent, so a repeated peer list costs nothing.
+  useEffect(() => {
+    if (!engine) return;
+    for (const peer of peers) {
+      if (peer.instrument) engine.setPeerInstrument(peer.peerId, peer.instrument as InstrumentType);
+    }
+  }, [peers, engine]);
+
   // Derive local peerId, the peer whose name matches ours
   const localPeerId = useMemo(() => {
     const me = peers.find(p => p.name === playerName && p.kind === 'human');

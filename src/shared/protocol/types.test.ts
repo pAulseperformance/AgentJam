@@ -109,4 +109,15 @@ describe('Protocol Types Validation', () => {
       expect(PeerSchema.safeParse(invalidPeer).success).toBe(false);
     });
   });
+
+  describe('set_backing', () => {
+    it('accepts the rhythm section switches', () => {
+      expect(ClientMessageSchema.safeParse({ type: 'set_backing', drummer: true, bass: false }).success).toBe(true);
+      expect(ClientMessageSchema.safeParse({ type: 'set_backing', drummer: false, bass: true }).success).toBe(true);
+    });
+
+    it('refuses a half-specified request, so a toggle cannot mean nothing', () => {
+      expect(ClientMessageSchema.safeParse({ type: 'set_backing', drummer: true }).success).toBe(false);
+    });
+  });
 });

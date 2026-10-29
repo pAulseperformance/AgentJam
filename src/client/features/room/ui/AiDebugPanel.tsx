@@ -15,6 +15,8 @@ interface AiDebugEntry {
     brief?: { role?: string; relation?: string; density: string; register: string; play: boolean; latencyMs: number } | null;
     prompt: string;
     response: string;
+    /** what it is about to play: shown before it plays, so you can anticipate it */
+    plan?: string;
     noteCount: number;
     latencyMs: number;
     error?: string;
@@ -132,6 +134,13 @@ export function AiDebugPanel({ entries, signedIn = false, onModelChange }: AiDeb
                   <option value={NO_MODEL}>Pattern Generator (no AI)</option>
                 </select>
               </div>
+
+              {active.meta.plan && (
+                <div className="ai-debug-panel__model-row">
+                  <span className="ai-debug-panel__label">Next bar:</span>
+                  <span className="ai-debug-panel__stat">{active.meta.plan}</span>
+                </div>
+              )}
 
               {/* Prompt */}
               <details className="ai-debug-panel__section">

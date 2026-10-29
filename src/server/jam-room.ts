@@ -17,9 +17,17 @@ import {
   type NoteEvent,
   type PeerMetrics,
 } from '@/shared/protocol/types';
-import { generateMeasure, type AgentStyle, type GeneratedNote } from '@/shared/music';
+import {
+  generateMeasure,
+  midiOf,
+  noteNameFromMidi,
+  scalePitchClasses,
+  type AgentStyle,
+  type GeneratedNote,
+} from '@/shared/music';
 import { repairMeasure } from './measure-repair';
 import { summarizePhrase, motifFrom, describePhrase, describeMotif, type Motif, type NoteRecord } from './listener';
+import { drumBar, bassBar, countInBar } from './groove';
 import {
   generateMeasureWithAi,
   FREE_MODEL,
@@ -33,6 +41,22 @@ import { decideWithJev, jevConfigFromEnv, type JevState } from './jev';
 
 /** Set by the Worker entry on the upgrade request, computed from the door's answer. */
 const TIER_HEADER = 'x-jam-tier';
+
+/**
+ * The note a partner answers with: a consonant interval above what you played, whichever of those is
+ * in the key. A third or a fourth, never a copy, so an echo sounds like a reply and not a loop.
+ */
+function answerPitchFor(pitch: string, key: string): string | null {
+  const midi = midiOf(pitch);
+  if (midi === null) return null;
+  const allowed = new Set(scalePitchClasses(key));
+  for (const interval of [3, 4, 5, 7]) {
+    const candidate = Math.min(100, midi + interval);
+    const pc = ((candidate % 12) + 12) % 12;
+    if (allowed.has(pc)) return noteNameFromMidi(candidate);
+  }
+  return null;
+}
 
 /** Env bindings defined in wrangler.jsonc, plus the signed-in decision layer's secrets. */
 interface Env {
@@ -48,6 +72,22 @@ interface PeerConnection {
   activeNotes: Set<string>; // pitches currently held, for MIDI panic
   noteCount: number; // rate limiter, notes in current window
   lastNoteWindow: number; // timestamp of current rate-limit window start
+}
+
+/**
+ * THE RHYTHM SECTION. A drummer and a bass player are peers, not models: fixed patterns and the same
+ * bar clock the lead agent uses. They exist so the room has a spine before it has a soloist, and so
+ * the tempo is set by something that never gets it wrong.
+ */
+interface RoomLayer {
+  peer: Peer;
+  role: 'drummer' | 'bass';
+  style: AgentStyle;
+  barTimer: ReturnType<typeof setTimeout> | null;
+  /** bars this layer has played, which is what varies the pattern */
+  bars: number;
+  activeNotes: Set<string>;
+  noteCount: number;
 }
 
 interface InProcessAgent {
@@ -72,6 +112,9 @@ interface InProcessAgent {
   recentBars: boolean[];
   /** bars played since the last rest, so the rest policy below can bound them */
   barsSinceRest: number;
+  /** comping budget: at most two reactive echoes in a bar, and which bar they belong to */
+  echoesThisBar: number;
+  lastEchoBar: number;
   /**
    * ITS OWN LAST STATEMENT. A partner keeps an idea going; a generator starts over every bar. The
    * motif is what the decision layer may restate or vary, and what the model is told to keep.
@@ -107,6 +150,8 @@ export class JamRoom implements DurableObject {
    * next bar was generated against an empty room.
    */
   private noteRing: NoteRecord[] = [];
+  /** The rhythm section, keyed by its role. At most one drummer and one bass player per room. */
+  private layers: Map<'drummer' | 'bass', RoomLayer> = new Map();
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -221,6 +266,9 @@ export class JamRoom implements DurableObject {
         break;
       case 'despawn_agent':
         this.handleDespawnAgent(ws, msg.agentPeerId);
+        break;
+      case 'set_backing':
+        this.handleSetBacking(msg.drummer, msg.bass);
         break;
       case 'instrument_change':
         // Broadcast to all peers so they can update per-peer synth routing
@@ -357,6 +405,10 @@ export class JamRoom implements DurableObject {
     // NOBODY IS LISTENING, SO NOTHING MAY BE PLAYING. An in-process agent has no client to control
     // it, and every measure it renders is a billed Workers AI call (plus a Jev decision for a signed
     // room). Leaving one running after the last peer left would spend unattended, forever.
+    if (this.peers.size === 0 && this.layers.size > 0) {
+      for (const role of [...this.layers.keys()]) this.despawnLayer(role);
+    }
+
     if (this.peers.size === 0 && this.agents.size > 0) {
       for (const agent of this.agents.values()) {
         if (agent.barTimer) clearTimeout(agent.barTimer);
@@ -399,7 +451,10 @@ export class JamRoom implements DurableObject {
 
     // Record for the agents' listener. Only when an agent exists: a room with no agent pays nothing,
     // which is why this parse is allowed on the hot path at all.
-    if (this.agents.size > 0) this.recordNote(rawMessage);
+    if (this.agents.size > 0) {
+      const parsed = this.recordNote(rawMessage);
+      if (parsed) this.maybeComp(parsed);
+    }
 
     // Relay raw string to all OTHER peers, zero JSON.parse overhead for the relay itself
     this.broadcast(ws, rawMessage);
@@ -420,6 +475,7 @@ export class JamRoom implements DurableObject {
 
     const serialized = JSON.stringify(msg);
     this.recordEvent(msg);
+    if (msg.type === 'note_on' && this.agents.size > 0) this.maybeComp(msg as NoteRecord);
     this.broadcast(ws, serialized);
     this.pendingFlush.push(serialized);
   }
@@ -436,6 +492,10 @@ export class JamRoom implements DurableObject {
       // The queue holds notes addressed to the OLD tempo's grid, so it is dropped, not stretched.
       agent.queue = [];
       this.armAgentBar(agent);
+    }
+    for (const layer of this.layers.values()) {
+      if (layer.barTimer) clearTimeout(layer.barTimer);
+      this.armLayerBar(layer);
     }
 
     this.broadcastAll(JSON.stringify({
@@ -498,6 +558,8 @@ export class JamRoom implements DurableObject {
       barTimer: null,
       recentBars: [],
       barsSinceRest: 99,
+      echoesThisBar: 0,
+      lastEchoBar: -1,
       motif: null,
       activeNotes: new Set(),
       noteCount: 0,
@@ -563,8 +625,14 @@ export class JamRoom implements DurableObject {
   }
 
   /** Keep the last ~2 bars of everyone's notes in memory for the agents to hear. */
-  private recordNote(raw: string): void {
-    try { this.recordEvent(JSON.parse(raw) as NoteEvent); } catch { /* not a note event */ }
+  private recordNote(raw: string): NoteRecord | null {
+    try {
+      const event = JSON.parse(raw) as NoteRecord;
+      this.recordEvent(event);
+      return event;
+    } catch {
+      return null;
+    }
   }
 
   private recordEvent(event: NoteRecord): void {
@@ -587,6 +655,166 @@ export class JamRoom implements DurableObject {
   private othersRecent(agentPeerId: string): NoteRecord[] {
     const since = Date.now() - this.barMs() * 2;
     return this.noteRing.filter(n => n.peerId !== agentPeerId && n.timestamp >= since);
+  }
+
+  // ─── The rhythm section ────────────────────────────────────────────────────
+
+  /**
+   * Turn the rhythm section on or off. Both are the room's, not a peer's: they keep playing while
+   * anyone is listening and stop with the room, which is the same spend rule the lead agent follows.
+   */
+  private handleSetBacking(drummer: boolean, bass: boolean): void {
+    if (drummer && !this.layers.has('drummer')) this.spawnLayer('drummer');
+    if (!drummer) this.despawnLayer('drummer');
+    if (bass && !this.layers.has('bass')) this.spawnLayer('bass');
+    if (!bass) this.despawnLayer('bass');
+  }
+
+  private spawnLayer(role: 'drummer' | 'bass'): void {
+    const color = PEER_COLORS[this.colorIndex % PEER_COLORS.length] ?? '#6366f1';
+    this.colorIndex++;
+
+    const peer: Peer = {
+      peerId: crypto.randomUUID(),
+      name: role === 'drummer' ? 'Drummer' : 'Bass',
+      kind: 'agent',
+      instrument: role === 'drummer' ? 'MembraneSynth' : 'PolySynth',
+      color,
+    };
+
+    const layer: RoomLayer = {
+      peer,
+      role,
+      // The rhythm section matches the lead agent's style when there is one, otherwise jazz.
+      style: [...this.agents.values()][0]?.style ?? 'jazz',
+      barTimer: null,
+      bars: 0,
+      activeNotes: new Set(),
+      noteCount: 0,
+    };
+
+    this.layers.set(role, layer);
+    if (!this.flushInterval) {
+      this.flushInterval = setInterval(() => this.flushToSQLite(), FLUSH_INTERVAL_MS);
+      this.metricsInterval = setInterval(() => this.broadcastMetrics(), METRICS_INTERVAL_MS);
+    }
+
+    this.broadcastAll(JSON.stringify({ type: 'agent_spawned', peer, style: layer.style, tier: 'public' }));
+    this.broadcastAll(JSON.stringify({ type: 'peer_joined', peer }));
+    this.armLayerBar(layer);
+  }
+
+  private despawnLayer(role: 'drummer' | 'bass'): void {
+    const layer = this.layers.get(role);
+    if (!layer) return;
+
+    if (layer.barTimer) clearTimeout(layer.barTimer);
+    this.panicLayer(layer);
+    this.layers.delete(role);
+    this.broadcastAll(JSON.stringify({ type: 'peer_left', peerId: layer.peer.peerId }));
+    if (this.peers.size === 0 && this.agents.size === 0 && this.layers.size === 0) {
+      this.cleanupIntervals();
+    }
+  }
+
+  /** Release anything a layer is holding, so a despawn never leaves a stuck note. */
+  private panicLayer(layer: RoomLayer): void {
+    if (layer.activeNotes.size === 0) return;
+    const now = Date.now();
+    for (const pitch of layer.activeNotes) {
+      this.broadcastAll(JSON.stringify({
+        type: 'note_off', peerId: layer.peer.peerId, pitch, beatTime: 0, velocity: 0, timestamp: now,
+      }));
+    }
+    layer.activeNotes.clear();
+  }
+
+  private armLayerBar(layer: RoomLayer): void {
+    const wait = Math.max(0, this.nextBarStart() - Date.now());
+    layer.barTimer = setTimeout(() => this.onLayerBar(layer), wait);
+  }
+
+  private onLayerBar(layer: RoomLayer): void {
+    layer.barTimer = null;
+    if (this.layers.get(layer.role) !== layer) return;
+
+    const bar = this.barIndexOf(Date.now());
+    const beatMs = (60 / this.roomState.bpm) * 1000;
+
+    // A DRUMMER COUNTS THE ROOM IN before it accompanies: four quarters, so the tempo is heard and
+    // not just assumed.
+    const notes = layer.role === 'drummer' && layer.bars === 0
+      ? countInBar(layer.style)
+      : layer.role === 'drummer'
+        ? drumBar(layer.style, bar)
+        : bassBar(layer.style, this.roomState.key, bar);
+
+    layer.noteCount = 0;
+    this.emitBar(layer.peer, notes, bar, beatMs, {
+      activeNotes: layer.activeNotes,
+      addNoteCount: () => { layer.noteCount++; },
+    });
+
+    layer.bars++;
+    this.armLayerBar(layer);
+  }
+
+  // ─── Comping: the sub-second answer ────────────────────────────────────────
+  //
+  // A composed bar answers at the bar line, which is up to two seconds later. A partner also reacts
+  // inside the beat: the streaming-accompaniment work is explicit that a large chunk buys stability
+  // and costs reactivity, so the reactive half has to be a separate, smaller chunk (arXiv 2510.22105).
+  // This is that small chunk: one echo, on the next eighth, in key, never a unison, at most twice a
+  // bar. It is deterministic, so it costs nothing and never arrives late.
+
+  private maybeComp(event: NoteRecord): void {
+    const agent = [...this.agents.values()][0];
+    if (!agent) return;
+    if (this.barIndexOf(Date.now()) === agent.lastEchoBar && agent.echoesThisBar >= 2) return;
+
+    const theirMidi = midiOf(event.pitch);
+    if (theirMidi === null) return;
+
+    // ECHO A THIRD OR A FOURTH ABOVE, whichever is in the key: a partner answers with a consonant
+    // interval, not a copy.
+    const answer = answerPitchFor(event.pitch, this.roomState.key);
+    if (!answer) return;
+
+    const beatMs = (60 / this.roomState.bpm) * 1000;
+    const eighth = beatMs / 2;
+    const now = Date.now();
+    let at = this.roomState.transportStartTime
+      + (Math.ceil((now - this.roomState.transportStartTime) / eighth) + 1) * eighth;
+    if (at - now < 40) at += eighth; // never schedule a note the scheduler itself would be late for
+
+    const delay = at - now;
+    if (delay > eighth * 2) return; // a reaction that takes longer than a beat is not a reaction
+
+    const bar = this.barIndexOf(at);
+    if (bar !== this.barIndexOf(Date.now())) return; // do not echo across a bar line
+
+    const velocity = Math.max(40, Math.min(110, Math.round(event.velocity || 80) - 8));
+    agent.echoesThisBar = bar === agent.lastEchoBar ? agent.echoesThisBar + 1 : 1;
+    agent.lastEchoBar = bar;
+
+    setTimeout(() => {
+      const noteOn = JSON.stringify({
+        type: 'note_on', peerId: agent.peer.peerId, pitch: answer,
+        beatTime: Math.round(((Date.now() - this.roomState.transportStartTime) % this.barMs()) / beatMs * 4) / 4,
+        velocity, timestamp: Date.now(),
+      });
+      agent.activeNotes.add(answer);
+      this.broadcastAll(noteOn);
+      this.pendingFlush.push(noteOn);
+      this.recordEvent({ type: 'note_on', peerId: agent.peer.peerId, pitch: answer, beatTime: 0, velocity, timestamp: Date.now() });
+    }, delay);
+
+    setTimeout(() => {
+      agent.activeNotes.delete(answer);
+      this.broadcastAll(JSON.stringify({
+        type: 'note_off', peerId: agent.peer.peerId, pitch: answer, beatTime: 0, velocity: 0, timestamp: Date.now(),
+      }));
+    }, delay + beatMs * 0.25);
   }
 
   // ─── The bar clock ─────────────────────────────────────────────────────────
@@ -655,11 +883,19 @@ export class JamRoom implements DurableObject {
     this.armAgentBar(agent);
   }
 
-  /** Notes addressed to absolute slots on the room's grid, so a late scheduler writes no phase error. */
-  private emitAgentBar(agent: InProcessAgent, notes: GeneratedNote[], bar: number, beatMs: number): void {
+  /**
+   * Address notes to absolute slots on the room's grid, so a late scheduler writes no phase error.
+   * Shared by the lead agent and the rhythm section: one scheduler, one clock, no second copy to rot.
+   */
+  private emitBar(
+    peer: Peer,
+    notes: GeneratedNote[],
+    bar: number,
+    beatMs: number,
+    state: { activeNotes: Set<string>; addNoteCount: () => void },
+  ): void {
     const barStart = this.roomState.transportStartTime + bar * this.barMs();
     const latestUseful = -beatMs / 4; // a sixteenth late is no longer on its slot
-    agent.noteCount = 0;
 
     for (const note of notes) {
       const onDelay = barStart + note.beatTime * beatMs - Date.now();
@@ -668,35 +904,43 @@ export class JamRoom implements DurableObject {
       setTimeout(() => {
         const noteOn = JSON.stringify({
           type: 'note_on',
-          peerId: agent.peer.peerId,
+          peerId: peer.peerId,
           pitch: note.pitch,
           beatTime: note.beatTime,
           velocity: note.velocity,
           timestamp: Date.now(),
         });
-        agent.activeNotes.add(note.pitch);
-        agent.noteCount++;
+        state.activeNotes.add(note.pitch);
+        state.addNoteCount();
         this.broadcastAll(noteOn);
         this.pendingFlush.push(noteOn);
-        // another agent in the room hears this one through the same ring the humans come through
-        this.recordEvent({ type: 'note_on', peerId: agent.peer.peerId, pitch: note.pitch, beatTime: note.beatTime, velocity: note.velocity, timestamp: Date.now() });
+        // everyone in the room hears this through the same ring the humans come through
+        this.recordEvent({ type: 'note_on', peerId: peer.peerId, pitch: note.pitch, beatTime: note.beatTime, velocity: note.velocity, timestamp: Date.now() });
       }, Math.max(0, onDelay));
 
       setTimeout(() => {
         const noteOff = JSON.stringify({
           type: 'note_off',
-          peerId: agent.peer.peerId,
+          peerId: peer.peerId,
           pitch: note.pitch,
           beatTime: note.beatTime + note.duration,
           velocity: 0,
           timestamp: Date.now(),
         });
-        agent.activeNotes.delete(note.pitch);
+        state.activeNotes.delete(note.pitch);
         this.broadcastAll(noteOff);
         this.pendingFlush.push(noteOff);
-        this.recordEvent({ type: 'note_off', peerId: agent.peer.peerId, pitch: note.pitch, beatTime: note.beatTime, velocity: 0, timestamp: Date.now() });
+        this.recordEvent({ type: 'note_off', peerId: peer.peerId, pitch: note.pitch, beatTime: note.beatTime, velocity: 0, timestamp: Date.now() });
       }, Math.max(0, onDelay + note.duration * beatMs));
     }
+  }
+
+  private emitAgentBar(agent: InProcessAgent, notes: GeneratedNote[], bar: number, beatMs: number): void {
+    agent.noteCount = 0;
+    this.emitBar(agent.peer, notes, bar, beatMs, {
+      activeNotes: agent.activeNotes,
+      addNoteCount: () => { agent.noteCount++; },
+    });
   }
 
   /**
@@ -773,7 +1017,11 @@ export class JamRoom implements DurableObject {
       agent.queue.push({
         bar: target,
         notes: repaired.notes,
-        meta: { ...result.meta, noteCount: repaired.notes.length },
+        meta: {
+          ...result.meta,
+          noteCount: repaired.notes.length,
+          plan: repaired.notes.slice(0, 6).map(n => `${n.pitch}@${n.beatTime}`).join(' ') || '(rest)',
+        },
       });
       agent.queue.sort((a, b) => a.bar - b.bar);
       agent.queue = agent.queue.slice(0, 2);
@@ -879,7 +1127,8 @@ export class JamRoom implements DurableObject {
   private getAllPeers(): Peer[] {
     const wsPeers = Array.from(this.peers.values()).map(c => c.peer);
     const agentPeers = Array.from(this.agents.values()).map(a => a.peer);
-    return [...wsPeers, ...agentPeers];
+    const layerPeers = Array.from(this.layers.values()).map(l => l.peer);
+    return [...wsPeers, ...agentPeers, ...layerPeers];
   }
 
   private send(ws: WebSocket, data: Record<string, unknown>): void {

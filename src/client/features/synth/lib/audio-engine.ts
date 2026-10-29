@@ -40,7 +40,7 @@ function createInstrumentSynth(type: InstrumentType, output: Tone.InputNode): To
         envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 1.4 },
       }).connect(output);
     case 'PluckSynth':
-      // PluckSynth can't be used in PolySynth — create a PolySynth with pluck-like settings
+      // PluckSynth can't be used in PolySynth, create a PolySynth with pluck-like settings
       return new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: 'sawtooth' },
         envelope: { attack: 0.001, decay: 0.5, sustain: 0.0, release: 0.3 },
@@ -55,10 +55,10 @@ function createInstrumentSynth(type: InstrumentType, output: Tone.InputNode): To
 }
 
 /**
- * AudioEngine — Vanilla TypeScript class (NOT a React hook).
+ * AudioEngine, Vanilla TypeScript class (NOT a React hook).
  *
  * v5 Pattern: This class operates entirely outside React's lifecycle.
- * It is created once and accessed via ref — note events from the WebSocket
+ * It is created once and accessed via ref, note events from the WebSocket
  * are routed directly here without triggering React re-renders.
  *
  * Added: Per-peer Gain nodes for individual volume control & mute.
@@ -70,7 +70,7 @@ export class AudioEngine {
   private started = false;
   private currentInstrument: InstrumentType = 'PolySynth';
 
-  /** Per-peer synth instances keyed by peerId — different instruments per peer */
+  /** Per-peer synth instances keyed by peerId, different instruments per peer */
   private peerSynths: Map<string, Tone.PolySynth> = new Map();
   /** Per-peer instrument type tracking */
   private peerInstruments: Map<string, InstrumentType> = new Map();
@@ -80,7 +80,7 @@ export class AudioEngine {
   private masterGain: Tone.Gain | null = null;
   /** Muted peers set */
   private mutedPeers: Set<string> = new Set();
-  /** Master volume as a plain number (0-1) — applied as velocity multiplier */
+  /** Master volume as a plain number (0-1), applied as velocity multiplier */
   private masterVolumeLevel = 1;
   private masterMutedState = false;
 
@@ -165,7 +165,7 @@ export class AudioEngine {
     return this.peerGains.get(peerId)?.gain.value ?? 1;
   }
 
-  /** Set master volume (local player) — stored as field, applied in playNote */
+  /** Set master volume (local player), stored as field, applied in playNote */
   setMasterVolume(volume: number): void {
     this.masterVolumeLevel = Math.max(0, Math.min(1, volume));
   }
@@ -182,7 +182,7 @@ export class AudioEngine {
       this.setPeerVolume(peerId, 0);
     } else {
       this.mutedPeers.delete(peerId);
-      // Restore to default volume — caller should set actual volume
+      // Restore to default volume, caller should set actual volume
       this.setPeerVolume(peerId, 1);
     }
   }
@@ -218,8 +218,13 @@ export class AudioEngine {
     return this.currentInstrument;
   }
 
-  /** Set the instrument for a remote peer */
+  /**
+   * Set the instrument for a remote peer. IDEMPOTENT: the room re-sends the peer list on every
+   * change, so a caller may state the instrument every time; rebuilding the synth each time would
+   * cut whatever that peer is holding.
+   */
   setPeerInstrument(peerId: string, instrument: InstrumentType): void {
+    if (this.peerSynths.has(peerId) && this.peerInstruments.get(peerId) === instrument) return;
     const existing = this.peerSynths.get(peerId);
     if (existing) {
       existing.releaseAll();

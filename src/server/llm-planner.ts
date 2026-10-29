@@ -82,6 +82,12 @@ export interface AiCallMeta {
   response: string;
   noteCount: number;
   latencyMs: number;
+  /**
+   * WHAT IT IS ABOUT TO PLAY. ReaLJam's finding is that a human jams better when the machine shows
+   * its plan before it plays it (arXiv 2502.21267), because you can anticipate it the way you
+   * anticipate a bandmate. The queued bar is already decided, so showing it costs nothing.
+   */
+  plan?: string;
   error?: string;
 }
 

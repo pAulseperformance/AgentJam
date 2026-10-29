@@ -78,6 +78,13 @@ export const DespawnAgentMessageSchema = z.object({
 });
 export type DespawnAgentMessage = z.infer<typeof DespawnAgentMessageSchema>;
 
+export const SetBackingMessageSchema = z.object({
+  type: z.literal('set_backing').describe('Message discriminator: turn the room rhythm section on or off'),
+  drummer: z.boolean().describe('Whether a drummer should back the room'),
+  bass: z.boolean().describe('Whether a bass player should back the room'),
+});
+export type SetBackingMessage = z.infer<typeof SetBackingMessageSchema>;
+
 export const InstrumentChangeMessageSchema = z.object({
   type: z.literal('instrument_change').describe('Message discriminator'),
   instrument: z.string().describe('New instrument label to apply to the requesting peer'),
@@ -85,12 +92,12 @@ export const InstrumentChangeMessageSchema = z.object({
 export type InstrumentChangeMessage = z.infer<typeof InstrumentChangeMessageSchema>;
 
 export const RecordingStartMessageSchema = z.object({
-  type: z.literal('recording_start').describe('Message discriminator — signals the server to begin buffering note events for recording'),
+  type: z.literal('recording_start').describe('Message discriminator, signals the server to begin buffering note events for recording'),
 });
 export type RecordingStartMessage = z.infer<typeof RecordingStartMessageSchema>;
 
 export const RecordingStopMessageSchema = z.object({
-  type: z.literal('recording_stop').describe('Message discriminator — signals the server to stop buffering and flush the recording'),
+  type: z.literal('recording_stop').describe('Message discriminator, signals the server to stop buffering and flush the recording'),
 });
 export type RecordingStopMessage = z.infer<typeof RecordingStopMessageSchema>;
 
@@ -176,6 +183,7 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   InstrumentChangeMessageSchema,
   RecordingStartMessageSchema,
   RecordingStopMessageSchema,
+  SetBackingMessageSchema,
   z.object({ type: z.literal('set_agent_model'), agentPeerId: z.string(), model: z.string() }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;

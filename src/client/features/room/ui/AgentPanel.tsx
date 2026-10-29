@@ -18,7 +18,7 @@ const AGENT_STYLES = [
 const MAX_AGENTS = 4;
 
 /**
- * AgentPanel — spawn and despawn AI agents from the browser UI.
+ * AgentPanel, spawn and despawn AI agents from the browser UI.
  * Sends spawn_agent / despawn_agent messages via WebSocket.
  */
 export function AgentPanel({ sendMessage, peers }: AgentPanelProps) {
@@ -26,7 +26,15 @@ export function AgentPanel({ sendMessage, peers }: AgentPanelProps) {
   const [agentName, setAgentName] = useState('');
   const [spawning, setSpawning] = useState(false);
 
-  const agentPeers = peers.filter(p => p.kind === 'agent');
+  // THE RHYTHM SECTION: a drummer and a bass player are room layers, not models. They are on when a
+  // peer of that name is in the room, so a second visitor sees the same state without asking.
+  const hasDrummer = peers.some(p => p.kind === 'agent' && p.name === 'Drummer');
+  const hasBass = peers.some(p => p.kind === 'agent' && p.name === 'Bass');
+  const toggleBacking = useCallback((drummer: boolean, bass: boolean) => {
+    sendMessage(JSON.stringify({ type: 'set_backing', drummer, bass }));
+  }, [sendMessage]);
+
+  const agentPeers = peers.filter(p => p.kind === 'agent' && p.name !== 'Drummer' && p.name !== 'Bass');
   const canSpawn = agentPeers.length < MAX_AGENTS;
 
   const handleSpawn = useCallback(() => {
@@ -113,8 +121,27 @@ export function AgentPanel({ sendMessage, peers }: AgentPanelProps) {
       )}
 
       {agentPeers.length === 0 && (
-        <p className="agent-panel__empty">No agents yet — spawn one above!</p>
+        <p className="agent-panel__empty">No agents yet, spawn one above!</p>
       )}
+
+      {/* The rhythm section: instant, free, and the thing that sets the tempo */}
+      <h3 className="agent-panel__title" style={{ marginTop: '1rem' }}>🥁 Rhythm section</h3>
+      <div className="agent-panel__style-grid">
+        <button
+          className={`agent-panel__style-btn ${hasDrummer ? 'agent-panel__style-btn--active' : ''}`}
+          onClick={() => toggleBacking(!hasDrummer, hasBass)}
+          title="A drummer that counts the room in and keeps the groove. It sets the tempo."
+        >
+          🥁 Drummer {hasDrummer ? 'on' : 'off'}
+        </button>
+        <button
+          className={`agent-panel__style-btn ${hasBass ? 'agent-panel__style-btn--active' : ''}`}
+          onClick={() => toggleBacking(hasDrummer, !hasBass)}
+          title="A bass player holding the harmony underneath everyone."
+        >
+          🎸 Bass {hasBass ? 'on' : 'off'}
+        </button>
+      </div>
     </div>
   );
 }
