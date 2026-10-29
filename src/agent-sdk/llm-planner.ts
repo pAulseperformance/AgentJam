@@ -3,7 +3,7 @@ import { formatContextForPrompt } from './measure-aggregator';
 import { FREE_MODEL } from '@/shared/ai/models';
 
 /**
- * LLM Note Planner — TAS-99
+ * LLM Note Planner, TAS-99
  *
  * Takes aggregated jam context, constructs a prompt,
  * calls the LLM, and parses output into a NotePlan.
@@ -170,7 +170,7 @@ export class LLMNotePlanner {
       return parseLLMResponse(text);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
-        console.warn(`[LLMPlanner] Timeout after ${timeoutMs}ms — returning silent rest`);
+        console.warn(`[LLMPlanner] Timeout after ${timeoutMs}ms, returning silent rest`);
       } else {
         console.warn('[LLMPlanner] Generation failed:', err);
       }

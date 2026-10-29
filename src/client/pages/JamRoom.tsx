@@ -10,7 +10,7 @@ interface JamRoomProps {
 }
 
 /**
- * JamRoom — the main page that assembles all features.
+ * JamRoom, the main page that assembles all features.
  *
  * Phase 3 additions:
  * - AgentPanel for spawning/despawning AI agents (TAS-104)
@@ -65,7 +65,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     }
   }, []);
 
-  // Handle incoming remote note events — bypass React entirely
+  // Handle incoming remote note events, bypass React entirely
   const handleRemoteNoteEvent = useCallback((event: NoteEvent) => {
     if (!engine) return;
 
@@ -124,7 +124,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
   // Keep color map in sync with peer list
   useMemo(() => updateColorMap(peers), [peers, updateColorMap]);
 
-  // Derive local peerId — the peer whose name matches ours
+  // Derive local peerId, the peer whose name matches ours
   const localPeerId = useMemo(() => {
     const me = peers.find(p => p.name === playerName && p.kind === 'human');
     return me?.peerId;

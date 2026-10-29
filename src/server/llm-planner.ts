@@ -1,5 +1,5 @@
 /**
- * LLM Planner — writes one measure of notes for an in-process agent.
+ * LLM Planner, writes one measure of notes for an in-process agent.
  *
  * Two measured facts shape this file (2026-10-29, probe on the live room):
  *
@@ -84,9 +84,9 @@ RULES:
 - duration is in beats (0.25 = sixteenth, 0.5 = eighth, 1.0 = quarter)
 - Generate 4-12 notes per measure, unless the brief says otherwise
 - Stay in the given key
-- Complement what others are playing — don't play the same notes
+- Complement what others are playing, don't play the same notes
 - Match the style (jazz = swing + 7th chords, ambient = long drones, funk = syncopated 16ths)
-- NO text, NO markdown, NO explanation — ONLY the JSON array`;
+- NO text, NO markdown, NO explanation, ONLY the JSON array`;
 
 const DENSITY_RULE: Record<DecisionBrief['density'], string> = {
   sparse: 'Play 2-4 notes and leave space.',
@@ -181,7 +181,7 @@ function salvageNotes(text: string): GeneratedNote[] | null {
   return notes.length > 0 ? notes : null;
 }
 
-/** `E4@1.0` — the compact token one model answers with instead of note objects. */
+/** `E4@1.0`, the compact token one model answers with instead of note objects. */
 const COMPACT_NOTE = /^([A-Ga-g][#b]?[0-9])@([0-9]*\.?[0-9]+)$/;
 
 /** A number the model wrote as a number, or as a string, or not at all. */
@@ -195,7 +195,7 @@ function num(value: unknown, fallback?: number): number | null {
  * Parse a value the model already produced. Two shapes were measured on the live route:
  *   - `[{pitch, beatTime, velocity, duration}, ...]`  (llama-3.3-70b, llama-4-scout)
  *   - `["{\"pitch\":...},{...}"]`                     (llama-3.2-3b, JSON stringified into ONE array
- *                                                      element) — this one silently fell back every
+ *                                                      element), this one silently fell back every
  *                                                      fifth measure until it was caught on 2026-10-29.
  * and models omit or stringify numbers often enough that a strict check drops playable notes.
  */
@@ -310,7 +310,7 @@ export async function generateMeasureWithAi(
       notes: [],
       meta: {
         source: 'rest', tier, model, decider, brief, prompt,
-        response: '(rest — Jev judged the room crowded)',
+        response: '(rest, Jev judged the room crowded)',
         noteCount: 0, latencyMs: brief.latencyMs,
       },
     };
@@ -323,7 +323,7 @@ export async function generateMeasureWithAi(
       notes,
       meta: {
         source: 'pattern', tier, model, decider, brief, prompt,
-        response: model === 'none' ? '(pattern agent — no model)' : '(no AI binding — using pattern generator)',
+        response: model === 'none' ? '(pattern agent, no model)' : '(no AI binding, using pattern generator)',
         noteCount: notes.length, latencyMs: 0,
       },
     };

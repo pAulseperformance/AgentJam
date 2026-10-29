@@ -1,5 +1,5 @@
 {
-  // Agent-First Web DAW Jam Room — Unified Worker Pattern
+  // Agent-First Web DAW Jam Room, Unified Worker Pattern
   // Frontend assets + DO served from the same origin (no CORS friction)
   "name": "agent-jam",
   "compatibility_date": "2025-03-15",
@@ -22,7 +22,7 @@
     "not_found_handling": "none"
   },
 
-  // Workers AI binding — free for Llama models
+  // Workers AI binding, free for Llama models
   "ai": {
     "binding": "AI"
   },
@@ -45,7 +45,7 @@
     }
   ],
 
-  // Custom domain — auto-provisions SSL. One name only: the paulseperformance.com alias was
+  // Custom domain, auto-provisions SSL. One name only: the paulseperformance.com alias was
   // retired on 2026-09-27 (redundant + confusing with the zpe.vc door); jam.zpe.vc is canonical.
   // TWO DOORS, ONE DEPLOYMENT. The custom domain is the app's own name, which now redirects page
   // requests to the path; the two routes are the mount. A path pattern needs `zone_name` (a

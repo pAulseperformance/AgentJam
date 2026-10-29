@@ -99,7 +99,7 @@ describe('LLM Planner', () => {
     expect(notes?.map(n => n.pitch)).toEqual(['C4', 'D4']);
   });
 
-  // MEASURED ON THE LIVE ROUTE (2026-10-29): the model emitted `[{"{"pitch":...}` — braces lost,
+  // MEASURED ON THE LIVE ROUTE (2026-10-29): the model emitted `[{"{"pitch":...}`, braces lost,
   // every note still inside it.
   it('recovers the notes from a malformed envelope instead of dropping the measure', () => {
     const broken = '[{"{\"pitch\":\"E4\",\"beatTime\":0.5,\"velocity\":90,\"duration\":0.5},'

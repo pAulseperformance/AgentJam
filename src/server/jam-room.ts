@@ -42,8 +42,8 @@ interface Env {
 interface PeerConnection {
   peer: Peer;
   ws: WebSocket;
-  activeNotes: Set<string>; // pitches currently held — for MIDI panic
-  noteCount: number; // rate limiter — notes in current window
+  activeNotes: Set<string>; // pitches currently held, for MIDI panic
+  noteCount: number; // rate limiter, notes in current window
   lastNoteWindow: number; // timestamp of current rate-limit window start
 }
 
@@ -53,7 +53,7 @@ interface InProcessAgent {
   model: string;
   /** who spawned it: a public agent renders notes, a signed-in agent is judged by Jev first */
   tier: Tier;
-  /** a decision or a render already in flight — a measure that cannot fit is skipped, never queued */
+  /** a decision or a render already in flight, a measure that cannot fit is skipped, never queued */
   busy: boolean;
   measureTimer: ReturnType<typeof setInterval>;
   activeNotes: Set<string>;
@@ -61,7 +61,7 @@ interface InProcessAgent {
 }
 
 /**
- * JamRoom Durable Object — the central hub for a jam session.
+ * JamRoom Durable Object, the central hub for a jam session.
  *
  * Phase 3 additions:
  * - In-process agent spawning (TAS-104)
@@ -368,7 +368,7 @@ export class JamRoom implements DurableObject {
       if (pitchMatch?.[1]) conn.activeNotes.delete(pitchMatch[1]);
     }
 
-    // Relay raw string to all OTHER peers — zero JSON.parse overhead
+    // Relay raw string to all OTHER peers, zero JSON.parse overhead
     this.broadcast(ws, rawMessage);
 
     // Queue for batch persistence
@@ -558,7 +558,7 @@ export class JamRoom implements DurableObject {
         meta: {
           source: 'pattern', tier: agent.tier, model: agent.model, decider: 'none', brief: null,
           prompt: '(previous measure still in flight)',
-          response: '(skipped this measure — the last call had not returned)',
+          response: '(skipped this measure, the last call had not returned)',
           noteCount: notes.length, latencyMs: 0,
         },
       }));
@@ -660,7 +660,7 @@ export class JamRoom implements DurableObject {
         });
       }
     } catch {
-      // Table may not exist yet — that's fine
+      // Table may not exist yet, that's fine
     }
   }
 
@@ -771,7 +771,7 @@ export class JamRoom implements DurableObject {
     );
   }
 
-  /** Batch-insert pending note events to SQLite — runs every FLUSH_INTERVAL_MS */
+  /** Batch-insert pending note events to SQLite, runs every FLUSH_INTERVAL_MS */
   private async flushToSQLite(): Promise<void> {
     if (this.pendingFlush.length === 0) return;
 

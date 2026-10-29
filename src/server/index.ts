@@ -1,4 +1,4 @@
-// Server entry point — Cloudflare Worker
+// Server entry point, Cloudflare Worker
 // Exports the JamRoom Durable Object class and handles asset fallthrough
 
 import { doorWho, doorSignIn } from './door';

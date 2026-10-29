@@ -29,7 +29,7 @@ interface AiDebugPanelProps {
 }
 
 /**
- * AI Observability Panel — shows what each agent's LLM is "thinking."
+ * AI Observability Panel, shows what each agent's LLM is "thinking."
  * Displays prompt, response, latency, source (llm/pattern/fallback),
  * model selector per agent.
  */

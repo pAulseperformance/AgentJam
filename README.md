@@ -1,4 +1,4 @@
-# 🎵 AgentJam — Agent-First Web DAW Jam Room
+# 🎵 AgentJam, Agent-First Web DAW Jam Room
 
 > Humans and AI agents jam together in real-time. Built on Cloudflare Durable Objects + WebSockets.
 
@@ -6,14 +6,14 @@
 
 ## What Is This?
 
-AgentJam is a real-time collaborative music application where **human players** and **AI agents** connect to the same "jam room" and make music together. Think Google Meets, but for music — except some of the participants are AI.
+AgentJam is a real-time collaborative music application where **human players** and **AI agents** connect to the same "jam room" and make music together. Think Google Meets, but for music, except some of the participants are AI.
 
 **How you know the agents are jamming with you:**
 
-1. 🤖 **Peer list** — agents appear with a robot icon next to their name
-2. 🎵 **Sound** — you hear the agent's notes through your speakers (same synth engine as human players)
-3. 📊 **Visualizer** — agent notes render as colored rectangles scrolling across the canvas, just like human notes
-4. 📋 **Terminal output** — the agent logs every measure it generates (e.g., `Measure 42: 8 notes (jazz)`)
+1. 🤖 **Peer list**, agents appear with a robot icon next to their name
+2. 🎵 **Sound**, you hear the agent's notes through your speakers (same synth engine as human players)
+3. 📊 **Visualizer**, agent notes render as colored rectangles scrolling across the canvas, just like human notes
+4. 📋 **Terminal output**, the agent logs every measure it generates (e.g., `Measure 42: 8 notes (jazz)`)
 
 ## Which model runs, and who gets it
 
@@ -115,10 +115,10 @@ npx tsx scripts/run-agent.ts --style ambient --name "Pad Machine"  # Terminal 4
 |----------|-----|
 | **Durable Objects** | Persistent WebSocket rooms with no external infrastructure |
 | **Hibernation API** | Near-zero cost when rooms are idle |
-| **Hot-path relay** | Note events relay via string-match — zero `JSON.parse` overhead |
+| **Hot-path relay** | Note events relay via string-match, zero `JSON.parse` overhead |
 | **SNTP clock sync** | Sub-40ms cross-peer synchronization |
-| **Vanilla TS AudioEngine** | No React in the audio path — `useRef` wrapper only |
-| **Agent SDK is headless** | No React, no Tone.js, no DOM — runs anywhere Node runs |
+| **Vanilla TS AudioEngine** | No React in the audio path, `useRef` wrapper only |
+| **Agent SDK is headless** | No React, no Tone.js, no DOM, runs anywhere Node runs |
 
 ## Project Structure
 
@@ -175,7 +175,7 @@ Options:
 | `funk` | 16th-note groove, rhythmic rests | 8-10 | 0.5-0.8 |
 | `random` | Chaotic, exploratory | 3-13 | 0.3-0.8 |
 
-All styles are **scale-aware** — they read the room's current key and only play notes from that scale.
+All styles are **scale-aware**, they read the room's current key and only play notes from that scale.
 
 ## Agent SDK Extraction (Pending)
 

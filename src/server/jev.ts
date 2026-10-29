@@ -1,9 +1,9 @@
 /**
- * JEV — the decision layer for a signed-in room.
+ * JEV, the decision layer for a signed-in room.
  *
  * Jev (TypeSafe System One) is a TYPED DECISION model: send state plus typed questions, get back
  * `noul` (a 0-1 probability), `choice` (from a fixed set) or `score`, with confidence. It generates
- * no text and no notes, so it cannot replace the renderer — it decides WHAT the renderer should play,
+ * no text and no notes, so it cannot replace the renderer, it decides WHAT the renderer should play,
  * which is exactly the judgement the code cannot compute for itself.
  *
  * Contract (verified 2026-10-29 against OpenRouter's alpha decisions surface: HTTP 200, the endpoint
