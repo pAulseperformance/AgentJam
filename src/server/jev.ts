@@ -21,6 +21,8 @@
 
 import type { DecisionBrief } from './llm-planner';
 
+export type { AgentRole, MotifRelation, DecisionBrief } from './llm-planner';
+
 export interface JevConfig {
   /** e.g. https://openrouter.ai/api/alpha/decisions or https://api.typesafe.ai/v1/systemone */
   endpoint: string;
@@ -35,7 +37,12 @@ export interface JevState {
   key: string;
   bpm: number;
   style: string;
-  recentNotes: Array<{ pitch: string; beatTime: number }>;
+  /** how the room sounds right now, as the listener summarized it */
+  phrase: string;
+  /** the agent's own last statement, so it can develop instead of restart */
+  motif: string;
+  /** how many of the last bars it played: a partner that has played four straight should lay out */
+  activity: string;
   peers: number;
 }
 
@@ -46,6 +53,25 @@ const DEFAULT_TIMEOUT_MS = 1200;
  * how much to play, where, and whether to play at all.
  */
 export const JEV_QUESTIONS = {
+  role: {
+    type: 'choice',
+    instructions: 'What should this agent do with the next bar in a live jam with another player? Answering what they just played is often better than leading, and silence is a legitimate move.',
+    criteria: {
+      lead: 'state your own line, they are not playing much',
+      answer: 'respond to the phrase they just played',
+      ornament: 'decorate or support what they are doing without taking the lead',
+      rest: 'sit this bar out and let them carry it: only worth it if you have already played most of the last few bars',
+    },
+  },
+  relation: {
+    type: 'choice',
+    instructions: 'How should this bar relate to the line this agent itself played last bar?',
+    criteria: {
+      restate: 'keep the same idea, repeat or nearly repeat it',
+      vary: 'develop it: change the register or the rhythm but keep two of the same pitches',
+      new: 'drop the old idea and start a new one',
+    },
+  },
   density: {
     type: 'choice',
     instructions: 'Choose how many notes this agent should play in the next measure so that it complements the other players. Leaving space matters more than filling the bar.',
@@ -75,13 +101,12 @@ export const JEV_QUESTIONS = {
 } as const;
 
 export function buildJevState(s: JevState): string {
-  const recent = s.recentNotes.length
-    ? s.recentNotes.slice(-20).map(n => `${n.pitch}@${n.beatTime.toFixed(2)}`).join(', ')
-    : 'nothing yet, the room is silent';
   return [
     `A collaborative jam room. ${s.peers} player(s) connected.`,
     `Tempo ${s.bpm} BPM, key ${s.key}, this agent plays ${s.style}.`,
-    `Notes played by others in the last measure: ${recent}.`,
+    `What the others are playing: ${s.phrase}.`,
+    `This agent's own last statement (its motif): ${s.motif}.`,
+    `This agent's recent activity: ${s.activity}.`,
   ].join('\n');
 }
 
@@ -129,20 +154,29 @@ export async function decideWithJev(
 
     const density = answers.density?.choice;
     const register = answers.register?.choice;
+    const role = answers.role?.choice ?? 'lead';
+    const relation = answers.relation?.choice ?? 'new';
     if (!density || !register) return null;
+    if (!isRole(role) || !isRelation(relation) || !isDensity(density) || !isRegister(register)) return null;
 
     // Router passthroughs differ: OrcaRouter omits confidence on a noul answer, so read only `noul`.
     const veto = answers.veto?.noul;
-    const play = typeof veto === 'number' ? veto < 0.5 : true;
+    const play = role !== 'rest' && (typeof veto === 'number' ? veto < 0.5 : true);
 
-    if (!isDensity(density) || !isRegister(register)) return null;
-
-    return { density, register, play, latencyMs: Date.now() - startedAt };
+    return { role, relation, density, register, play, latencyMs: Date.now() - startedAt };
   } catch {
     return null;
   } finally {
     clearTimeout(timer);
   }
+}
+
+function isRole(v: string): v is DecisionBrief['role'] {
+  return v === 'lead' || v === 'answer' || v === 'ornament' || v === 'rest';
+}
+
+function isRelation(v: string): v is DecisionBrief['relation'] {
+  return v === 'restate' || v === 'vary' || v === 'new';
 }
 
 function isDensity(v: string): v is DecisionBrief['density'] {

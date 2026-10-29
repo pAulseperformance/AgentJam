@@ -19,6 +19,7 @@ import {
 } from '@/shared/protocol/types';
 import { generateMeasure, type AgentStyle, type GeneratedNote } from '@/shared/music';
 import { repairMeasure } from './measure-repair';
+import { summarizePhrase, motifFrom, describePhrase, describeMotif, type Motif, type NoteRecord } from './listener';
 import {
   generateMeasureWithAi,
   FREE_MODEL,
@@ -67,6 +68,15 @@ interface InProcessAgent {
   queue: Array<{ bar: number; notes: GeneratedNote[]; meta: AiCallMeta | null }>;
   /** fires on the next bar boundary of the ROOM's transport, not on a timer started at spawn */
   barTimer: ReturnType<typeof setTimeout> | null;
+  /** the last four bars: true where it sounded, so it can notice it is over-playing */
+  recentBars: boolean[];
+  /** bars played since the last rest, so the rest policy below can bound them */
+  barsSinceRest: number;
+  /**
+   * ITS OWN LAST STATEMENT. A partner keeps an idea going; a generator starts over every bar. The
+   * motif is what the decision layer may restate or vary, and what the model is told to keep.
+   */
+  motif: Motif | null;
   activeNotes: Set<string>;
   noteCount: number;
 }
@@ -91,6 +101,12 @@ export class JamRoom implements DurableObject {
   private env: Env;
   private isRecording = false;
   private recordingStartTime: number | null = null;
+  /**
+   * WHAT THE ROOM JUST PLAYED, kept in memory and NOT drained by the 5s persistence flush. The agent's
+   * context used to be read out of `pendingFlush`, which the flush empties, so every few seconds the
+   * next bar was generated against an empty room.
+   */
+  private noteRing: NoteRecord[] = [];
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -381,7 +397,11 @@ export class JamRoom implements DurableObject {
       if (pitchMatch?.[1]) conn.activeNotes.delete(pitchMatch[1]);
     }
 
-    // Relay raw string to all OTHER peers, zero JSON.parse overhead
+    // Record for the agents' listener. Only when an agent exists: a room with no agent pays nothing,
+    // which is why this parse is allowed on the hot path at all.
+    if (this.agents.size > 0) this.recordNote(rawMessage);
+
+    // Relay raw string to all OTHER peers, zero JSON.parse overhead for the relay itself
     this.broadcast(ws, rawMessage);
 
     // Queue for batch persistence
@@ -399,6 +419,7 @@ export class JamRoom implements DurableObject {
     }
 
     const serialized = JSON.stringify(msg);
+    this.recordEvent(msg);
     this.broadcast(ws, serialized);
     this.pendingFlush.push(serialized);
   }
@@ -475,6 +496,9 @@ export class JamRoom implements DurableObject {
       // model renders fill the queue behind it.
       queue: [],
       barTimer: null,
+      recentBars: [],
+      barsSinceRest: 99,
+      motif: null,
       activeNotes: new Set(),
       noteCount: 0,
     };
@@ -538,6 +562,33 @@ export class JamRoom implements DurableObject {
     }
   }
 
+  /** Keep the last ~2 bars of everyone's notes in memory for the agents to hear. */
+  private recordNote(raw: string): void {
+    try { this.recordEvent(JSON.parse(raw) as NoteEvent); } catch { /* not a note event */ }
+  }
+
+  private recordEvent(event: NoteRecord): void {
+    if (!event || (event.type !== 'note_on' && event.type !== 'note_off')) return;
+    this.noteRing.push({
+      peerId: event.peerId,
+      type: event.type,
+      pitch: event.pitch,
+      beatTime: event.beatTime,
+      velocity: event.velocity,
+      duration: event.duration ?? 0.5,
+      timestamp: event.timestamp || Date.now(),
+    });
+    // Two bars is the whole window a partner listens to; anything older is noise in the prompt.
+    const keep = Math.max(24, Math.ceil(this.barMs() / Math.max(1, this.roomState.bpm)) * 96);
+    if (this.noteRing.length > keep) this.noteRing.splice(0, this.noteRing.length - keep);
+  }
+
+  /** Everything someone ELSE played in the last two bars, as events the listener can summarize. */
+  private othersRecent(agentPeerId: string): NoteRecord[] {
+    const since = Date.now() - this.barMs() * 2;
+    return this.noteRing.filter(n => n.peerId !== agentPeerId && n.timestamp >= since);
+  }
+
   // ─── The bar clock ─────────────────────────────────────────────────────────
   //
   // MEASURED BEFORE THIS EXISTED (12 live bars, 2026-10-29): the agent's notes landed a median of
@@ -586,6 +637,10 @@ export class JamRoom implements DurableObject {
     const meta = ready?.meta ?? this.patternMeta(agent, notes, 'pattern bar, the queue was empty');
 
     this.emitAgentBar(agent, notes, bar, beatMs);
+    agent.motif = motifFrom(notes);
+    agent.barsSinceRest = notes.length === 0 ? 0 : agent.barsSinceRest + 1;
+    agent.recentBars.push(notes.length > 0);
+    agent.recentBars = agent.recentBars.slice(-4);
 
     this.broadcastAll(JSON.stringify({
       type: 'ai_debug',
@@ -623,6 +678,8 @@ export class JamRoom implements DurableObject {
         agent.noteCount++;
         this.broadcastAll(noteOn);
         this.pendingFlush.push(noteOn);
+        // another agent in the room hears this one through the same ring the humans come through
+        this.recordEvent({ type: 'note_on', peerId: agent.peer.peerId, pitch: note.pitch, beatTime: note.beatTime, velocity: note.velocity, timestamp: Date.now() });
       }, Math.max(0, onDelay));
 
       setTimeout(() => {
@@ -637,6 +694,7 @@ export class JamRoom implements DurableObject {
         agent.activeNotes.delete(note.pitch);
         this.broadcastAll(noteOff);
         this.pendingFlush.push(noteOff);
+        this.recordEvent({ type: 'note_off', peerId: agent.peer.peerId, pitch: note.pitch, beatTime: note.beatTime, velocity: 0, timestamp: Date.now() });
       }, Math.max(0, onDelay + note.duration * beatMs));
     }
   }
@@ -652,25 +710,52 @@ export class JamRoom implements DurableObject {
     try {
       // What someone else is holding RIGHT NOW may not be doubled by this bar.
       const heldPitches = this.heldByOthers(agent.peer.peerId);
-      const recentNotes = this.recentNotes(agent.peer.peerId);
+
+      // LISTEN. The bar is written against what the room is playing now, not against a note dump read
+      // out of a buffer the persistence timer had already emptied.
+      const others = this.othersRecent(agent.peer.peerId);
+      const barMs = this.barMs();
+      const beatMs = (60 / this.roomState.bpm) * 1000;
+      const phrase = summarizePhrase(others, {
+        barStartMs: this.roomState.transportStartTime + (this.barIndexOf(Date.now()) - 1) * barMs,
+        barMs,
+        beatMs,
+      });
+      const motifText = describeMotif(agent.motif);
 
       const jev = agent.tier === 'signed' ? jevConfigFromEnv(this.env) : null;
-      const brief = jev
+      const judged = jev
         ? await decideWithJev(jev, {
             key: this.roomState.key,
             bpm: this.roomState.bpm,
             style: agent.style,
-            recentNotes,
+            phrase: describePhrase(phrase),
+            motif: motifText,
+            activity: agent.recentBars.length
+              ? `played ${agent.recentBars.filter(Boolean).length} of the last ${agent.recentBars.length} bars`
+              : 'has not played yet',
             peers: this.peers.size + this.agents.size,
           } satisfies JevState)
         : null;
+
+      // REST POLICY, IN CODE. A decision layer asked "should you sit this one out" will say yes as
+      // soon as it has played a few bars, and measured over 20 live bars that made the agent silent
+      // for 7 of them, which is not jamming, it is leaving. Jev keeps the JUDGEMENT (it may rest);
+      // the room bounds the HABIT to one bar in five.
+      const brief = judged && judged.role === 'rest' && agent.barsSinceRest < 5
+        ? { ...judged, role: 'ornament' as const, play: true, density: 'sparse' as const }
+        : judged;
 
       const ctx = {
         key: this.roomState.key,
         bpm: this.roomState.bpm,
         style: agent.style,
-        recentNotes,
+        recentNotes: others.filter(e => e.type === 'note_on').slice(-20)
+          .map(e => ({ pitch: e.pitch, peerId: e.peerId, beatTime: e.beatTime })),
         currentBeat: 0,
+        phrase: describePhrase(phrase),
+        motif: motifText,
+        heldNotes: [...new Set([...heldPitches, ...phrase.held])].slice(0, 8),
       };
 
       const result = await generateMeasureWithAi(this.env.AI, ctx, agent.model, brief, agent.tier);
@@ -678,6 +763,8 @@ export class JamRoom implements DurableObject {
         key: this.roomState.key,
         heldPitches,
         maxNotes: 10,
+        // AN ANSWER THAT SHARES NOTHING IS NOT AN ANSWER: only enforced when the decision said so.
+        answerPitches: brief?.role === 'answer' ? phrase.pitches : undefined,
       });
 
       // The bar this belongs to: the first one that is neither playing nor already queued.
@@ -714,15 +801,6 @@ export class JamRoom implements DurableObject {
       for (const pitch of other.activeNotes) held.add(pitch);
     }
     return [...held];
-  }
-
-  /** What everyone but this agent played recently, flattened for the prompt and for Jev. */
-  private recentNotes(agentPeerId: string): Array<{ pitch: string; peerId: string; beatTime: number }> {
-    return this.pendingFlush
-      .map(raw => { try { return JSON.parse(raw); } catch { return null; } })
-      .filter((e): e is NoteEvent => e?.type === 'note_on' && e?.peerId !== agentPeerId)
-      .slice(-20)
-      .map(e => ({ pitch: e.pitch, peerId: e.peerId, beatTime: e.beatTime }));
   }
 
   // ─── TAS-105: Reconnection Backfill ─────────────────────────────────────────

@@ -35,6 +35,12 @@ export interface MeasureContext {
   style: AgentStyle;
   recentNotes: Array<{ pitch: string; peerId: string; beatTime: number }>;
   currentBeat: number;
+  /** the listener's summary of what the room is playing, already in words */
+  phrase?: string;
+  /** the agent's own last statement, so it can restate or vary it instead of starting over */
+  motif?: string;
+  /** pitches still held by someone else, so the bar does not double them */
+  heldNotes?: string[];
 }
 
 /** Who is playing: an anonymous visitor, or someone the zpe door knows. */
@@ -45,7 +51,17 @@ export type Tier = 'public' | 'signed';
  * Produced by Jev (or absent), then rendered by the model. Values are a closed set so the prompt
  * stays a template and the pattern fallback can honour the same brief.
  */
+export type AgentRole = 'lead' | 'answer' | 'ornament' | 'rest';
+export type MotifRelation = 'restate' | 'vary' | 'new';
+
 export interface DecisionBrief {
+  /**
+   * WHAT THIS BAR IS FOR, which is the question a jam partner actually answers: state a line, answer
+   * theirs, decorate it, or sit out. Without it every bar was a solo, whatever the room was doing.
+   */
+  role: AgentRole;
+  /** how this bar relates to the agent's own last bar: the difference between a person and a radio */
+  relation: MotifRelation;
   density: 'sparse' | 'medium' | 'dense';
   register: 'low' | 'mid' | 'high';
   /** false = the room is crowded, rest this measure */
@@ -74,7 +90,7 @@ export interface MeasureResult {
   meta: AiCallMeta;
 }
 
-const SYSTEM_PROMPT = `You are a musical AI agent in a collaborative jam room. You generate MIDI-like note sequences that complement what other musicians are playing.
+const SYSTEM_PROMPT = `You are a musical partner in a collaborative jam room, playing live with a human. You generate MIDI-like note sequences that answer and support what the other musicians are playing. The brief below is binding: honour the move, the relation and the amount.
 
 RULES:
 - Output ONLY a JSON array of note objects: [{"pitch": "C4", "beatTime": 0.0, "velocity": 80, "duration": 0.5}, ...]
@@ -87,6 +103,20 @@ RULES:
 - Complement what others are playing, don't play the same notes
 - Match the style (jazz = swing + 7th chords, ambient = long drones, funk = syncopated 16ths)
 - NO text, NO markdown, NO explanation, ONLY the JSON array`;
+
+/** What the bar is FOR. This is the part a jam partner answers and a generator never did. */
+const ROLE_RULE: Record<DecisionBrief['role'], string> = {
+  lead: 'State your own short line; nobody else is carrying the bar.',
+  answer: 'Answer the phrase they just played: take at least two of their pitches and play after their phrase, not on top of it.',
+  ornament: 'Decorate what they are doing: at most 3 notes, on slots they left open, never on their strong beats.',
+  rest: 'Do not play.',
+};
+
+const RELATION_RULE: Record<DecisionBrief['relation'], string> = {
+  restate: 'Repeat your motif almost exactly, you may move one note.',
+  vary: 'Keep two pitches of your motif and change the rhythm or the register.',
+  new: 'Drop the old idea and state a new one.',
+};
 
 const DENSITY_RULE: Record<DecisionBrief['density'], string> = {
   sparse: 'Play 2-4 notes and leave space.',
@@ -101,20 +131,32 @@ const REGISTER_RULE: Record<DecisionBrief['register'], string> = {
 };
 
 function buildUserPrompt(ctx: MeasureContext, brief: DecisionBrief | null): string {
+  // The old prompt was two lines and a hope: "recent notes: pitch@beat" plus "generate your measure".
+  // A 3B model given that writes a plausible bar that ignores the room. This prompt names the job,
+  // the phrase it is answering, the idea it is keeping, and what it must not play.
   const recentSummary = ctx.recentNotes.length > 0
-    ? ctx.recentNotes.slice(-20).map(n => `${n.pitch}@${n.beatTime.toFixed(1)}`).join(', ')
-    : 'silence (be the first to play!)';
+    ? ctx.recentNotes.slice(-20).map(n => `${n.pitch}@${n.beatTime.toFixed(2)}`).join(', ')
+    : 'silence, be the first to play';
 
   const lines = [
     `Key: ${ctx.key} | BPM: ${ctx.bpm} | Style: ${ctx.style} | Beat: ${ctx.currentBeat}`,
-    `Recent notes from peers: ${recentSummary}`,
+    `They are playing: ${ctx.phrase ?? recentSummary}`,
+    `Your motif from last bar: ${ctx.motif ?? 'none yet'}`,
   ];
+
   if (brief) {
     lines.push(
-      `BRIEF (decided for you, honour it): ${DENSITY_RULE[brief.density]} ${REGISTER_RULE[brief.register]}`,
+      `YOUR MOVE: ${brief.role}. ${ROLE_RULE[brief.role]}`,
+      `RELATION: ${brief.relation}. ${RELATION_RULE[brief.relation]}`,
+      `AMOUNT: ${DENSITY_RULE[brief.density]} ${REGISTER_RULE[brief.register]}`,
     );
   }
-  lines.push('Generate your next measure:');
+
+  if (ctx.heldNotes?.length) {
+    lines.push(`DO NOT PLAY (someone is holding these): ${ctx.heldNotes.join(', ')}`);
+  }
+
+  lines.push('Write the bar now. ONLY the JSON array, no words.');
   return lines.join('\n');
 }
 

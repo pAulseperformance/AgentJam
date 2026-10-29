@@ -19,7 +19,9 @@ describe('LLM Planner', () => {
     currentBeat: 0,
   };
 
-  const brief: DecisionBrief = { density: 'sparse', register: 'low', play: true, latencyMs: 240 };
+  const brief: DecisionBrief = {
+    role: 'answer', relation: 'vary', density: 'sparse', register: 'low', play: true, latencyMs: 240,
+  };
 
   it('returns source: pattern if no AI binding is provided', async () => {
     const result = await generateMeasureWithAi(undefined, mockCtx);
@@ -192,13 +194,14 @@ describe('LLM Planner', () => {
 
       expect(result.meta.decider).toBe('jev');
       expect(result.meta.tier).toBe('signed');
-      expect(result.meta.prompt).toContain('BRIEF');
+      expect(result.meta.prompt).toContain('YOUR MOVE: answer');
+      expect(result.meta.prompt).toContain('RELATION: vary');
       expect(result.meta.prompt).toContain('2-4 notes');
     });
 
-    it('rests the measure when Jev vetoes, without calling the model', async () => {
+    it('rests the measure when the decision says rest, without calling the model', async () => {
       const run = vi.fn();
-      const vetoed: DecisionBrief = { ...brief, play: false };
+      const vetoed: DecisionBrief = { ...brief, role: 'rest', play: false };
 
       const result = await generateMeasureWithAi({ run }, mockCtx, FREE_MODEL, vetoed, 'signed');
 

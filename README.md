@@ -58,6 +58,28 @@ Measured live before and after, 14 bars each with the same probe: phase offset m
 notes per bar 6.3 to 3.3 with rests now appearing, and key adherence is 100% by construction (before
 this, raw model bars were played unvalidated and contained notes like D#4 and F#4 in C major).
 
+## Does it jam with you
+
+`src/server/listener.ts` reads the last two bars of everyone else into a small typed summary: contour,
+register, articulation, which sixteenths are open, what sat on the strong beats, what is still held.
+The agent keeps its own last bar as a `Motif`. Jev then answers five questions in one call, and the two
+that matter are new: `role` (lead, answer, ornament, rest) and `relation` (restate, vary, new). Without
+them the agent could only be told how MANY notes to play, so every bar was a solo whatever the room was
+doing. The renderer gets the listener's summary, the motif, the move and the notes it may not double.
+
+Two deterministic guarantees back it up: if the decision said answer and the model's bar shares no
+pitch class with the phrase, one note moves onto the nearest of their pitches; and the motif is handed
+to the model as text, so restate and vary have something concrete to restate or vary.
+
+Measured on the live room, the same 20-bar probe run three times before and three times after the
+listener existed: consecutive agent bars keeping two or more of the same pitch classes (motif
+recurrence) went from 9% to 56-62%, and when the decision was `answer` the reply shared two or more of
+your pitch classes in 8 of 10 cases. Phase stayed at 0ms and key at 100%.
+
+The rest policy is deliberate and lives in code, not in the prompt: Jev kept answering "rest" for 7 of
+20 bars, which is a third of the room silent. The room now overrides rest to `ornament` unless five
+bars have passed since the last one, and three independent runs then rested exactly 3 bars out of 20.
+
 ## Quick Start
 
 ### Prerequisites

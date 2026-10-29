@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { repairMeasure } from './measure-repair';
-import type { GeneratedNote } from '@/shared/music';
+import { pitchClassOf, type GeneratedNote } from '@/shared/music';
 
 const note = (pitch: string, beatTime: number, velocity = 90, duration = 0.5): GeneratedNote =>
   ({ pitch, beatTime, velocity, duration });
@@ -85,6 +85,37 @@ describe('repairMeasure', () => {
 
     expect(notes).toEqual(clean);
     expect(dropped).toEqual({ invalid: 0, offGrid: 0, outOfKey: 0, unison: 0, duplicate: 0, overCap: 0 });
+  });
+
+  describe('when the bar is an answer', () => {
+    it('leaves a bar that already shares a pitch class alone', () => {
+      const { notes, answered } = repairMeasure(
+        [note('C4', 0), note('G4', 2)],
+        { key: 'C major', answerPitches: ['E4', 'G4'] },
+      );
+      expect(answered).toBe(true);
+      expect(notes.map(n => n.pitch)).toEqual(['C4', 'G4']);
+    });
+
+    it('moves one note onto their pitch class when the bar shares nothing at all', () => {
+      const { notes, answered } = repairMeasure(
+        [note('C4', 0), note('D4', 1), note('E4', 2)],
+        { key: 'C major', answerPitches: ['F4', 'A4'] },
+      );
+      expect(answered).toBe(true);
+      expect(notes.some(n => [5, 9].includes(pitchClassOf(n.pitch) ?? -1))).toBe(true);
+      // only one note moved: an answer is a gesture, not a rewrite
+      expect(notes.filter(n => n.pitch !== 'C4' && n.pitch !== 'D4' && n.pitch !== 'E4')).toHaveLength(1);
+    });
+
+    it('answers in the register of the phrase rather than jumping octaves', () => {
+      const { notes } = repairMeasure(
+        [note('C4', 0), note('D4', 1), note('E4', 2), note('F4', 3)],
+        { key: 'C major', answerPitches: ['A3'] },
+      );
+      const moved = notes.find(n => n.pitch !== 'C4' && n.pitch !== 'D4' && n.pitch !== 'E4' && n.pitch !== 'F4');
+      expect(moved?.pitch).toBe('A3');
+    });
   });
 
   it('handles a rest bar (no notes) without inventing any', () => {

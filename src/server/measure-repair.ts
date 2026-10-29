@@ -21,6 +21,9 @@ import {
   type GeneratedNote,
   snapPitchToKey,
   isInKey,
+  pitchClassOf,
+  midiOf,
+  noteNameFromMidi,
 } from '@/shared/music';
 
 /** A sixteenth of a beat, the grid everything lands on. */
@@ -36,10 +39,18 @@ export interface RepairOptions {
   heldPitches?: string[];
   /** hard ceiling per bar */
   maxNotes?: number;
+  /**
+   * THE ANSWER. When the agent decided to answer what you played, an answer that shares none of your
+   * pitches is not an answer, it is a coincidence in the same room. If the model's bar shares nothing,
+   * one note (the one closest to your last pitch) moves onto that pitch class, keeping its register.
+   */
+  answerPitches?: string[];
 }
 
 export interface RepairReport {
   notes: GeneratedNote[];
+  /** whether the bar shares a pitch class with the phrase it was answering (true when not answering) */
+  answered: boolean;
   dropped: {
     /** not a playable note name at all, e.g. the model wrote `Am4` (a chord) instead of a pitch */
     invalid: number;
@@ -97,6 +108,39 @@ export function repairMeasure(notes: GeneratedNote[], options: RepairOptions): R
     });
   }
 
+  // ANSWER. One deterministic correction, because the intent was explicit and the model may ignore it.
+  let answered = true;
+  const targets = (options.answerPitches ?? [])
+    .map(pc => pitchClassOf(pc))
+    .filter((pc): pc is number => pc !== null);
+
+  if (targets.length > 0) {
+    answered = repaired.some(n => {
+      const pc = pitchClassOf(n.pitch);
+      return pc !== null && targets.includes(pc);
+    });
+
+    if (!answered && repaired.length > 0) {
+      const anchorMidi = midiOf(options.answerPitches!.at(-1)!) ?? 60;
+      const targetPc = ((anchorMidi % 12) + 12) % 12;
+      // the note closest in register to what they played is the one that should echo it
+      let bestIndex = 0;
+      let bestDistance = Infinity;
+      repaired.forEach((n, i) => {
+        const distance = Math.abs((midiOf(n.pitch) ?? 60) - anchorMidi);
+        if (distance < bestDistance) { bestDistance = distance; bestIndex = i; }
+      });
+      const here = midiOf(repaired[bestIndex]!.pitch) ?? 60;
+      // A pitch class is 0-11, so the octave has to be rebuilt around the note being moved: taking the
+      // class alone would send an E4 answer to A0.
+      const base = Math.round((here - targetPc) / 12) * 12 + targetPc;
+      const candidates = [base - 12, base, base + 12];
+      const nearest = candidates.reduce((best, c) => (Math.abs(c - here) < Math.abs(best - here) ? c : best), base);
+      repaired[bestIndex] = { ...repaired[bestIndex]!, pitch: noteNameFromMidi(nearest) };
+      answered = true;
+    }
+  }
+
   // SHAPE. One note per pitch per grid slot, in time order.
   const seen = new Set<string>();
   const unique: GeneratedNote[] = [];
@@ -111,5 +155,5 @@ export function repairMeasure(notes: GeneratedNote[], options: RepairOptions): R
   const capped = unique.slice(0, maxNotes);
   dropped.overCap = unique.length - capped.length;
 
-  return { notes: capped, dropped };
+  return { notes: capped, answered, dropped };
 }

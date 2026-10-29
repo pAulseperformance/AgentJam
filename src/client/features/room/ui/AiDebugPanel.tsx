@@ -12,7 +12,7 @@ interface AiDebugEntry {
     model: string;
     /** 'jev' when the measure was judged before it was rendered */
     decider?: 'jev' | 'none';
-    brief?: { density: string; register: string; play: boolean; latencyMs: number } | null;
+    brief?: { role?: string; relation?: string; density: string; register: string; play: boolean; latencyMs: number } | null;
     prompt: string;
     response: string;
     noteCount: number;
@@ -105,7 +105,7 @@ export function AiDebugPanel({ entries, signedIn = false, onModelChange }: AiDeb
                     className="ai-debug-panel__stat"
                     title="Jev judged this measure before the model rendered it"
                   >
-                    🧭 jev · {active.meta.brief.density}/{active.meta.brief.register} · {active.meta.brief.latencyMs}ms
+                    🧭 jev · {active.meta.brief.role ?? 'lead'}/{active.meta.brief.relation ?? 'new'} · {active.meta.brief.density}/{active.meta.brief.register} · {active.meta.brief.latencyMs}ms
                   </span>
                 )}
                 {active.meta.error && (
