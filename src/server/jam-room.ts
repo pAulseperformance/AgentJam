@@ -23,6 +23,7 @@ import {
   FREE_MODEL,
   SIGNED_MODEL,
   isFreeModel,
+  isKnownModel,
   type Tier,
 } from './llm-planner';
 import { decideWithJev, jevConfigFromEnv, type JevState } from './jev';
@@ -223,6 +224,12 @@ export class JamRoom implements DurableObject {
         const agent = this.agents.get((msg as { agentPeerId: string }).agentPeerId);
         if (!agent) break;
         const requested = (msg as { model: string }).model;
+        // A RETIRED SLUG IS NOT A MODEL. Accepting one only produces a silent fallback forever, so
+        // the room refuses what the list does not carry.
+        if (!isKnownModel(requested)) {
+          this.sendError(ws, `Unknown model: ${requested}`);
+          break;
+        }
         // AN ANONYMOUS ROOM MAY NOT BILL A LARGER MODEL. The public tier is a budget, not a hint:
         // the free model is the only one an unauthenticated socket can select.
         if (agent.tier === 'public' && !isFreeModel(requested)) {
