@@ -1,6 +1,7 @@
 import { env, runInDurableObject } from 'cloudflare:test';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { JamRoom } from './jam-room';
+import { DEFAULT_BPM } from '@/shared/protocol/constants';
 
 
 describe('JamRoom Durable Object', () => {
@@ -100,6 +101,75 @@ describe('JamRoom Durable Object', () => {
         // @ts-expect-error - accessing private method for test cleanup
         instance.cleanupIntervals();
       });
+    });
+  });
+
+  describe('the bar invariant and the tempo door', () => {
+    const openSocket = async () => {
+      const stub = getRoomStub();
+      const res = await stub.fetch(new Request('http://localhost/api/room/test-1/ws', {
+        headers: { Upgrade: 'websocket' },
+      }));
+      expect(res.status).toBe(101);
+      const ws = res.webSocket;
+      if (!ws) throw new Error('no websocket');
+      ws.accept();
+      return { stub, ws };
+    };
+
+    const settle = async (stub: ReturnType<typeof getRoomStub>) => {
+      await runInDurableObject(stub, async (instance: JamRoom) => {
+        // @ts-expect-error - private method, called so the isolated storage frame can be popped
+        instance.cleanupIntervals();
+      });
+    };
+
+    it('announces one bar when the bar line fires twice in the same bar', async () => {
+      const { stub, ws } = await openSocket();
+      ws.send(JSON.stringify({ type: 'join_room', name: 'BarPeer', kind: 'human' }));
+      ws.send(JSON.stringify({ type: 'spawn_agent', name: 'Bar Bot', style: 'jazz' }));
+      await new Promise(r => setTimeout(r, 60));
+
+      await runInDurableObject(stub, async (instance: JamRoom) => {
+        const room = instance as unknown as {
+          agents: Map<string, { lastPublishedAt: number }>;
+          onAgentBar: (agent: unknown) => void;
+          renderAgentBar: (agent: unknown) => Promise<void>;
+        };
+        const agent = [...room.agents.values()][0];
+        if (!agent) throw new Error('agent did not spawn');
+        // The render is not what this test is about: it would call the model.
+        room.renderAgentBar = async () => {};
+
+        room.onAgentBar(agent);
+        const afterFirst = agent.lastPublishedAt;
+        expect(afterFirst).toBeGreaterThan(0);
+
+        room.onAgentBar(agent);
+        // The second fire is inside the same bar, so it is refused and the stamp does not move.
+        expect(agent.lastPublishedAt).toBe(afterFirst);
+      });
+
+      ws.close();
+      await new Promise(r => setTimeout(r, 50));
+      await settle(stub);
+    });
+
+    it('refuses a tempo the grid cannot use, and keeps the room where it was', async () => {
+      const { stub, ws } = await openSocket();
+      ws.send(JSON.stringify({ type: 'join_room', name: 'TempoPeer', kind: 'human' }));
+      await new Promise(r => setTimeout(r, 30));
+      ws.send(JSON.stringify({ type: 'bpm_change', bpm: 0 }));
+      await new Promise(r => setTimeout(r, 50));
+
+      await runInDurableObject(stub, async (instance: JamRoom) => {
+        // @ts-expect-error - private state, read to prove the refusal
+        expect(instance.roomState.bpm).toBe(DEFAULT_BPM);
+      });
+
+      ws.close();
+      await new Promise(r => setTimeout(r, 50));
+      await settle(stub);
     });
   });
 });

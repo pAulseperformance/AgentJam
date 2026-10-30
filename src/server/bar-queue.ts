@@ -78,3 +78,55 @@ export function renderStride(renderCostMs: number, barMs: number, marginMs = 100
   if (!(barMs > 0) || !(renderCostMs > 0)) return 1;
   return Math.max(1, Math.ceil((renderCostMs + marginMs) / barMs));
 }
+
+/** The protocol's tempo range, enforced again in the room: the schema runs in the client. */
+export const MIN_BPM = 20;
+export const MAX_BPM = 300;
+/** Below this a bar is not a musical unit any player can address: 400 ms is 1.5 beats at 300 BPM. */
+export const MIN_BAR_MS = 400;
+/** 120 BPM, the room's default, used when a stored tempo cannot be read at all. */
+export const DEFAULT_BAR_MS = 2000;
+
+/** The width of a bar, or null when the tempo cannot describe one. */
+export function barMsFor(bpm: number): number | null {
+  if (!Number.isFinite(bpm) || bpm <= 0) return null;
+  const barMs = (60 / bpm) * 4 * 1000;
+  return Number.isFinite(barMs) && barMs >= MIN_BAR_MS ? barMs : null;
+}
+
+/**
+ * The wait until the next bar line, or null when the transport cannot be computed.
+ *
+ * The inline version this replaces was `Math.max(0, nextBarStart() - now)`. On a bar length of NaN, or
+ * Infinity, or a line in the past, that hands `setTimeout` a NaN or a 0, and Workers fires those at
+ * once. The callback re-arms itself, so one bad wait is a free-running loop: every turn publishes a
+ * pattern bar and a debug record. Never 0, never NaN, never a silent clamp.
+ */
+export function barDelayMs(transportStartTime: number, bpm: number, now: number): number | null {
+  const barMs = barMsFor(bpm);
+  if (barMs === null) return null;
+  if (!Number.isFinite(transportStartTime)) return null;
+  const elapsed = now - transportStartTime;
+  if (!Number.isFinite(elapsed)) return null;
+  const next = transportStartTime + (Math.floor(elapsed / barMs) + 1) * barMs;
+  const wait = next - now;
+  return Number.isFinite(wait) ? Math.max(1, wait) : null;
+}
+
+/**
+ * The least time between two announcements: eight tenths of a bar. A healthy room announces once per
+ * bar, and the slack covers a timer that fires a few milliseconds early on a line.
+ */
+export const BAR_FLOOR = 0.8;
+
+/**
+ * Whether enough time has passed since the last bar this agent announced for the announcement to be a
+ * bar line rather than a loop. Half a bar is the threshold: a healthy room never announces two bars
+ * closer together than a bar, and the recordings of 2026-10-30 show what announcing 269 of them in
+ * 2.6 s does to a listener's file and to the model's chance of ever being heard.
+ */
+export function barElapsedEnough(lastPublishedAt: number, now: number, barMs: number): boolean {
+  if (lastPublishedAt <= 0) return true;
+  if (!(barMs > 0)) return true;
+  return now - lastPublishedAt >= barMs * BAR_FLOOR;
+}

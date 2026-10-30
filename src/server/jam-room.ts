@@ -40,6 +40,7 @@ import {
 } from './llm-planner';
 import {
   prunePast, keepNewest, takeForBar, renderBudget, renderStride, RENDER_COST_ASSUMED_MS,
+  barDelayMs, barMsFor, barElapsedEnough, DEFAULT_BAR_MS, MIN_BPM, MAX_BPM,
 } from './bar-queue';
 import { decideWithJev, jevConfigFromEnv, type JevState } from './jev';
 
@@ -123,6 +124,12 @@ interface InProcessAgent {
   }>;
   /** fires on the next bar boundary of the ROOM's transport, not on a timer started at spawn */
   barTimer: ReturnType<typeof setTimeout> | null;
+  /**
+   * When this agent last announced a bar, as server ms. A bar line cannot arrive twice inside half a
+   * bar, so a second arrival is not a bar line whatever armed it: it is a loop, and publishing it
+   * again is what filled the 2026-10-30 16:39 recording with 4,960 debug records in 2.6 seconds.
+   */
+  lastPublishedAt: number;
   /** the last four bars: true where it sounded, so it can notice it is over-playing */
   recentBars: boolean[];
   /** bars played since the last rest, so the rest policy below can bound them */
@@ -506,7 +513,14 @@ export class JamRoom implements DurableObject {
     this.pendingFlush.push(serialized);
   }
 
-  private handleBpmChange(_ws: WebSocket, bpm: number): void {
+  private handleBpmChange(ws: WebSocket, bpm: number): void {
+    // A TEMPO THE GRID CANNOT USE IS REFUSED HERE TOO. The inbound schema already bounds it to 20..300,
+    // but a bar length of NaN or Infinity makes `setTimeout` fire at once and loop, so the room does not
+    // rely on a validator that lives in the client.
+    if (!Number.isFinite(bpm) || bpm < MIN_BPM || bpm > MAX_BPM) {
+      this.sendError(ws, `tempo refused: ${String(bpm)} is outside ${MIN_BPM} to ${MAX_BPM} BPM`);
+      return;
+    }
     this.roomState.bpm = bpm;
     this.roomState.serverTime = Date.now();
     void this.ctx.storage.put('roomState', this.roomState);
@@ -583,6 +597,7 @@ export class JamRoom implements DurableObject {
       // model renders fill the queue behind it.
       queue: [],
       barTimer: null,
+      lastPublishedAt: 0,
       recentBars: [],
       barsSinceRest: 99,
       echoesThisBar: 0,
@@ -762,7 +777,10 @@ export class JamRoom implements DurableObject {
   }
 
   private armLayerBar(layer: RoomLayer): void {
-    const wait = Math.max(0, this.nextBarStart() - Date.now());
+    // The rhythm section arms on the same grid and carries the same hazard, so it gets the same rule.
+    if (layer.barTimer !== null) clearTimeout(layer.barTimer);
+    const wait = barDelayMs(this.roomState.transportStartTime, this.roomState.bpm, Date.now())
+      ?? this.barMs();
     layer.barTimer = setTimeout(() => this.onLayerBar(layer), wait);
   }
 
@@ -862,7 +880,9 @@ export class JamRoom implements DurableObject {
   // now costs a bar of freshness, never a bar of phase.
 
   private barMs(): number {
-    return (60 / this.roomState.bpm) * 4 * 1000;
+    // A STORED TEMPO CAN BE CORRUPT even though the door validates every change, because the state is
+    // restored from storage at construction. Every use below divides by this, so it cannot be NaN.
+    return barMsFor(this.roomState.bpm) ?? DEFAULT_BAR_MS;
   }
 
   /**
@@ -921,7 +941,13 @@ export class JamRoom implements DurableObject {
   }
 
   private armAgentBar(agent: InProcessAgent): void {
-    const wait = Math.max(0, this.nextBarStart() - Date.now());
+    // ONE TIMER PER AGENT, AND NEVER A ZERO WAIT. Arming without clearing is how a tempo change can
+    // double the bar line, and a wait of 0 is self-sustaining: the callback re-arms itself, so firing
+    // once a millisecond never stops. `barDelayMs` refuses an unusable grid instead of returning NaN,
+    // which `setTimeout` reads as 0.
+    if (agent.barTimer !== null) clearTimeout(agent.barTimer);
+    const wait = barDelayMs(this.roomState.transportStartTime, this.roomState.bpm, Date.now())
+      ?? this.barMs();
     agent.barTimer = setTimeout(() => this.onAgentBar(agent), wait);
   }
 
@@ -932,6 +958,16 @@ export class JamRoom implements DurableObject {
 
     const bar = this.barIndexOf(Date.now());
     const beatMs = (60 / this.roomState.bpm) * 1000;
+
+    // ONE PUBLICATION PER BAR, AS AN INVARIANT RATHER THAN A HOPE. The cause of the 2026-10-30 loop is
+    // still unproven, so the guard is on the clock: no agent may announce a bar sooner than half a bar
+    // after the last one. A fire that trips this waits for the real next line instead of repeating.
+    const publishedAt = Date.now();
+    if (!barElapsedEnough(agent.lastPublishedAt, publishedAt, this.barMs())) {
+      this.armAgentBar(agent);
+      return;
+    }
+    agent.lastPublishedAt = publishedAt;
 
     // PUBLISH. An entry queued for THIS bar plays; anything else is a bar the model missed, and the
     // pattern generator covers it rather than shifting a stale bar into the present. Entries for bars

@@ -83,7 +83,11 @@ export function useRoomSocket({
   const clockPingT0 = useRef<number>(0);
 
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    // ONE SOCKET PER TAB, WHATEVER STATE THE OLD ONE IS IN. The old guard refused only when the socket
+    // was already OPEN, so a connect while CONNECTING or CLOSING opened a second socket and orphaned
+    // the first, which stayed open and kept its onmessage handler: measured in the 2026-10-30 16:39
+    // recording, about 18 copies of every broadcast arrived on one tab, each one joining as its own peer.
+    if (wsRef.current) return;
 
     setStatus('connecting');
 
@@ -221,6 +225,9 @@ export function useRoomSocket({
 
     reconnectAttempt.current++;
 
+    // One pending reconnect at a time: a second close event used to schedule a second connect, and the
+    // two of them raced into the guard above.
+    if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
     reconnectTimer.current = setTimeout(() => {
       connect();
     }, delay);

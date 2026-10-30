@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   keepNewest, prunePast, renderBudget, renderStride, takeForBar, RENDER_COST_ASSUMED_MS,
+  barDelayMs, barMsFor, barElapsedEnough, DEFAULT_BAR_MS, MAX_BPM, MIN_BPM, MIN_BAR_MS,
 } from './bar-queue';
 
 type Entry = { bar: number };
@@ -152,5 +153,87 @@ describe('renderStride', () => {
   it('degenerates safely on a nonsense tempo', () => {
     expect(renderStride(cost, 0)).toBe(1);
     expect(renderStride(0, barMs(200))).toBe(1);
+  });
+});
+
+describe('barMsFor', () => {
+  const bar = (bpm: number) => 240_000 / bpm;
+
+  it('gives the width of a bar for a tempo the protocol allows', () => {
+    expect(barMsFor(120)).toBe(2000);
+    expect(barMsFor(MIN_BPM)).toBe(bar(MIN_BPM));
+    expect(barMsFor(MAX_BPM)).toBe(bar(MAX_BPM));
+  });
+
+  it('refuses a tempo that describes no bar at all', () => {
+    expect(barMsFor(Number.NaN)).toBeNull();
+    expect(barMsFor(0)).toBeNull();
+    expect(barMsFor(-5)).toBeNull();
+    expect(barMsFor(Number.POSITIVE_INFINITY)).toBeNull();
+    expect(barMsFor(1_000_000)).toBeNull();     // 0.24 ms, below MIN_BAR_MS
+  });
+
+  it('keeps every allowed bar above the floor', () => {
+    expect(bar(MAX_BPM)).toBeGreaterThanOrEqual(MIN_BAR_MS);
+    expect(DEFAULT_BAR_MS).toBe(bar(120));
+  });
+});
+
+describe('barDelayMs', () => {
+  const start = 1_700_000_000_000;
+
+  it('waits for the next line, never 0 and never more than a bar', () => {
+    const wait = barDelayMs(start, 115, start + 700);
+    expect(wait).toBeCloseTo(2086.9565217391304 - 700, 3);
+    expect(wait).toBeGreaterThanOrEqual(1);
+  });
+
+  it('waits a whole bar when the clock sits exactly on a line', () => {
+    expect(barDelayMs(start, 120, start + 2000)).toBe(2000);
+  });
+
+  it('never hands setTimeout a zero, which is the loop', () => {
+    // The old inline arithmetic is reproduced here: it returned NaN, Infinity or a clamped 0 for a
+    // grid it could not compute, and Workers fires all three at once.
+    const oldWait = (bpm: number, now: number) => {
+      const bar = (60 / bpm) * 4 * 1000;
+      return Math.max(0, start + (Math.floor((now - start) / bar) + 1) * bar - now);
+    };
+    for (const bad of [Number.NaN, 0, -5, Number.POSITIVE_INFINITY]) {
+      const old = oldWait(bad, start);
+      expect(Number.isFinite(old) && old > 0).toBe(false);   // NaN, Infinity, or 0: all fire at once
+      expect(barDelayMs(start, bad, start)).toBeNull();
+    }
+  });
+
+  it('refuses a transport that cannot be computed', () => {
+    expect(barDelayMs(Number.NaN, 120, start)).toBeNull();
+    expect(barDelayMs(start, Number.NaN, start)).toBeNull();
+  });
+});
+
+describe('barElapsedEnough', () => {
+  it('allows the first bar of a session', () => {
+    expect(barElapsedEnough(0, 5_000, 2000)).toBe(true);
+  });
+
+  it('refuses a second announcement inside a bar', () => {
+    expect(barElapsedEnough(1_000_000, 1_000_400, 2000)).toBe(false);
+    expect(barElapsedEnough(1_000_000, 1_001_500, 2000)).toBe(false);
+  });
+
+  it('allows the next bar line and anything later', () => {
+    expect(barElapsedEnough(1_000_000, 1_002_000, 2000)).toBe(true);
+    expect(barElapsedEnough(1_000_000, 1_010_000, 2000)).toBe(true);
+  });
+
+  it('replays the 2026-10-30 storm: 269 announcements inside 2.6 s become at most 2', () => {
+    // Bar length 2087 ms at 115 BPM, and the recording's 269 arrivals spaced 9.7 ms apart.
+    let last = 0; let accepted = 0;
+    for (let i = 0; i < 269; i++) {
+      const now = 20_074 + i * 9.7;
+      if (barElapsedEnough(last, now, 2086.95)) { accepted++; last = now; }
+    }
+    expect(accepted).toBeLessThanOrEqual(2);
   });
 });
