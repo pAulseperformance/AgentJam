@@ -1599,7 +1599,19 @@ export class JamRoom implements DurableObject {
       // A GAP BAR PUBLISHED LATE PLAYS WHAT IS STILL AHEAD OF IT. Measured post-deploy at 200 BPM:
       // 2 of 37 cell bars were silent because every cell slot was already past when the bar published.
       fromBeat: this.beatIntoBar(bar),
+      voice: this.voiceOf(agent),
     });
+  }
+
+  /**
+   * WHICH AGENT THIS IS, as a small number: its position in the room's spawn order. Two agents with
+   * nothing of their own yet would otherwise seed the same figure and lose their first gap bar to each
+   * other's collision rule (measured: 2 of 3 agents at 200 BPM).
+   */
+  private voiceOf(agent: InProcessAgent): number {
+    const order = [...this.agents.keys()];
+    const at = order.indexOf(agent.peer.peerId);
+    return at < 0 ? 0 : at;
   }
 
   /** How far into bar `bar` the room's clock is, in beats. 0 when the tempo cannot describe one. */

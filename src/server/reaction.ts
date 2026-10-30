@@ -47,6 +47,13 @@ export interface ReactionInput {
   cells: number;
   /** how far into its own bar this gap bar is being published, in beats: 0 at the bar line */
   fromBeat?: number;
+  /**
+   * WHICH AGENT THIS IS, as a small stable number (its spawn order in the room). Two agents that have
+   * nothing of their own yet would otherwise seed the same tonic-third-fifth and quote it in the same
+   * order, which the room's collision rule then drops as doubling: measured at 200 BPM, two of three
+   * agents lost their whole first gap bar to one another. The voice rotates the material.
+   */
+  voice?: number;
   /** the room's level, so a soft room is answered softly */
   meanVelocity?: number;
 }
@@ -133,8 +140,11 @@ function sourcePitches(input: ReactionInput): string[] {
   if (hook.length > 0) return hook;
   const allowed = scalePitchClasses(input.key);
   const centre = Math.round((input.register.low + input.register.high) / 2);
-  const degrees = [0, 2, 4].map(d => allowed[d] ?? allowed[0] ?? 0);
-  return degrees.map(pc => noteNameFromMidi(midiNear(pc, centre)));
+  // THE SEED SOUNDS DIFFERENT FOR A SECOND AGENT. Rotating the degrees by the voice keeps every seeded
+  // agent on the key's own notes and keeps two of them off the same three figures in the same order.
+  const voice = Math.max(0, Math.round(input.voice ?? 0));
+  const degrees = [0, 2, 4, 5, 6].map(d => allowed[(d + voice) % allowed.length] ?? allowed[0] ?? 0);
+  return degrees.slice(0, 3).map(pc => noteNameFromMidi(midiNear(pc, centre)));
 }
 
 /**
@@ -147,15 +157,17 @@ export function reactionCells(input: ReactionInput): ReactionBar {
   const shape = cellShape(input.style);
   const slots = cellSlots(input.cells, input.fromBeat ?? 0);
   const ceiling = Math.max(40, Math.min(110, input.meanVelocity ?? 92));
+  const voice = Math.max(0, Math.round(input.voice ?? 0));
 
   const notes: GeneratedNote[] = [];
   let usedCells = 0;
 
   for (let i = 0; i < slots.length; i++) {
     if (notes.length >= CELL_MAX_NOTES) break;
-    // WHICH NOTE THE CELL STARTS ON moves with the bar, so two gap bars in a row do not play the
-    // same cell; it is a rotation through the agent's own pitches, so the material is always its.
-    const start = (input.bar + i) % source.length;
+    // WHICH NOTE THE CELL STARTS ON moves with the bar AND with the agent, so two gap bars in a row do
+    // not play the same cell and two agents do not play the same one at all; it is a rotation through
+    // the agent's own pitches, so the material is always its.
+    const start = (input.bar + i + voice) % source.length;
     const slot = slots[i] ?? 0;
     usedCells++;
 

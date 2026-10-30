@@ -108,6 +108,18 @@ describe('the cells a gap bar holds', () => {
     expect(cellSlots(3, 3.95)).toEqual([]);
   });
 
+  it('gives a second agent a different opening, so a seeded bar is not lost to the first agent’s', () => {
+    const first = reactionCells({ ...base, motif: null, hook: null, voice: 0 });
+    const second = reactionCells({ ...base, motif: null, hook: null, voice: 2 });
+    // The room drops a note another agent already sounded on the same slot. Two agents that seeded
+    // the same figure lost their whole first gap bar that way; a different voice must leave each
+    // agent notes of its own.
+    const taken = new Set(first.notes.map(n => `${n.pitch}@${n.beatTime}`));
+    const survives = second.notes.filter(n => !taken.has(`${n.pitch}@${n.beatTime}`));
+    expect(survives.length).toBeGreaterThan(0);
+    expect(second.notes.map(n => n.pitch)).not.toEqual(first.notes.map(n => n.pitch));
+  });
+
   it('plays one held note per cell in ambient and two stabs in funk', () => {
     const ambient = reactionCells({ ...base, style: 'ambient' }).notes;
     const funk = reactionCells({ ...base, style: 'funk' }).notes;
