@@ -79,6 +79,19 @@ export function renderStride(renderCostMs: number, barMs: number, marginMs = 100
   return Math.max(1, Math.ceil((renderCostMs + marginMs) / barMs));
 }
 
+/**
+ * HOW MANY SHORT CELLS FIT IN A GAP BAR.
+ *
+ * A cell is a statement, not a bar: at 200 BPM a bar is 1200 ms and three cells of about 380 ms each
+ * sit on its eighth grid, where the agent's own line can be quoted without the gap becoming a second
+ * melody. The count follows the bar's WIDTH and is capped, because a six-second ambient bar is a place
+ * for two held notes, not for four gestures. Never 0: a gap bar with no cell is a hole in the room.
+ */
+export function cellsForBar(barMs: number, minCellMs = 380, maxCells = 4): number {
+  if (!(barMs > 0) || !(minCellMs > 0)) return 1;
+  return Math.max(1, Math.min(Math.max(1, maxCells), Math.floor(barMs / minCellMs)));
+}
+
 /** The protocol's tempo range, enforced again in the room: the schema runs in the client. */
 export const MIN_BPM = 20;
 export const MAX_BPM = 300;

@@ -75,7 +75,12 @@ export interface DecisionBrief {
 
 /** Metadata returned alongside notes for observability */
 export interface AiCallMeta {
-  source: 'llm' | 'pattern' | 'fallback' | 'rest';
+  /**
+   * WHO PLAYED THIS BAR. `cell` is the agent's own short figures quoting its last statement, written
+   * by the room while a render could not fit the bar; it is not the model's and not the generator's,
+   * so it is not counted as either.
+   */
+  source: 'llm' | 'pattern' | 'fallback' | 'rest' | 'cell';
   tier: Tier;
   model: string;
   /** which layer judged the measure before the renderer wrote it */

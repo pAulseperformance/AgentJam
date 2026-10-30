@@ -40,10 +40,11 @@ import {
 } from './llm-planner';
 import {
   prunePast, keepNewest, takeForBar, renderBudget, renderStride, RENDER_COST_ASSUMED_MS,
-  RENDER_TAIL_ASSUMED_MS,
+  RENDER_TAIL_ASSUMED_MS, cellsForBar,
   barDelayMs, barMsFor, barElapsedEnough, firstReachableBar, nextRenderTail, DEFAULT_BAR_MS,
   MIN_BPM, MAX_BPM,
 } from './bar-queue';
+import { reactionCells, type ReactionBar } from './reaction';
 import { decideWithJev, jevConfigFromEnv, type JevState } from './jev';
 
 /** Set by the Worker entry on the upgrade request, computed from the door's answer. */
@@ -1109,7 +1110,24 @@ export class JamRoom implements DurableObject {
     const claimed = takeForBar(agent.queue, bar);
     agent.queue = claimed.rest;
     const ready = claimed.ready;
-    let notes = ready?.notes ?? this.melodyBar(agent, bar);
+    // A GAP BAR IS THE AGENT'S OWN SHORT CELLS, NOT THE GENERATOR'S LINE. Above a stride of one this
+    // agent writes a full bar every stride-th bar, and the bars between them used to be the pattern
+    // generator's random walk: measured at 200 BPM, 37 of 72 bar records were music the agent had not
+    // said. A gap bar now carries two to four cells quoting its own motif, in key, in its register.
+    const stride = this.strideFor(agent);
+    const reaction = ready === null && stride > 1 ? this.reactionFor(agent, bar) : null;
+    let notes: GeneratedNote[];
+    if (ready) {
+      notes = ready.notes;
+    } else if (stride > 1) {
+      // A GAP BAR IS THE AGENT'S CELLS OR NOTHING. It is never the generator: handing a gap bar back
+      // to the random walk is exactly what this path exists to stop, so a gap with no cell is silence,
+      // not a different bar of music played in the agent's name.
+      notes = reaction?.notes ?? [];
+    } else {
+      // At a stride of one an empty bar is a bar the model missed, and the line builder covers it.
+      notes = this.melodyBar(agent, bar);
+    }
 
     // LAST LINE OF DEFENCE. Two agents render the same bar at the same moment, so each can see a plan
     // that the other has not queued yet and a collision slips through the repair. At the bar line the
@@ -1119,17 +1137,17 @@ export class JamRoom implements DurableObject {
       notes = notes.filter(n => !sounded.has(`${n.pitch}@${n.beatTime}`.toLowerCase()));
     }
     this.markSoundedSlots(agent.peer.peerId, bar, notes);
-    // WHY A PATTERN BAR, SAID OUT LOUD. At a tempo where one render cannot fit one bar, the agent
-    // writes every stride-th bar on purpose. Calling that "the queue was empty" is what made the
-    // 2026-10-30 recording read as a stall instead of a tempo policy.
-    const stride = this.strideFor(agent);
-    const meta = ready?.meta ?? this.patternMeta(agent, notes,
-      stride > 1
-        ? `pattern bar, this agent writes every ${stride} bars at ${this.roomState.bpm} BPM`
-        : 'pattern bar, the queue was empty');
+    // WHY A PATTERN BAR, SAID OUT LOUD. A bar with no queued render at a stride of one is a bar the
+    // model missed; above a stride of one that bar is the agent's cells, so the tempo note now rides
+    // on the cell record below instead of on a bar the generator played.
+    const meta = ready?.meta ?? (reaction
+      ? this.cellMeta(agent, reaction, stride)
+      : this.patternMeta(agent, notes, 'pattern bar, the queue was empty'));
 
     this.emitAgentBar(agent, notes, bar, beatMs);
-    agent.motif = motifFrom(notes);
+    // A CELL BAR DOES NOT REPLACE THE AGENT'S IDEA. Its cells quote the motif, so overwriting the
+    // motif with them would shrink the agent's material to its own echo, one gap bar at a time.
+    if (reaction === null) agent.motif = motifFrom(notes);
     agent.barsSinceRest = notes.length === 0 ? 0 : agent.barsSinceRest + 1;
     agent.recentBars.push(notes.length > 0);
     agent.recentBars = agent.recentBars.slice(-4);
@@ -1561,6 +1579,39 @@ export class JamRoom implements DurableObject {
       // CHAIN: a render that just finished is the only moment a second one can start without a clash.
       this.maybeRefreshHead(agent);
     }
+  }
+
+  /**
+   * THE GAP BAR'S VOICE. At a stride above one the agent writes every stride-th bar, so the bar in
+   * between belongs to it but cannot hold a render. It holds its own short cells instead: the pitches
+   * of its last statement, moved into the register its decision asked for, in the room's key, on the
+   * bar's eighth grid. No model call, no generator, and deterministic in the bar number.
+   */
+  private reactionFor(agent: InProcessAgent, bar: number): ReactionBar {
+    return reactionCells({
+      motif: agent.motif,
+      hook: agent.hook,
+      key: this.roomState.key,
+      style: agent.style,
+      bar,
+      register: this.registerRange(agent.lastRegister ?? 'mid'),
+      cells: cellsForBar(this.barMs()),
+    });
+  }
+
+  /**
+   * THE RECORD FOR A CELL BAR, under its own name. `pattern` would be a misreading of the recording:
+   * the generator did not write this bar, and a session's `pattern` count is exactly the number this
+   * card exists to bring down. The tempo note stays on the line, so a recorded session still says why
+   * the agent is writing every second bar instead of every bar.
+   */
+  private cellMeta(agent: InProcessAgent, reaction: ReactionBar, stride: number): AiCallMeta {
+    return {
+      source: 'cell', tier: agent.tier, model: agent.model, decider: 'none', brief: null,
+      prompt: '(cell bar)',
+      response: `${reaction.describe}; this agent writes every ${stride} bars at ${this.roomState.bpm} BPM`,
+      noteCount: reaction.notes.length, latencyMs: 0,
+    };
   }
 
   private patternMeta(agent: InProcessAgent, notes: GeneratedNote[], why: string): AiCallMeta {
