@@ -19,6 +19,9 @@ import {
   scalePitchClasses,
 } from '../shared/music/pattern-generator';
 import type { Motif } from './listener';
+import type { DecisionBrief } from './llm-planner';
+
+type DecisionDensity = DecisionBrief['density'];
 
 export type ArcPosition = 'state' | 'restate' | 'develop' | 'cadence';
 export type Contour = 'arch' | 'rising' | 'falling' | 'wave';
@@ -69,20 +72,6 @@ export function melodyPlan(bar: number, style: string, hasMotif: boolean): Melod
   return { position, contour, wantNotes, instruction };
 }
 
-/** Ascending pitch classes of the room's key, so a step is a step and not a guess. */
-function keyWalk(key: string, startMidi: number, direction: 1 | -1, steps: number): number[] {
-  const allowed = scalePitchClasses(key);
-  const out: number[] = [];
-  let midi = startMidi;
-  let guard = 0;
-  while (out.length < steps && guard++ < 60) {
-    midi += direction;
-    const pc = ((midi % 12) + 12) % 12;
-    if (allowed.includes(pc)) out.push(midi);
-  }
-  return out;
-}
-
 /**
  * COMPLETE THE LINE. Given what the model wrote, return a bar that is a melody: at least `wantNotes`
  * notes, mostly stepwise, inside the register, in key, on the sixteenth grid.
@@ -90,6 +79,60 @@ function keyWalk(key: string, startMidi: number, direction: 1 | -1, steps: numbe
  * It is deliberately additive: a bar that is already a line is returned untouched (a caller comparing
  * lengths sees the same array), because the model's own contours are worth keeping when they exist.
  */
+/**
+ * SHAPE THE LINE. Measured in a recorded public session: eight sixteenths per bar at a flat velocity
+ * 100, every one the same weight, which is a typewriter and not a player. A phrase breathes: it starts
+ * softly, swells to the note the line is reaching for, and lets the last note sit.
+ *
+ * This runs on every bar, after the model and after the completion, because the model has no dynamics
+ * worth keeping (a 3B model writes one velocity for the whole bar).
+ */
+export function shapeLine(
+  notes: GeneratedNote[],
+  options: { contour: Contour; density: DecisionDensity; meanVelocity?: number },
+): GeneratedNote[] {
+  if (notes.length === 0) return notes;
+  const ordered = notes.slice().sort((a, b) => a.beatTime - b.beatTime);
+  const ceiling = Math.max(40, Math.min(110, options.meanVelocity ?? 92));
+  const peakIndex = options.contour === 'rising'
+    ? ordered.length - 1
+    : options.contour === 'falling'
+      ? 0
+      : Math.floor(ordered.length / 2);
+
+  const durationForDensity = options.density === 'sparse' ? 0.5 : options.density === 'medium' ? 0.35 : 0.28;
+
+  // A PHRASE RESTS. Measured across 16 recorded bars: a median gap of 125ms between notes, every bar,
+  // which is a sixteenth-note treadmill and the single biggest reason it sounds mechanical. Two
+  // sixteenths in a row is bebop; a third is a metronome, so the third is dropped and the bar breathes.
+  const kept: GeneratedNote[] = [];
+  let run = 0;
+  for (const note of ordered) {
+    const previous = kept.at(-1);
+    const gap = previous ? note.beatTime - previous.beatTime : Infinity;
+    if (gap > 0 && gap <= 0.26) {
+      run++;
+      if (run >= 2 && kept.length < ordered.length - 1) continue; // keep the last note, it is the landing
+    } else {
+      run = 0;
+    }
+    kept.push(note);
+  }
+
+  return kept.map((note, i) => {
+    // distance from the peak, as a share of the line: the swell, then the taper
+    const reach = Math.abs(i - peakIndex) / Math.max(1, kept.length - 1);
+    const weight = 1 - 0.45 * reach;
+    const velocity = Math.round(Math.max(38, Math.min(112, ceiling * weight)));
+    // a note on a strong beat is held; the last note of the phrase is held longer, which is what a
+    // landing sounds like
+    const strongBeat = Math.abs(note.beatTime - Math.round(note.beatTime)) < 0.01;
+    const isLast = i === kept.length - 1;
+    const duration = isLast ? durationForDensity * 1.8 : strongBeat ? durationForDensity * 1.3 : durationForDensity;
+    return { ...note, velocity, duration: Math.round(duration * 100) / 100 };
+  });
+}
+
 export function completeMelody(
   notes: GeneratedNote[],
   options: {
@@ -150,14 +193,32 @@ export function completeMelody(
   }
   freeSlots.sort((a, b) => a - b);
 
-  const walk = keyWalk(key, seedMidi, direction, freeSlots.length * 2);
+  // A LINE THAT CANNOT GO FURTHER TURNS AROUND. Clamping at the top of the register produced four
+  // C5s in a row in a recorded session: the walk wanted to ascend and the band said no, so it repeated
+  // itself. The walk now bounces, which is what a player does at the edge of their range.
   const added: GeneratedNote[] = [];
-  let cursor = 0;
+  let midi = seedMidi;
+  let dir: 1 | -1 = direction;
+  let inKey = scalePitchClasses(key);
+  let lastAdded: number | null = null;
+
   for (const slot of freeSlots) {
-    // one or two scale steps, alternating, so the line breathes instead of climbing a ladder
     const advance = 1 + (added.length % 2);
-    const midi = walk[Math.min(walk.length - 1, cursor + advance)] ?? walk.at(-1) ?? seedMidi;
-    cursor = Math.min(walk.length - 1, cursor + advance);
+    let moved = 0;
+    while (moved < advance) {
+      midi += dir;
+      if (inKey.includes(((midi % 12) + 12) % 12)) moved++;
+      if (midi >= register.high) { midi = register.high; dir = -1; }
+      else if (midi <= register.low) { midi = register.low; dir = 1; }
+    }
+    // never the same pitch twice in a row: a repeated note is a stutter, not a step
+    if (lastAdded !== null && midi === lastAdded) {
+      midi += dir * 2;
+      midi = Math.max(register.low, Math.min(register.high, midi));
+      const snapped = inKey.includes(((midi % 12) + 12) % 12) ? midi : midi - dir;
+      midi = Math.max(register.low, Math.min(register.high, snapped));
+    }
+    lastAdded = midi;
     const clamped = Math.max(register.low, Math.min(register.high, midi));
     const velocity = anchor?.velocity ?? 80;
     added.push({

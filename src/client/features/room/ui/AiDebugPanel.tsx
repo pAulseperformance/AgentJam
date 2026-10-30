@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { NO_MODEL, selectableModels } from '@/shared/ai/models';
+import { downloadSession, recordedCount } from '../lib/session-recorder';
 
 /** Matches the AiCallMeta shape from the server */
 interface AiDebugEntry {
@@ -38,6 +39,7 @@ interface AiDebugPanelProps {
 export function AiDebugPanel({ entries, signedIn = false, onModelChange }: AiDebugPanelProps) {
   const models = selectableModels(signedIn);
   const [expanded, setExpanded] = useState(true);
+  const [exported, setExported] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 
   if (entries.length === 0) return null;
@@ -70,6 +72,22 @@ export function AiDebugPanel({ entries, signedIn = false, onModelChange }: AiDeb
 
       {expanded && (
         <div className="ai-debug-panel__body">
+          {/* EXPORT: one button, the whole session as a file. A listener's ears are the only judge of
+              whether the room sounds good, and whoever wants to argue about it needs what played. */}
+          <div className="ai-debug-panel__export">
+            <button
+              className="ai-debug-panel__export-btn"
+              onClick={() => {
+                const notes = downloadSession();
+                setExported(`exported ${notes} notes`);
+              }}
+              title="Download this session: every note, its velocity and beat, and the agent's decision for each bar"
+            >
+              ⬇ Export session
+            </button>
+            <span className="ai-debug-panel__export-count">{exported ?? `${recordedCount()} messages kept`}</span>
+          </div>
+
           {/* Agent tabs */}
           <div className="ai-debug-panel__tabs">
             {agents.map(a => (

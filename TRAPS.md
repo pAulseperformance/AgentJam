@@ -55,6 +55,11 @@ reveals it, so the next reader re-measures instead of re-learning.
   bar's brief; a refresh that also calls the decision model costs 1.2s in a 2s bar and never lands.
   Reveal: play one loud phrase and read the velocities per bar (`docs/PATHS.md` P5 lists what a walker
   cannot see), or re-run the dynamics probe described in `README.md`.
+- **2026-10-30. Every quality pass hung off the DECISION, so the tier that has no judge got none of it.**
+  A public room (no Jev) passed `brief: null` into the renderer, which skipped the arc, the role, the
+  melody completion and the density cap, and the listener heard the raw 3B bar. Any feature keyed to
+  `brief` has to say what it does when `brief` is null. Reveal: record a session WITHOUT the door
+  cookie and count bars at a single velocity.
 - **2026-10-30. `Math.random()` over the scale is not a fallback, it is noise.** Three octaves of
   random scale tones produced `G3 B3 G5 C4 A4 D3 E5 C5 B5` in one bar, and a person hears that as a
   glitch, not as a missed render. Any generated bar, including a fallback, has to walk the scale.

@@ -82,6 +82,23 @@ listener existed: consecutive agent bars keeping two or more of the same pitch c
 recurrence) went from 9% to 56-62%, and when the decision was `answer` the reply shared two or more of
 your pitch classes in 8 of 10 cases. Phase stayed at 0ms and key at 100%.
 
+## Hearing it without being in the room
+
+The only instrument that can judge whether this sounds good is a person, and the fastest way to hand
+that person the evidence is a recording. Two things exist for it:
+
+- **Export session**, the button in the AI panel. It downloads the whole session as JSON: every note
+  with its velocity and beat, every bar's decision (role, density, source, latency, plan, whether the
+  melody completion added notes) and the raw message log. `src/client/features/room/lib/session-recorder.ts`.
+- `scripts` outside the repo do the rest: a probe records the same stream over the socket, and
+  `render_jam.py` turns it into a WAV with simple synthesis, so a 20-bar session can be listened to in
+  a chat message instead of by opening the room and guessing which bar is which.
+
+This is how three defects were found that no aggregate metric showed: a **public room had no brief at
+all** (no Jev means no decision, so no arc, no role and no completion: sixteen bars of eight sixteenths
+at a flat velocity 100), a **flat velocity every bar** (a 3B model writes one number for the whole bar),
+and a **sixteenth-note treadmill** (a median gap of 125ms between notes, every bar).
+
 ## The line: why a melody is code's job too
 
 A solo agent measured, live, 16 bars, on 2026-10-30: **3.2 notes per bar**, no bar above four notes,
@@ -107,6 +124,21 @@ So the SHAPE is code and the notes are the model's, the same split the drummer u
 Measured after, same probe, 16 bars, solo: **6.1 notes per bar** (was 3.2), **12 bars of five or more**
 (was 0), **64 stepwise moves against 14 leaps**, a ratio of 0.82 (was 0.41), and the bars read as phrases:
 `E3 G3 A3 G3 F3 E3` up and back, `B3 D4 F4 A4 C5 E5 G5` a rising run.
+
+Then the recording showed the rest, and it was not a melody problem at all:
+
+- **A public room had no brief.** Without Jev, `brief` was null, so no arc, no role and no completion
+  ran: eight sixteenths per bar, the same weight, sixteen bars. The brief is now computed in code when
+  the judge is absent, because a room without a decision layer still deserves a shape.
+- **Every note weighed the same.** A 3B model writes one velocity for a whole bar. `shapeLine` gives the
+  bar a swell to the note it is reaching for and a taper at both ends, holds strong beats and lands the
+  last note.
+- **A sixteenth treadmill.** The median gap between notes was 125ms in every bar. Two sixteenths in a
+  row is bebop; a third is a metronome, so the third is dropped and the bar breathes.
+
+Measured on a recorded 20-bar solo session after those three: **5 to 7 notes per bar, 0 bars at a single
+velocity, a median gap of 250ms**, and the first bars read `F4 A4 B4 A4 G4 E4 D4` at
+`71 78 85 92 85 78 71`, an arch you can hear.
 
 ## Two agents, and who leads
 

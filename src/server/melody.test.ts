@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { melodyPlan, completeMelody } from './melody';
+import { melodyPlan, completeMelody, shapeLine } from './melody';
 import { midiOf, isInKey } from '../shared/music/pattern-generator';
 
 const note = (pitch: string, beatTime: number, velocity = 80, duration = 0.25) => ({ pitch, beatTime, velocity, duration });
@@ -83,6 +83,40 @@ describe('completeMelody', () => {
     const addedSlots = notes.map(n => Math.round(n.beatTime * 4));
     expect(addedSlots).toContain(4);
     expect(addedSlots).toContain(8);
+  });
+
+  // MEASURED in a recorded public session: eight sixteenths per bar, every one at velocity 100.
+  it('gives a flat bar dynamics: a swell to the peak and a taper at the ends', () => {
+    const flat = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5'].map((p, i) =>
+      ({ pitch: p, beatTime: i * 0.25, velocity: 100, duration: 0.25 }));
+    const shaped = shapeLine(flat, { contour: 'arch', density: 'dense' });
+
+    const velocities = shaped.map(n => n.velocity);
+    const peak = Math.max(...velocities);
+    const first = velocities[0]!;
+    const last = velocities.at(-1)!;
+
+    // and it BREATHES: two sixteenths in a row is bebop, a third is a metronome
+    expect(shaped.length).toBeLessThan(flat.length);
+    expect(shaped.length).toBeGreaterThanOrEqual(4);
+    let run = 0;
+    for (let i = 1; i < shaped.length; i++) {
+      const gap = shaped[i]!.beatTime - shaped[i - 1]!.beatTime;
+      run = gap <= 0.26 ? run + 1 : 0;
+      expect(run).toBeLessThan(2);
+    }
+    expect(new Set(velocities).size).toBeGreaterThan(2);
+    expect(peak).toBeLessThanOrEqual(112);
+    expect(first).toBeLessThan(peak);
+    expect(last).toBeLessThan(peak);
+    // and the phrase lands: the final note is held longer than the run
+    expect(shaped.at(-1)!.duration).toBeGreaterThan(shaped[0]!.duration);
+  });
+
+  it('keeps the notes and their order when shaping', () => {
+    const line = [note('G4', 1), note('C4', 0), note('E4', 0.5)];
+    const shaped = shapeLine(line, { contour: 'rising', density: 'medium' });
+    expect(shaped.map(n => n.pitch)).toEqual(['C4', 'E4', 'G4']);
   });
 
   it('never exceeds the note ceiling', () => {

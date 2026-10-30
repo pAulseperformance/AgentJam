@@ -26,7 +26,7 @@ import {
 } from '@/shared/music';
 import { repairMeasure } from './measure-repair';
 import { summarizePhrase, motifFrom, describePhrase, describeMotif, type Motif, type NoteRecord } from './listener';
-import { melodyPlan, completeMelody } from './melody';
+import { melodyPlan, completeMelody, shapeLine } from './melody';
 import { drumBar, bassBar, countInBar } from './groove';
 import {
   generateMeasureWithAi,
@@ -1089,7 +1089,9 @@ export class JamRoom implements DurableObject {
       register: this.registerRange('mid'),
       maxNotes: 10,
     });
-    return built.notes;
+    // SHAPED HERE TOO. A fallback bar published straight from this path skipped the dynamics pass and
+    // measured as a flat velocity 80 in three of sixteen recorded bars.
+    return shapeLine(built.notes, { contour: plan.contour, density: 'medium' });
   }
 
   /**
@@ -1182,9 +1184,22 @@ export class JamRoom implements DurableObject {
       // soon as it has played a few bars, and measured over 20 live bars that made the agent silent
       // for 7 of them, which is not jamming, it is leaving. Jev keeps the JUDGEMENT (it may rest);
       // the room bounds the HABIT to one bar in five.
-      const rested = judged && judged.role === 'rest' && agent.barsSinceRest < 5
-        ? { ...judged, role: 'ornament' as const, play: true, density: 'sparse' as const }
-        : judged;
+      // NO DECISION IS NOT NO IDEA. A public room has no Jev, and passing null here meant no arc,
+      // no role and no completion: measured on a public session, sixteen bars of eight sixteenths at a
+      // flat velocity 100, which is what a listener hears as a typewriter. The brief is code's job
+      // when the judge is absent.
+      const judgedOrCode: typeof judged = judged ?? {
+        role: 'lead',
+        relation: agent.motif ? 'vary' : 'new',
+        density: 'medium',
+        register: 'mid',
+        play: true,
+        latencyMs: 0,
+      };
+
+      const rested = judgedOrCode.role === 'rest' && agent.barsSinceRest < 5
+        ? { ...judgedOrCode, role: 'ornament' as const, play: true, density: 'sparse' as const }
+        : judgedOrCode;
       const brief = this.coordinateRole(agent, forBar, rested, phrase.count > 0);
 
       const ctx = {
@@ -1230,9 +1245,17 @@ export class JamRoom implements DurableObject {
         });
         if (completed.completed) {
           finalNotes = completed.notes;
-          (result.meta as { completed?: number }).completed = completed.added;
+          result.meta.completed = completed.added;
         }
       }
+
+      // AND IT BREATHES. Dynamics are code's, not the model's: a 3B model writes one velocity for the
+      // whole bar, and a flat eight-sixteenth run is heard as a typewriter, not as a player.
+      finalNotes = shapeLine(finalNotes, {
+        contour: melody.contour,
+        density: brief?.density ?? 'medium',
+        meanVelocity: phrase.count > 0 ? phrase.meanVelocity : undefined,
+      });
 
       // The bar this belongs to, worked out before the decision so the decision could see it.
       const target = forBar;

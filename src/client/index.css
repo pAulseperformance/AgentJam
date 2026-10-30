@@ -1076,6 +1076,34 @@ body {
   color: var(--text-secondary);
 }
 
+.ai-debug-panel__export {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.ai-debug-panel__export-btn {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.ai-debug-panel__export-btn:hover {
+  border-color: var(--accent-indigo);
+}
+
+.ai-debug-panel__export-count {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
 .ai-debug-panel__toggle {
   width: 100%;
   padding: 0.5rem 1rem;

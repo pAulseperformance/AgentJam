@@ -6,6 +6,7 @@ import type {
   NoteEvent,
   MetricsSnapshot,
 } from '@/shared/protocol';
+import { recordMessage, noteRoomState, beginSession } from '../lib/session-recorder';
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
 
@@ -114,6 +115,9 @@ export function useRoomSocket({
     ws.onmessage = (event: MessageEvent) => {
       if (typeof event.data !== 'string') return;
 
+      // EVERY MESSAGE IS KEPT, so one button can hand a listener's session to someone else to read.
+      recordMessage(event.data);
+
       // ── Hot path: Note events bypass React ──
       if (event.data.includes('"type":"note_o')) {
         try {
@@ -131,6 +135,8 @@ export function useRoomSocket({
           case 'room_state':
             setRoomState(msg.roomState);
             setPeers(msg.peers);
+            beginSession(roomId);
+            noteRoomState(msg.roomState);
             break;
           case 'peer_joined':
             setPeers((prev) => [...prev, msg.peer]);

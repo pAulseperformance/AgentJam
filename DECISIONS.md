@@ -103,3 +103,14 @@ fallback pattern: it spread across three octaves. With a four-bar arc, a five-no
 completion step the same probe measured 6.1 notes per bar, 12 bars of five or more, and 64 stepwise
 moves against 14 leaps. Falsifier: a run where a lead bar still has fewer than four notes, or where
 more than a third of the moves are leaps of a fourth or more.
+
+## 2026-10-30 A room with no judge still gets a brief, and dynamics are code
+
+Loser: passing `null` as the brief when Jev is absent (every public session). Reason: recorded, sixteen
+bars of eight sixteenths at a flat velocity 100, with no arc, no role and no completion, because all
+three hung off the brief. The brief is now code's fallback: lead, medium, mid, new or vary. Loser also
+for leaving velocity to the model: a 3B model writes one number per bar, so `shapeLine` swells to the
+bar's peak, tapers the ends, holds strong beats and lands the last note, and drops a third consecutive
+sixteenth. Measured on a recorded 20-bar solo session after: 5-7 notes per bar, 0 bars at a single
+velocity, a median gap of 250ms against 125ms. Falsifier: a recorded session where more than a quarter
+of the bars sit at a single velocity, or a bar with eight or more consecutive sixteenths.
