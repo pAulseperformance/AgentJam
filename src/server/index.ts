@@ -1,7 +1,10 @@
 // Server entry point, Cloudflare Worker
 // Exports the JamRoom Durable Object class and handles asset fallthrough
 
+import { machineRefusal } from 'zpe-kit';
+import { FONT_NAME, SHEET_PATH, fontResponse, sheetResponse } from 'zpe-kit/shell';
 import { doorWho, doorSignIn } from './door';
+import { pageFromIndex } from './page';
 
 export { JamRoom } from './jam-room';
 
@@ -95,18 +98,49 @@ export default {
         (init as { duplex?: string }).duplex = 'half';
       }
       const forwarded = new Request(underMount ? url.toString() : requestUrl.toString(), init);
-      return stub.fetch(forwarded);
+      const answer = await stub.fetch(forwarded);
+      // A 404 out of the room's Durable Object is still a machine path's answer: the body it ships is
+      // `text/plain`, and a client that branches on `application/problem+json` reads that as a success.
+      if (answer.status === 404) {
+        const refusal = machineRefusal(url.pathname);
+        if (refusal) return refusal;
+      }
+      return answer;
     }
+
+    // THE FLEET'S SHEETS, under the mount. The shell this page wears links four of them at
+    // `/jam/_/system/*` and one font, and they are served from this package rather than copied into
+    // `public/`: a copy is a second version of the design system that drifts the moment it changes.
+    if (url.pathname.startsWith(SHEET_PATH)) {
+      const name = url.pathname.slice(SHEET_PATH.length);
+      if (name === FONT_NAME) {
+        const font = fontResponse(mount);
+        if (font) return font;
+      }
+      const sheet = sheetResponse(name, mount);
+      if (sheet) return sheet;
+    }
+
+    // A MACHINE PATH NEVER ANSWERS A PAGE. `/api/` and `/_/` have their routes above, so a path that
+    // reaches this point in either namespace has none; `/health` is reserved because a monitor reading
+    // 200 from this app's own shell would call a jam room healthy on its landing page. Measured
+    // 2026-10-30: `/jam/health` answered `text/html` at 1,670 B, and `/jam/_/api/v1` the shell.
+    const refusal = machineRefusal(url.pathname, ['/health']);
+    if (refusal) return refusal;
 
     // A CLIENT ROUTE UNDER THE MOUNT (a hard refresh on a screen) gets the mount's own shell: the
     // asset layer's SPA fallback would serve the assets-directory ROOT shell, which is the wrong
     // door's bundle. A request that names a FILE is the asset layer's business.
     if (underMount && env.ASSETS && !/\.(?:[a-z0-9]+)$/i.test(url.pathname)) {
-      const shell = await env.ASSETS.fetch(new URL(`${mount}/index.html`, requestUrl).toString());
-      if (shell.status === 200) {
-        const headers = new Headers(shell.headers);
-        headers.set('cache-control', 'no-store');
-        return new Response(shell.body, { status: 200, statusText: shell.statusText, headers });
+      const doc = await env.ASSETS.fetch(new URL(`${mount}/index.html`, requestUrl).toString());
+      if (doc.status === 200) {
+        // THE ESTATE'S SHELL AROUND THE APP'S BUNDLE. `pageFromIndex` reads Vite's two tags out of the
+        // document and hands them to `shell()`, so this page wears the fleet's sheets and the bar the
+        // way every other page on the estate does (ADMISSION layer 11).
+        return new Response(pageFromIndex(await doc.text(), mount), {
+          status: 200,
+          headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
+        });
       }
     }
 

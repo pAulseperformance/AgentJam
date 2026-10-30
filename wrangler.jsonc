@@ -19,6 +19,12 @@
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
+    // THE PAGE IS COMPOSED, SO THE WORKER SEES IT FIRST. `/jam/` is a real file in `dist/jam/` (Vite's
+    // index.html), so the asset layer answered it before this Worker ran and the estate's shell around
+    // that bundle was never drawn (measured 2026-10-30: 2,033 B, no fleet sheet, no bar, while a client
+    // route like /jam/room/abc got the 3,195 B shell). These two patterns are the pages only; the bundle
+    // under /jam/assets/ keeps its direct path.
+    "run_worker_first": ["/jam", "/jam/"],
     "not_found_handling": "none"
   },
 
