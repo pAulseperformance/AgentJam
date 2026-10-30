@@ -145,7 +145,12 @@ function report() {
   const prompts = bars.map(b => b.prompt).filter(Boolean);
   if (prompts.length) {
     const drumHits = prompts.filter(p => /strong beats:.*\b(C2|D3|A5)\b/.test(p)).length;
-    console.log(`prompts   ${prompts.length}  naming a drum code as a strong beat: ${drumHits}`);
+    // THE TAIL-AWARE ASK, COUNTED. A prompt carries `CELL ASK` when the room asked for two notes in a
+    // named slot instead of a bar because the agent's tail did not fit the bar (llm-planner.ts,
+    // CELL_ASK). Task 4's acceptance is this number being at least one at 200 BPM.
+    const cellAsks = prompts.filter(p => p.includes('CELL ASK')).length;
+    console.log(`prompts   ${prompts.length}  naming a drum code as a strong beat: ${drumHits}` +
+      `  carrying a cell request: ${cellAsks}`);
   }
   if (paced.length) console.log(`paced     ${paced.length} bars paced by the tempo rule, e.g. "${paced[0].response}"`);
   for (const [agent, row] of byAgent) {
