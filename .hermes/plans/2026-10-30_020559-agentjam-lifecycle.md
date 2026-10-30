@@ -34,7 +34,7 @@ Two defects found while measuring, both load-bearing for this plan:
 | The plan, its `.sha16` and its review live in `.hermes/plans/` under the repo and land in one commit | the machine's shared plan directory `~/.hermes/plans/`, which is where most plans go | that directory is not version controlled, so a review there certifies a document no other session can see (`plan` skill, "The plan directory is the DELIVERABLE") |
 | The stop command is `npx wrangler rollback` against a named version | deleting the Worker, or replacing it with a static 503 | rollback is one command, keeps the Durable Object storage, and is proven by reading the room health endpoint afterwards; deleting takes the room data with it |
 | The live probe is five HTTP reads plus one upgrade refusal, driven by a walker | a browser driver against the live page | a browser adds a package and a download to whatever machine runs the gate, and the steps a walker cannot see are written as MANUAL rows with their dates |
-| The `jam.zpe.vc` GET interception is fixed in `~/Projects/zpe-vc`, and agentJam's claim is corrected here | adding a second hostname rule inside agentJam's own worker | measured: the app answers HEAD with its own 301 and never sees GET, so the second layer is upstream of this Worker; a rule here cannot win that race |
+| The app's own name is retired as a door: the Worker comment and the registry row stop claiming it, and `zpe.vc/jam` is the only page address (REVISION 1, his call) | repairing the interception in `~/Projects/zpe-vc` so `jam.zpe.vc` redirects page requests to the mount | measured: the app answers HEAD with its own 301 and never sees GET, so the layer that answers page requests is upstream of this Worker; the cost accepted is that a visitor who types the old name lands on `/services` |
 | The rhythm section and the lead agent's spend rule stay as they are, since this plan changes no code | revisiting the one-rest-in-five governor while writing the records | it was measured at 3 rests in 20 bars across three runs; a paperwork plan that reopens a tuned policy is scope, not lifecycle |
 
 ## Claims
@@ -148,15 +148,15 @@ Two defects found while measuring, both load-bearing for this plan:
 
 **Run:** `bash check.sh --live` exits 0; `python3 ~/.hermes/agent-hooks/spec_gate.py stamp . --cmd "bash check.sh --live"` writes the date only on that exit 0; `python3 ~/.hermes/agent-hooks/spec_gate.py repo .` prints COMPLETE.
 
-### Task 10: Refresh the registry row and route the hostname finding
+### Task 10: Retire the own-name claim and refresh the registry row
 
-**Objective:** the registry row names the commit that serves the live page, and the `jam.zpe.vc` GET interception is filed against the repo that owns it.
+**Objective:** the app stops claiming a second page door: the Worker comment, the wrangler comment and the registry declaration all say the mount is the only page address, the finding is recorded with both measuring commands, and the registry row is regenerated so its commit field matches the tree that serves the page.
 
 **Files:** create `docs/FINDINGS.md`
 
-**Mutation:** run the registry check against the stale row; it must report the commit mismatch rather than pass.
+**Mutation:** re-run the registry generator twice with no source change; the second run must produce a byte-identical `apps.json`, or the artifact is not a function of its inputs.
 
-**Run:** `python3 ~/Projects/app-registry/tools/admit.py --only jam --live` prints `ok` on every stage, and `docs/FINDINGS.md` carries the 302 row with the two commands that measure it.
+**Run:** `python3 ~/Projects/app-registry/registry.py --json` regenerates the row, then `python3 ~/Projects/app-registry/tools/admit.py --only jam --live` must report no FAIL on any stage, with the api, wire, guard and shell gates reading unknown because this row publishes no contract by declaration.
 
 ## Verification
 
@@ -189,3 +189,15 @@ Two defects found while measuring, both load-bearing for this plan:
 | Any change to the agent, the drummer or the Jev battery | the product is tuned and measured; this plan is about records and gates | a measurement shows one of the tuned policies regressing |
 | Deleting or renaming the `IDEA.md` line | it is not mine, and the repo's history is his | he says the file should go |
 | A second door for `jam.zpe.vc` inside agentJam | measured: the page request never reaches this Worker | zpe-vc's fix proves impossible without a rule here |
+
+## Revision 1: the own-name door is retired, not repaired (2026-10-30)
+
+His words: "Retire the claim in agentJam: drop the own-name redirect from the worker comment and the registry row, and treat zpe.vc/jam as the only door."
+
+What changed against the first draft: the first draft proposed repairing the zone layer in `~/Projects/zpe-vc` so that `jam.zpe.vc` redirected page requests to the mount. That row, its task and its excluded-table neighbour now say the opposite, and Task 10's Run line changed with it.
+
+What survives of the original reasoning: the measurement itself. A GET of `jam.zpe.vc/` answers 302 to `https://zpe.vc/services` while a HEAD reaches this Worker and gets its own 301, which is why a rule inside this repo could never win. The room API keeps answering on both names because that costs nothing.
+
+Cost accepted: a visitor who types the old name lands on `/services` and has to be told the mount. One register entry records it, with the two commands that re-measure it, in `docs/FINDINGS.md`.
+
+What this revision changes in the task set: Task 10 (retire and refresh the registry, not route a finding), and the plan's own decision row. No other task is touched, and no product behaviour changes.

@@ -1,0 +1,69 @@
+# DECISIONS: AgentJam
+
+Append-only. One entry per decision, with what it beat and the fact that would overturn it.
+
+## 2026-10-29 The renderer is Workers AI on the same Worker, not an external provider
+
+Loser: a hosted LLM API called from the Durable Object with its own key. Reason: the AI binding is
+already on the Worker, the small model answered in 557ms measured through this app, and an external
+call adds a credential, a network hop and a bill to every bar. Falsifier: a measured bar where Workers
+AI latency exceeds the bar budget on the p90 for a week, or a model answer that cannot be repaired into
+a playable bar.
+
+## 2026-10-29 Jev judges, the model renders, and the code applies policy
+
+Loser: asking Jev to write the notes. Reason: Jev generates no text by contract; it answers typed
+questions (`role`, `relation`, `density`, `register`, and a rest veto) in one call of 482 to 1104ms
+from the edge. Falsifier: a signed room where the brief arrives later than the render can use it, or
+where the repaired bar diverges from the brief in more than a fifth of bars.
+
+## 2026-10-29 The composed line is one bar ahead, the reactive layer is one eighth
+
+Loser: rendering the whole bar inside its own beat window. Reason: measured 923ms of phase error when
+notes are scheduled from the API return, and the streaming-accompaniment research is explicit that a
+large chunk costs reactivity (arXiv 2510.22105), so the two halves are separate. Falsifier: a human
+phrase that the composed bar answers with no shared pitch class in more than half of replies after the
+answer constraint, which would mean the bar is too coarse.
+
+## 2026-10-29 The drummer and the bass are code, not models
+
+Loser: a generated rhythm section. Reason: a drummer is fixed patterns plus a clock, so it cannot be
+late or inconsistent, and it costs no model call; measured 0ms phase and a downbeat in 100% of bars.
+Falsifier: a style where the fixed patterns are too repetitive to listen to for four bars, measured by
+a person, not by me.
+
+## 2026-10-29 The rest policy is bounded in code
+
+Loser: trusting the decision layer's own rest judgement. Reason: asked whether to sit out, with its
+recent activity in the state, Jev rested 7 of 20 live bars, a third of the room silent; with the policy
+in code three runs rested exactly 3 in 20. Falsifier: a run where the agent is silent in more than a
+fifth of bars, which means the governor is not holding.
+
+## 2026-10-29 Velocity is MIDI 1 to 127 everywhere
+
+Loser: the generator's own 0 to 1 range. Reason: the audio engine divides by 127, so a pattern bar
+played at under one percent volume, which sounded like silence rather than like a defect. Falsifier:
+a note whose velocity reads outside 1 to 127 in an `ai_debug` frame or a `note_on`.
+
+## 2026-10-29 The tier comes from the door, on a header the browser cannot set
+
+Loser: a per-app login or an Access gate. Reason: the fleet has one identity surface, and a second gate
+is a second place to be signed out; the header is computed in the Worker from `get-session` and travels
+to the room, so a client message cannot promote itself. Falsifier: a socket that reaches the signed tier
+without the door's cookie.
+
+## 2026-10-30 `zpe.vc/jam` is the only door; `jam.zpe.vc` is not
+
+Loser: repairing the upstream interception in `zpe-vc` so the app's own name redirects to the mount.
+His call, in his words: "Retire the claim in agentJam". Reason: a GET of `jam.zpe.vc/` answers 302 to
+`/services` while HEAD reaches this Worker, so a layer above this Worker answers page requests and no
+rule here can win that race; the room API still answers on the old host. Cost accepted: a visitor who
+knows the old name lands on `/services` and has to be told the mount. Falsifier: a request where the
+zone layer stops intercepting, or a second app that needs the same hostname behaviour, which would make
+the redirect worth rebuilding in the right repo.
+
+## 2026-10-30 The plan, its stamp and its review live in the repo, not in the machine's plan directory
+
+Loser: `~/.hermes/plans/`. Reason: that directory is not version controlled, so a review there certifies
+a document no other session can see. Falsifier: a tool that only reads the machine's plan directory and
+cannot be pointed at a repo path.

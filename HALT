@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# THE STOP COMMAND. One line, the real stop for a Cloudflare Worker.
+#
+#   bash HALT                  roll the Worker back to the deployment before this one
+#   bash HALT <version-id>     roll back to a version you name
+#
+# A deploy is undone by a rollback, not by deleting the Worker: deleting takes the Durable Object
+# storage with it, which is every room's note history. A rollback keeps the data and takes the code
+# back, and it is one command.
+#
+# What HALT does NOT undo: a defective migration or a bad row already written into a room's SQLite.
+# A data defect needs no rollback at all, it needs a read of what landed (see RUNBOOK.md).
+
+set -uo pipefail
+cd "$(dirname "$0")"
+
+TARGET="${1:-}"
+MESSAGE="${2:-HALT: stopped by the repo stop command, ${TARGET:-previous deployment}}"
+
+if [ -n "$TARGET" ]; then
+  npx wrangler rollback "$TARGET" --message "$MESSAGE" --name agent-jam
+else
+  npx wrangler rollback --message "$MESSAGE" --name agent-jam
+fi
+rc=$?
+
+echo
+echo "rolled back: rc=${rc}"
+echo "prove it:  curl -s https://zpe.vc/jam/api/room/halt-probe/health"
+echo "re-deploy when fixed:  npx wrangler versions deploy <version-id>@100% --yes"
+exit "$rc"

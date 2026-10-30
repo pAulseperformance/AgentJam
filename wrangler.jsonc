@@ -45,21 +45,20 @@
     }
   ],
 
-  // Custom domain, auto-provisions SSL. One name only: the paulseperformance.com alias was
-  // retired on 2026-09-27 (redundant + confusing with the zpe.vc door); jam.zpe.vc is canonical.
-  // TWO DOORS, ONE DEPLOYMENT. The custom domain is the app's own name, which now redirects page
-  // requests to the path; the two routes are the mount. A path pattern needs `zone_name` (a
-  // custom_domain does not), and the mount takes TWO patterns because a trailing * in a route
-  // pattern is a string wildcard that would also capture /jam-other.
+  // THE PAGE DOOR IS THE MOUNT (zpe.vc/jam). The custom domain keeps answering the room API, but its
+  // PAGE requests are answered upstream with a 302 to /services, measured 2026-10-30: a HEAD reaches
+  // this Worker and gets a 301, a GET never arrives. See docs/FINDINGS.md. One deployment, and the
+  // mount takes TWO route patterns because a trailing * is a string wildcard that would also capture
+  // /jam-other; a path pattern needs `zone_name` (a custom_domain does not).
   "routes": [
     { "pattern": "jam.zpe.vc", "custom_domain": true },
     { "pattern": "zpe.vc/jam", "zone_name": "zpe.vc" },
     { "pattern": "zpe.vc/jam/*", "zone_name": "zpe.vc" }
   ],
   "vars": {
-    // WHERE THE APP IS MOUNTED, and the host that owns the mount. A page request on the app's own
-    // name is 301'd to the mount; its socket and API keep answering on both names, and the
-    // workers.dev address is left alone (it is neither).
+    // WHERE THE APP IS MOUNTED, and the host that owns the mount. The room socket and the API answer
+    // on both names; page requests only on the mount. The workers.dev address is left alone (it is
+    // neither).
     "PATH_PREFIX": "/jam",
     "MOUNT_ORIGIN": "https://zpe.vc",
     "CANONICAL_HOST": "jam.zpe.vc",

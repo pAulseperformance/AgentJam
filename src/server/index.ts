@@ -19,8 +19,11 @@ export default {
     // WHERE THIS APP IS MOUNTED.
     //
     // The app used to live at its own name (jam.zpe.vc) and now lives at a path on the universe's
-    // apex (zpe.vc/jam). One deployment answers both:
-    //   - a PAGE request on the app's own name is 301'd to the mount, carrying its sub-path,
+    // apex (zpe.vc/jam). MEASURED 2026-10-30: the old name is NOT a page door. A GET of jam.zpe.vc/
+    // is answered by a layer ABOVE this Worker with a 302 to /services, while a HEAD reaches this
+    // Worker and gets the 301 below. So this branch is correct for whatever reaches here, and the
+    // only page door is the mount (docs/FINDINGS.md, DECISIONS.md).
+    // One deployment still answers both, for the API:
     //   - the mount serves the same build (nested under dist/jam/, so the asset layer finds it by
     //     path and the old name's root matches no file),
     //   - the room socket answers under the mount AND on the old name.
