@@ -91,3 +91,8 @@ card that cannot pass its own gate is worse than a card that starts late.
 The review's strongest point stands and the plan does not pretend otherwise: the decisive numbers sit inside
 run-to-run noise. The answer is already in the plan, in Task 16's post-deploy floor, which is checked after
 every deploy rather than written once in a table.
+
+## Two tooling lessons from this cut
+
+- `hermes kanban set-model <id> <model> --provider <name>` exists, so a wrong provider pin is repairable on the card itself. Recreating the two review cards was a heavier repair than the defect deserved.
+- Name a provider that exists in the ASSIGNEE's own config (`model.provider` in `~/.hermes/profiles/<name>/config.yaml`), never the integration that provider wraps. `custom` is what the router is called, `veil` is what the profile configures.
