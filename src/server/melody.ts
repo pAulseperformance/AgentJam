@@ -53,9 +53,13 @@ export function melodyPlan(bar: number, style: string, hasMotif: boolean): Melod
 
   // Denser for the styles that expect it, never below five: four notes is a gesture, five is a line.
   const base = style === 'ambient' ? 5 : style === 'funk' ? 7 : 6;
-  // FIVE IS THE FLOOR. Four notes is a gesture, and a decision layer told to be economical will
-  // otherwise hand a room four notes and call it a cadence.
-  const wantNotes = Math.max(5, position === 'state' ? base : position === 'cadence' ? base - 1 : base + 1);
+  // A PHRASE HAS A BEGINNING AND AN END. A recorded 20-bar session had 5 to 7 notes in EVERY bar, no
+  // bar under four and no silence anywhere, which is why nothing it plays sounds finished. The
+  // statement is the longest bar, the development reaches, and the cadence LANDS: two or three notes
+  // and the rest of the bar left open, so the next phrase has somewhere to start.
+  const wantNotes = position === 'cadence'
+    ? 3
+    : Math.max(5, position === 'state' ? base : base + 1);
 
   const instruction = [
     `PLAY A MELODY, not a chord: ${wantNotes} notes in one line, moving ${contour === 'arch' ? 'up then down' : contour === 'rising' ? 'upward' : contour === 'falling' ? 'downward' : 'in waves'}.`,

@@ -114,3 +114,15 @@ bar's peak, tapers the ends, holds strong beats and lands the last note, and dro
 sixteenth. Measured on a recorded 20-bar solo session after: 5-7 notes per bar, 0 bars at a single
 velocity, a median gap of 250ms against 125ms. Falsifier: a recorded session where more than a quarter
 of the bars sit at a single velocity, or a bar with eight or more consecutive sixteenths.
+
+## 2026-10-30 A cadence lands short, and a reference phrase exists to judge against
+
+Loser: a five-note floor on every position including the cadence. Reason: the recorded 20-bar session
+had 5 to 7 notes in every bar, no bar under four and no silence, so no phrase sounded finished. The
+cadence is now three notes with the rest of the bar open. Measured after, 2 of 16 bars landed at three
+notes, which is fewer than expected because the phrase position is the ABSOLUTE bar number modulo four,
+so a listener who joins mid-bar hears a cadence on a different bar than the first phrase. Also recorded:
+a hand-written 8-bar phrase in the same key through the same renderer (`reference-8-bars.mp3`), so
+"in key and on the scale" can be judged against something that is deliberately intentional. Falsifier:
+a session where no bar lands under four notes across sixteen bars, which would mean the cadence rule
+is not reaching the renderer.

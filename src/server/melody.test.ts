@@ -14,11 +14,12 @@ describe('melodyPlan', () => {
     expect(melodyPlan(4, 'jazz', true).position).toBe('state');
   });
 
-  it('asks for a line of at least five notes in every style', () => {
+  it('asks for a line of at least five notes, except the cadence which lands short', () => {
     for (const style of ['ambient', 'funk', 'jazz', 'random']) {
       for (let bar = 0; bar < 4; bar++) {
         const plan = melodyPlan(bar, style, bar > 0);
-        expect(plan.wantNotes).toBeGreaterThanOrEqual(5);
+        if (plan.position === 'cadence') expect(plan.wantNotes).toBeLessThanOrEqual(3);
+        else expect(plan.wantNotes).toBeGreaterThanOrEqual(5);
         expect(plan.instruction).toContain('MELODY');
       }
     }
@@ -117,6 +118,18 @@ describe('completeMelody', () => {
     const line = [note('G4', 1), note('C4', 0), note('E4', 0.5)];
     const shaped = shapeLine(line, { contour: 'rising', density: 'medium' });
     expect(shaped.map(n => n.pitch)).toEqual(['C4', 'E4', 'G4']);
+  });
+
+  it('lands a cadence short instead of padding it back into a line', () => {
+    const cadence = melodyPlan(3, 'jazz', true);
+    const { notes } = completeMelody([note('C4', 0), note('E4', 1)], {
+      plan: cadence,
+      key: 'C major',
+      motif: null,
+      register: { low: 55, high: 72 },
+    });
+    expect(notes.length).toBeLessThanOrEqual(3);
+    expect(notes.length).toBeGreaterThanOrEqual(2);
   });
 
   it('never exceeds the note ceiling', () => {
