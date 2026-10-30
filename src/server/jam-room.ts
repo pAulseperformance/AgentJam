@@ -189,6 +189,54 @@ interface InProcessAgent {
 }
 
 /**
+ * THE BAR'S REMAINING EIGHTHS, PATCHED INSTEAD OF THROWN AWAY.
+ *
+ * A render is written during the bar BEFORE the one it fills, and it is given only the time left
+ * before that line (`renderBudget`, floored at 400 ms). When the answer still lands after the line —
+ * the floor is longer than the time left, the settle timer fires late, or the tempo moves under the
+ * call — `prunePast` drops an entry written for a bar that has begun, so the answer is silence and the
+ * bar plays cells or the generator instead.
+ *
+ * The bar is still playing, though, and the eighths the agent has not reached yet are still its. This
+ * moves the ANSWER'S ENDING onto those slots: the tail of the line (its cadence) lands where the bar
+ * still has to be played, on the room's eighth grid, and the notes written for slots that have gone
+ * are dropped, because a note addressed to a slot that has passed is a note the room cannot play.
+ *
+ * Pure on purpose: the slots depend only on where the bar is, the notes only on the answer. Nothing
+ * here reads the clock, so the same late answer in the same position patches the same eighths.
+ */
+export const LATE_GRID = 0.5;
+/** A 32nd of lead time, so the scheduler still has a slot it can write a note into. */
+export const LATE_GRACE = 0.125;
+
+export function latePatch(
+  notes: readonly GeneratedNote[],
+  fromBeat: number,
+  grid: number = LATE_GRID,
+  grace: number = LATE_GRACE,
+): GeneratedNote[] {
+  if (notes.length === 0) return [];
+  if (!(grid > 0) || !(grace >= 0) || !Number.isFinite(fromBeat)) return [];
+
+  // THE FIRST EIGHTH STILL AHEAD, with enough lead to be written: the downbeat and the slots before
+  // the room's clock are gone, whatever the answer said about them.
+  const first = Math.ceil((fromBeat + grace) / grid) * grid;
+  const slots: number[] = [];
+  for (let i = 0; i < Math.ceil(4 / grid); i++) {
+    const slot = Math.round((first + i * grid) * 10000) / 10000;
+    if (slot >= 4) break;
+    if (slot < 0) continue;
+    slots.push(slot);
+  }
+  if (slots.length === 0) return [];
+
+  // THE ENDING, NOT THE BEGINNING. The answer was written for the whole bar; the part still ahead is
+  // its close, so the tail keeps its shape and its last note lands at the bar's end where it belongs.
+  const tail = notes.slice(-slots.length);
+  return tail.map((note, i) => ({ ...note, beatTime: slots[i] ?? 0 }));
+}
+
+/**
  * JamRoom Durable Object, the central hub for a jam session.
  *
  * Phase 3 additions:
@@ -1602,6 +1650,43 @@ export class JamRoom implements DurableObject {
       // The bar this belongs to, worked out before the decision so the decision could see it.
       const target = forBar;
 
+      // A RENDER THAT MISSED ITS LINE IS NOT SILENCE. The call is bounded to the time left before the
+      // line (`renderBudget`), but its floor of 400 ms can be longer than that time, a settle timer can
+      // fire late, and the tempo can move under a call — measured on the live room, a model bar's
+      // latency reached 1403 ms against a 1100 ms budget at 200 BPM. The bar is then already playing,
+      // so the queue cannot publish the answer: `prunePast` drops an entry written for a bar that has
+      // begun. The eighths the agent has not reached yet are still its, so the answer patches them.
+      const lineAt = this.roomState.transportStartTime + target * this.barMs();
+      const now = Date.now();
+      if (now >= lineAt) {
+        // ONLY REAL MUSIC. A late fallback is the generator's measure and a late cell answered a slot
+        // that has gone by: neither is a line this bar's tail can carry, and playing either would put
+        // the generator's notes, or a fragment of nothing, in the agent's name.
+        const fromBeat = this.beatIntoBar(target, now);
+        let patch = result.meta.source === 'llm' && !cellAsk && now < lineAt + this.barMs()
+          ? latePatch(finalNotes, fromBeat)
+          : [];
+        // NOT ON A SLOT ANOTHER AGENT IS ALREADY SOUNDING. Their bar was published at the line, so a
+        // shared pitch on a shared beat is a fact here, not a plan the repairer can still fix.
+        const taken = this.soundedSlots(agent.peer.peerId, target);
+        if (taken.size > 0) {
+          patch = patch.filter(n => !taken.has(`${n.pitch}@${n.beatTime}`.toLowerCase()));
+        }
+        if (patch.length > 0) {
+          this.emitAgentBar(agent, patch, target, beatMs);
+          this.broadcastAll(JSON.stringify({
+            type: 'ai_debug',
+            agentPeerId: agent.peer.peerId,
+            agentName: agent.peer.name,
+            bar: target,
+            meta: this.lateMeta(result.meta, patch, fromBeat),
+          }));
+        }
+        // AND NEVER QUEUED: an entry for a bar that has begun can only be pruned at the next line, and
+        // it would hold a slot the next render needs in the meantime.
+        return;
+      }
+
       // A REFRESH THAT CAME BACK AS A FALLBACK DOES NOT GET TO REPLACE A MODEL BAR: the old entry is
       // stale but it is real music, and the repairer's fallback is only a bar. A CELL NEVER REPLACES A
       // BAR EITHER: the queue already holds a full line for this slot, and two notes are less than it.
@@ -1675,11 +1760,11 @@ export class JamRoom implements DurableObject {
   }
 
   /** How far into bar `bar` the room's clock is, in beats. 0 when the tempo cannot describe one. */
-  private beatIntoBar(bar: number): number {
+  private beatIntoBar(bar: number, at: number = Date.now()): number {
     const beatMs = (60 / this.roomState.bpm) * 1000;
     if (!(beatMs > 0) || !Number.isFinite(beatMs)) return 0;
     const barStart = this.roomState.transportStartTime + bar * this.barMs();
-    const elapsed = Date.now() - barStart;
+    const elapsed = at - barStart;
     if (!Number.isFinite(elapsed) || elapsed <= 0) return 0;
     return elapsed / beatMs;
   }
@@ -1696,6 +1781,29 @@ export class JamRoom implements DurableObject {
       prompt: '(cell bar)',
       response: `${reaction.describe}; this agent writes every ${stride} bars at ${this.roomState.bpm} BPM`,
       noteCount: reaction.notes.length, latencyMs: 0,
+    };
+  }
+
+  /**
+   * THE RECORD FOR A PATCHED BAR, under its own source. `llm` would say the bar was published at its
+   * line, and `cell` or `pattern` would say no answer of the agent's was involved; `late` says what
+   * happened. A session file then counts the bars that missed their line, and the bar's `plan` lists
+   * exactly the notes that sounded after it.
+   */
+  private lateMeta(
+    answer: AiCallMeta,
+    notes: GeneratedNote[],
+    fromBeat: number,
+  ): AiCallMeta {
+    const plan = notes.map(n => `${n.pitch}@${n.beatTime}`).join(' ');
+    return {
+      ...answer,
+      source: 'late',
+      noteCount: notes.length,
+      plan,
+      response: `${plan} — the last ${notes.length} note${notes.length === 1 ? '' : 's'} of an answer ` +
+        `that arrived at beat ${fromBeat.toFixed(2)} of its own bar. The answer was: ` +
+        `${answer.response.slice(0, 160)}`,
     };
   }
 

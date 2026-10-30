@@ -149,14 +149,22 @@ function report() {
   console.log(`recorded  ${(recordedMs / 1000).toFixed(1)} s   bar ${(240000 / (meta.bpm ?? bpm)).toFixed(0)} ms`);
   console.log(`messages  ${messages.length}   notes ${notes.length}   bar records ${bars.length}   duplicate (agent,ms) ${dupBars}`);
   console.log(`model bars ${bars.filter(b => b.source === 'llm').length}  rest ${bars.filter(b => b.source === 'rest').length}` +
-    `  pattern ${bars.filter(b => b.source === 'pattern').length}  fallback ${bars.filter(b => b.source === 'fallback').length}`);
+    `  pattern ${bars.filter(b => b.source === 'pattern').length}  fallback ${bars.filter(b => b.source === 'fallback').length}` +
+    `  late ${bars.filter(b => b.source === 'late').length}`);
+  // THE BARS THAT MISSED THEIR LINE, NAMED ONE BY ONE. A bar patched after its own line records
+  // source 'late' (jam-room.ts, latePatch): it is the model's own answer, played into the eighths
+  // still ahead. Printing the agent and what it played is how a run shows the patch happened.
+  const late = bars.filter(b => b.source === 'late');
+  if (late.length) {
+    console.log(`late      ${late.length} bars patched after their own line, e.g. ${late[0].agent} t=${late[0].t} ${late[0].plan}`);
+  }
   if (lat.length) {
     console.log(`latency   min ${lat[0]}  median ${lat[Math.floor(lat.length / 2)]}  max ${lat[lat.length - 1]} ms`);
   }
   // THE HEDGE, PRICED FROM THE SESSION FILE. Each model bar records how many calls it spent, so the
   // two settings compare on the card's two readings — calls per bar and worst latency — without
   // trusting a description of what the setting does.
-  const modelBars = bars.filter(b => b.source === 'llm' || b.source === 'fallback');
+  const modelBars = bars.filter(b => b.source === 'llm' || b.source === 'fallback' || b.source === 'late');
   const callsSpent = bars.reduce((n, b) => n + (typeof b.calls === 'number' ? b.calls : 0), 0);
   const callsPerBar = modelBars.length ? (callsSpent / modelBars.length).toFixed(2) : 'n/a';
   const twoCall = modelBars.filter(b => b.calls === 2).length;

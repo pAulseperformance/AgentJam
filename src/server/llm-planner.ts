@@ -90,9 +90,11 @@ export interface AiCallMeta {
   /**
    * WHO PLAYED THIS BAR. `cell` is the agent's own short figures quoting its last statement, written
    * by the room while a render could not fit the bar; it is not the model's and not the generator's,
-   * so it is not counted as either.
+   * so it is not counted as either. `late` is the model's own line, played into the eighths still
+   * ahead because the answer arrived after the bar's line: it is the model's music, but it is not a
+   * bar (see `latePatch` in jam-room.ts).
    */
-  source: 'llm' | 'pattern' | 'fallback' | 'rest' | 'cell';
+  source: 'llm' | 'pattern' | 'fallback' | 'rest' | 'cell' | 'late';
   /**
    * WHAT THE ROOM ASKED FOR. A `cell` ask is two notes in one named slot instead of a bar: the
    * agent's tail did not fit the bar the ask writes for, so asking for a whole bar only produced
