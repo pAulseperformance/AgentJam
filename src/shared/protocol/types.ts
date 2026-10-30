@@ -85,6 +85,17 @@ export const SetBackingMessageSchema = z.object({
 });
 export type SetBackingMessage = z.infer<typeof SetBackingMessageSchema>;
 
+/**
+ * THE ROOM'S HEDGE. On, every bar the room writes is asked for twice, 200 ms apart, and the first
+ * valid answer is the bar; off, a bar costs one call. Off is the default because the second call is
+ * real money, so turning it on is the room owner's decision and not a policy an agent takes itself.
+ */
+export const SetHedgeMessageSchema = z.object({
+  type: z.literal('set_hedge').describe('Message discriminator: turn the hedged ask on or off for this room'),
+  enabled: z.boolean().describe('Whether a bar spends two model calls, the second issued 200 ms after the first'),
+});
+export type SetHedgeMessage = z.infer<typeof SetHedgeMessageSchema>;
+
 export const InstrumentChangeMessageSchema = z.object({
   type: z.literal('instrument_change').describe('Message discriminator'),
   instrument: z.string().describe('New instrument label to apply to the requesting peer'),
@@ -184,6 +195,7 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   RecordingStartMessageSchema,
   RecordingStopMessageSchema,
   SetBackingMessageSchema,
+  SetHedgeMessageSchema,
   z.object({ type: z.literal('set_agent_model'), agentPeerId: z.string(), model: z.string() }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;

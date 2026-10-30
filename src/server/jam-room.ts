@@ -35,6 +35,7 @@ import {
   SIGNED_MODEL,
   isFreeModel,
   isKnownModel,
+  HEDGE_GAP_MS,
   type AiCallMeta,
   type Tier,
 } from './llm-planner';
@@ -223,6 +224,13 @@ export class JamRoom implements DurableObject {
    * not a bar. See `warmTheModel`.
    */
   private modelWarm: Promise<void> | null = null;
+  /**
+   * THE HEDGED ASK, per room. Off by default: on, every boundary render spends two identical model
+   * calls 200 ms apart and plays whichever answers first with a usable line. The second call is real
+   * money, so the room does not decide to spend it; `set_hedge` does. Persisted, because a setting
+   * that dies with every Durable Object eviction is a setting the room merely borrowed.
+   */
+  private hedge = false;
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -242,6 +250,10 @@ export class JamRoom implements DurableObject {
       if (stored) {
         this.roomState = stored;
       }
+      // THE HEDGE SURVIVES AN EVICTION. Only an explicit `true` turns it on: a missing key, a
+      // half-written one or any other value is the default, which is off.
+      const hedged = await this.ctx.storage.get<boolean>('hedge');
+      if (hedged === true) this.hedge = true;
     });
 
     // Accept WebSocket hibernation callbacks
@@ -280,6 +292,8 @@ export class JamRoom implements DurableObject {
         agents: this.agents.size,
         bpm: this.roomState.bpm,
         key: this.roomState.key,
+        // THE SETTING, READ BACK. One call per bar by default; two when the room hedged the ask.
+        hedge: this.hedge,
         uptimeMs: Date.now() - this.startTime,
       });
     }
@@ -340,6 +354,9 @@ export class JamRoom implements DurableObject {
         break;
       case 'set_backing':
         this.handleSetBacking(msg.drummer, msg.bass);
+        break;
+      case 'set_hedge':
+        this.handleSetHedge(msg.enabled);
         break;
       case 'instrument_change':
         // Broadcast to all peers so they can update per-peer synth routing
@@ -828,6 +845,17 @@ export class JamRoom implements DurableObject {
     if (!drummer) this.despawnLayer('drummer');
     if (bass && !this.layers.has('bass')) this.spawnLayer('bass');
     if (!bass) this.despawnLayer('bass');
+  }
+
+  /**
+   * Turn the hedged ask on or off for the whole room. Nothing else changes: the ask, the cell slot
+   * and the queue stay exactly as they were, and the second call is the same prompt as the first.
+   * The setting is stored so it outlives an eviction, and `/health` reports it so an operator can
+   * read back what the room will spend without opening a socket.
+   */
+  private handleSetHedge(enabled: boolean): void {
+    this.hedge = enabled;
+    void this.ctx.storage.put('hedge', enabled);
   }
 
   private spawnLayer(role: 'drummer' | 'bass'): void {
@@ -1486,8 +1514,12 @@ export class JamRoom implements DurableObject {
       // one bar away. Measuring to the NEXT bar line would cancel a call that has the time to finish.
       const deadlineMs = this.roomState.transportStartTime + forBar * this.barMs();
       const budgetMs = renderBudget(deadlineMs - Date.now(), AI_BUDGET_MS);
+      // THE HEDGE SPENDS WHERE THE TAIL IS. Only a boundary render is exposed to the agent's tail
+      // (a refresh carries no tail reading and replaces a bar the queue already holds), so only it
+      // may buy a second call: a hedged refresh would pay twice to replace music already queued.
+      const hedgeMs = targetBar === undefined && this.hedge ? HEDGE_GAP_MS : 0;
       const result = await generateMeasureWithAi(
-        this.env.AI, ctx, agent.model, brief, agent.tier, budgetMs,
+        this.env.AI, ctx, agent.model, brief, agent.tier, budgetMs, hedgeMs,
       );
       // WHAT A RENDER ACTUALLY COSTS, smoothed per agent. This is the number the stride comes from, so
       // the tempo policy is measured rather than guessed, and it survives a model that gets slower.

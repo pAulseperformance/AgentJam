@@ -39,6 +39,9 @@ const spawnAt = String(arg('spawn-at', '')).split(',').filter(Boolean).map(Numbe
 // The room's own drummer and bass. A probe that never switches them on cannot see how the agents treat
 // them, and their fixed figure reached the prompt as "strong beats" until it was filtered out.
 const backing = arg('backing', '') !== '';
+// THE HEDGED ASK. Off is the room's default, so a probe that never asks cannot see what the second
+// call buys: `--hedge` turns it on before the agents spawn and the summary prints the spend per bar.
+const hedge = arg('hedge', '') !== '';
 
 let cookie = '';
 try { cookie = readFileSync(cookieFile, 'utf8').trim(); } catch { /* public tier */ }
@@ -60,6 +63,9 @@ ws.on('open', () => {
   send({ type: 'join_room', name: 'Probe', kind: 'human', instrument: 'PolySynth' });
   setTimeout(() => send({ type: 'bpm_change', bpm }), 250);
   if (backing) setTimeout(() => send({ type: 'set_backing', drummer: true, bass: true }), 350);
+  // BEFORE ANY AGENT: the pair is a property of the room, so it must be on when the first bar is asked
+  // for, or the run measures the default instead of the setting.
+  if (hedge) setTimeout(() => send({ type: 'set_hedge', enabled: true }), 300);
   agents.forEach((style, i) => {
     const at = spawnAt[i] ?? (500 + i * 250);
     setTimeout(() => send({ type: 'spawn_agent', name: `Probe ${style}`, style }), at);
@@ -112,6 +118,10 @@ ws.on('message', (buf) => {
       error: m.error ?? null,
       response: m.response ?? null,
       prompt: m.prompt ?? null,
+      // THE SPEND, FROM THE BAR'S OWN RECORD. `calls` is what the room charged this bar: 0 for a
+      // rest or a pattern agent, 1 normally, 2 when the ask was hedged (llm-planner.ts).
+      calls: typeof m.calls === 'number' ? m.calls : null,
+      ask: m.ask ?? null,
     });
   }
 });
@@ -142,6 +152,17 @@ function report() {
   if (lat.length) {
     console.log(`latency   min ${lat[0]}  median ${lat[Math.floor(lat.length / 2)]}  max ${lat[lat.length - 1]} ms`);
   }
+  // THE HEDGE, PRICED FROM THE SESSION FILE. Each model bar records how many calls it spent, so the
+  // two settings compare on the card's two readings — calls per bar and worst latency — without
+  // trusting a description of what the setting does.
+  const modelBars = bars.filter(b => b.source === 'llm' || b.source === 'fallback');
+  const callsSpent = bars.reduce((n, b) => n + (typeof b.calls === 'number' ? b.calls : 0), 0);
+  const callsPerBar = modelBars.length ? (callsSpent / modelBars.length).toFixed(2) : 'n/a';
+  const twoCall = modelBars.filter(b => b.calls === 2).length;
+  const oneCall = modelBars.filter(b => b.calls === 1).length;
+  console.log(`calls     ${callsSpent} model calls over ${modelBars.length} model bars = ${callsPerBar} per model bar` +
+    `   two-call bars ${twoCall}  one-call bars ${oneCall}` +
+    `   worst latency ${lat.length ? `${lat[lat.length - 1]} ms` : 'n/a'}`);
   const prompts = bars.map(b => b.prompt).filter(Boolean);
   if (prompts.length) {
     const drumHits = prompts.filter(p => /strong beats:.*\b(C2|D3|A5)\b/.test(p)).length;

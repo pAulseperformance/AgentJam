@@ -319,5 +319,182 @@ describe('JamRoom Durable Object', () => {
       await new Promise(r => setTimeout(r, 50));
       await settle(stub);
     });
+
+    describe('the hedged ask', () => {
+      /** What the room asked the model, as the test's fake binding received it. */
+      type Ask = {
+        prompt: string;
+        maxTokens: number;
+        temperature: number | null;
+        issuedAt: number;
+        answer: string;
+        /** release the answer; the fake holds every bar ask until the test lets it go */
+        release: (answer?: string) => void;
+      };
+
+      const isBarAsk = (ask: Ask) => ask.maxTokens >= 512;
+
+      /**
+       * THE MODEL, AS THE TEST SENDS IT. The warm ask answers at once with one word, so the room's
+       * opening is never held. A bar ask is HELD until the test releases it: that is what makes the
+       * call counts and the 200 ms gap deterministic, instead of racing the room's next bar line.
+       */
+      const installModel = async (
+        stub: ReturnType<typeof getRoomStub>,
+        asks: Ask[],
+      ): Promise<void> => {
+        await runInDurableObject(stub, async (instance: JamRoom) => {
+          const room = instance as unknown as {
+            env: { AI: { run: (model: string, inputs: unknown) => Promise<{ response: unknown }> } };
+          };
+          room.env.AI = {
+            run: (_model, inputs) => {
+              const input = inputs as {
+                max_tokens?: number;
+                temperature?: number;
+                messages?: Array<{ content: string }>;
+              };
+              const maxTokens = Number(input.max_tokens ?? 0);
+              const prompt = input.messages?.at(-1)?.content ?? '';
+              const bar = maxTokens >= 512;
+              const ask: Ask = {
+                prompt,
+                maxTokens,
+                temperature: typeof input.temperature === 'number' ? input.temperature : null,
+                issuedAt: Date.now(),
+                answer: '',
+                release: () => {},
+              };
+              asks.push(ask);
+              if (!bar) return Promise.resolve({ response: 'OK' });
+              return new Promise(resolve => {
+                ask.release = (answer = JSON.stringify([{ pitch: 'C4', beatTime: 0, velocity: 90, duration: 0.5 }])) => {
+                  ask.answer = answer;
+                  resolve({ response: answer });
+                };
+              });
+            },
+          };
+        });
+      };
+
+      /** The one agent this room spawned, or a failure that names the reason. */
+      const theAgent = (instance: JamRoom): {
+        busy: boolean;
+        queue: Array<{ bar: number; meta: { source?: string; calls?: number; response?: string; latencyMs?: number } | null }>;
+      } => {
+        const room = instance as unknown as {
+          agents: Map<string, {
+            busy: boolean;
+            queue: Array<{ bar: number; meta: { source?: string; calls?: number; response?: string; latencyMs?: number } | null }>;
+          }>;
+        };
+        const agent = [...room.agents.values()][0];
+        if (!agent) throw new Error('agent did not spawn');
+        return agent;
+      };
+
+      it('asks once per bar while the hedge is off, and reports the setting', async () => {
+        const asks: Ask[] = [];
+        const { stub, ws } = await openSocket();
+        await installModel(stub, asks);
+
+        ws.send(JSON.stringify({ type: 'join_room', name: 'HedgeOffPeer', kind: 'human' }));
+        await new Promise(r => setTimeout(r, 40));
+        ws.send(JSON.stringify({ type: 'spawn_agent', name: 'Hedge Off Bot', style: 'jazz' }));
+        await new Promise(r => setTimeout(r, 120));
+
+        let readBack: { hedge?: boolean } = {};
+        await runInDurableObject(stub, async (instance: JamRoom) => {
+          // THE DEFAULT IS OFF: the room spends one call until somebody asks for the second.
+          expect((instance as unknown as { hedge: boolean }).hedge).toBe(false);
+          expect(asks.filter(isBarAsk).length).toBe(1);
+
+          // AND THE SETTING IS READ BACK FROM THE ROOM, not from the sender's intention.
+          const health = await instance.fetch(new Request('http://localhost/health'));
+          readBack = await health.json() as { hedge?: boolean };
+          expect(readBack.hedge).toBe(false);
+
+          // release the held ask so the render lands and the room keeps its slots
+          asks.filter(isBarAsk)[0]?.release();
+          await new Promise(r => setTimeout(r, 40));
+        });
+
+        ws.send(JSON.stringify({ type: 'set_hedge', enabled: true }));
+        await new Promise(r => setTimeout(r, 60));
+
+        await runInDurableObject(stub, async (instance: JamRoom) => {
+          expect((instance as unknown as { hedge: boolean }).hedge).toBe(true);
+          const health = await instance.fetch(new Request('http://localhost/health'));
+          expect((await health.json() as { hedge?: boolean }).hedge).toBe(true);
+          // PERSISTED, so an eviction does not quietly turn the spend back off.
+          const store = (instance as unknown as { ctx: { storage: { get: (key: string) => Promise<unknown> } } }).ctx;
+          expect(await store.storage.get('hedge')).toBe(true);
+        });
+
+        ws.close();
+        await new Promise(r => setTimeout(r, 50));
+        await settle(stub);
+      });
+
+      it('spends two identical calls 200 ms apart on a hedged bar, and plays the first valid answer', async () => {
+        const asks: Ask[] = [];
+        const { stub, ws } = await openSocket();
+        await installModel(stub, asks);
+
+        ws.send(JSON.stringify({ type: 'join_room', name: 'HedgePeer', kind: 'human' }));
+        await new Promise(r => setTimeout(r, 40));
+        ws.send(JSON.stringify({ type: 'spawn_agent', name: 'Hedge Bot', style: 'jazz' }));
+        await new Promise(r => setTimeout(r, 120));
+        ws.send(JSON.stringify({ type: 'set_hedge', enabled: true }));
+        await new Promise(r => setTimeout(r, 60));
+
+        await runInDurableObject(stub, async (instance: JamRoom) => {
+          const room = instance as unknown as { hedge: boolean };
+          expect(room.hedge).toBe(true);
+          const agent = theAgent(instance);
+
+          // Clear the spawn render's own ask: the pair this case is about is the next boundary.
+          asks.filter(isBarAsk).forEach(a => a.release());
+          await new Promise(r => setTimeout(r, 60));
+          asks.length = 0;
+
+          const render = (instance as unknown as {
+            renderAgentBar: (a: unknown) => Promise<void>;
+          }).renderAgentBar(agent);
+
+          // Both calls of the pair exist and are the SAME ASK: a hedge is not a second question.
+          for (let i = 0; i < 100 && asks.filter(isBarAsk).length < 2; i++) {
+            await new Promise(r => setTimeout(r, 10));
+          }
+          const pair = asks.filter(isBarAsk);
+          expect(pair.length).toBe(2);
+          expect(pair[1]?.prompt).toBe(pair[0]?.prompt);
+          expect(pair[1]?.maxTokens).toBe(pair[0]?.maxTokens);
+          expect(pair[1]?.temperature).toBe(pair[0]?.temperature);
+          // 200 ms apart, with the second issued whether or not the first has answered.
+          expect((pair[1]?.issuedAt ?? 0) - (pair[0]?.issuedAt ?? 0)).toBeGreaterThanOrEqual(190);
+
+          // THE SECOND ANSWERS FIRST, so a winner cannot be right merely by having been asked first.
+          pair[1]?.release(JSON.stringify([{ pitch: 'G5', beatTime: 0, velocity: 90, duration: 0.5 }]));
+          await render;
+
+          const bar = agent.queue.find(q => q.meta?.calls === 2);
+          expect(bar).toBeDefined();
+          expect(bar?.meta?.source).toBe('llm');
+          // WHAT SOUNDS IS THE ANSWER THAT ARRIVED FIRST, not the call that left first.
+          expect(bar?.meta?.response).toContain('G5');
+          expect(bar?.meta?.response).not.toContain('C4');
+          // And the bar is charged the whole wait, not just the winning call's own duration.
+          expect(bar?.meta?.latencyMs ?? 0).toBeGreaterThanOrEqual(190);
+
+          pair[0]?.release();
+        });
+
+        ws.close();
+        await new Promise(r => setTimeout(r, 50));
+        await settle(stub);
+      });
+    });
   });
 });

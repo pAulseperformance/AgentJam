@@ -121,6 +121,12 @@ export interface AiCallMeta {
   /** notes the melody completion added to a lead bar that arrived too short or too jumpy */
   completed?: number;
   error?: string;
+  /**
+   * HOW MANY MODEL CALLS THIS BAR SPENT: one normally, two when the room hedged the ask, and zero for
+   * a rest or a pattern agent. Recorded on the meta so a probe prices the setting from the session
+   * file, rather than from a description of what the setting is supposed to do.
+   */
+  calls?: number;
 }
 
 export interface MeasureResult {
@@ -173,6 +179,17 @@ export const CELL_ASK = 'CELL ASK';
 
 /** How many notes a cell ask is worth: one short gesture, not a bar. */
 export const CELL_NOTES = 2;
+
+/**
+ * HOW FAR APART A HEDGED BAR'S TWO CALLS ARE ISSUED, in ms.
+ *
+ * The tail that misses a bar is one slow call, not a slow provider: measured at 200 BPM (Task 4's
+ * probe, 2026-10-30), the same model that answered in 616 ms paid 1403 ms in another run against a
+ * 1200 ms bar. Two identical asks, the second issued 200 ms after the first, turn that tail into a
+ * race: whichever returns first with a usable line is the bar, and the other call is thrown away.
+ * The spend is a room setting and the default is off, so it is the room owner's to turn on.
+ */
+export const HEDGE_GAP_MS = 200;
 
 /**
  * WHAT TO ASK FOR, from what the room measured.
@@ -444,6 +461,67 @@ function shrinkToDensity(notes: GeneratedNote[], density: DecisionBrief['density
   return notes.slice(0, keep);
 }
 
+/** One model call's answer: its notes when it parsed to something playable, its raw text either way. */
+interface Attempt {
+  raw: unknown;
+  notes: GeneratedNote[] | null;
+  latencyMs: number;
+}
+
+/** What a (possibly hedged) ask came back with: the winning answer, the text that failed, and its spend. */
+interface Answer {
+  winner: Attempt | null;
+  invalid: Attempt | null;
+  error: unknown;
+  calls: number;
+}
+
+/**
+ * FIRST VALID ANSWER WINS.
+ *
+ * `ask` issues ONE model call and answers with its notes, or null when the answer held no playable
+ * note. The first attempt goes out immediately. When `gapMs` is set and no valid answer is in hand,
+ * a second identical attempt goes out `gapMs` later; a valid answer clears the pending second call,
+ * so a fast model is never billed twice. An invalid answer (a parse failure, a hang, an error) leaves
+ * the other attempt to decide the bar, which is the whole point of paying for the pair.
+ */
+async function firstValidAnswer(ask: () => Promise<Attempt>, gapMs: number): Promise<Answer> {
+  let calls = 0;
+  let pending = gapMs > 0 ? 1 : 0;
+  let inflight = 0;
+  let invalid: Attempt | null = null;
+  let error: unknown = null;
+  let gap: ReturnType<typeof setTimeout> | null = null;
+
+  return new Promise<Answer>((resolve) => {
+    const settle = (winner: Attempt | null): void => {
+      if (gap !== null) clearTimeout(gap);
+      resolve({ winner, invalid, error, calls });
+    };
+
+    const launch = (): void => {
+      calls += 1;
+      inflight += 1;
+      ask().then(
+        attempt => {
+          inflight -= 1;
+          if (attempt.notes && attempt.notes.length > 0) { settle(attempt); return; }
+          invalid ??= attempt;
+          if (pending === 0 && inflight === 0) settle(null);
+        },
+        failure => {
+          inflight -= 1;
+          error ??= failure;
+          if (pending === 0 && inflight === 0) settle(null);
+        },
+      );
+    };
+
+    launch();
+    if (pending > 0) gap = setTimeout(() => { pending = 0; launch(); }, gapMs);
+  });
+}
+
 /**
  * Generate a measure. `brief` is the Jev judgement when there is one; without it the renderer
  * decides alone (public rooms), and any failure lands on the pattern generator.
@@ -456,6 +534,11 @@ export async function generateMeasureWithAi(
   tier: Tier = 'public',
   /** overridable so a test can prove the hang path without waiting the real budget */
   budgetMs: number = AI_BUDGET_MS,
+  /**
+   * THE HEDGE, IN MILLISECONDS BETWEEN TWO CALLS: 0 (the default) means one call, as before. The
+   * room passes HEDGE_GAP_MS when its setting is on; the planner does not decide to spend.
+   */
+  hedgeMs: number = 0,
 ): Promise<MeasureResult> {
   const ask = askShape(ctx);
   const prompt = buildUserPrompt(ctx, brief, ask);
@@ -472,7 +555,7 @@ export async function generateMeasureWithAi(
       meta: {
         source: 'rest', ask, tier, model, decider, brief, prompt,
         response: '(rest, Jev judged the room crowded)',
-        noteCount: 0, latencyMs: brief.latencyMs,
+        noteCount: 0, latencyMs: brief.latencyMs, calls: 0,
       },
     };
   }
@@ -485,13 +568,24 @@ export async function generateMeasureWithAi(
       meta: {
         source: 'pattern', ask, tier, model, decider, brief, prompt,
         response: model === 'none' ? '(pattern agent, no model)' : '(no AI binding, using pattern generator)',
-        noteCount: notes.length, latencyMs: 0,
+        noteCount: notes.length, latencyMs: 0, calls: 0,
       },
     };
   }
 
   const startTime = Date.now();
-  try {
+  // ONE DEADLINE FOR THE WHOLE ASK, shared by both calls of a hedged bar: the second leaves 200 ms
+  // later, so giving it its own full budget would let the pair outlast the bar line by that gap.
+  const deadlineMs = startTime + budgetMs;
+
+  /**
+   * ONE MODEL CALL, identical to its sibling in every field a model sees: same prompt, same
+   * max_tokens, same temperature. It answers with notes only when the text parsed to something
+   * playable; a text with no note in it is a failed attempt, not a winner.
+   */
+  const askModel = async (): Promise<Attempt> => {
+    const issuedAt = Date.now();
+    const leftMs = Math.max(1, deadlineMs - issuedAt);
     // A HUNG CALL MUST NOT WEDGE THE AGENT. One measure at 120 BPM is 2000ms; a binding that never
     // answers (measured in local dev when the remote AI proxy dropped) would otherwise hold the
     // agent's only slot forever and silence it for the rest of the session.
@@ -506,28 +600,35 @@ export async function generateMeasureWithAi(
     const result = await Promise.race([
       call,
       new Promise<never>((_resolve, reject) =>
-        setTimeout(() => reject(new Error(`AI call exceeded ${budgetMs}ms`)), budgetMs)),
+        setTimeout(() => reject(new Error(`AI call exceeded ${leftMs}ms`)), leftMs)),
     ]);
 
-    const latencyMs = Date.now() - startTime;
-    const rawResponse = result.response;
+    // A CELL ASK IS ANSWERED AS A CELL: the model is asked for two notes in a named slot, so the
+    // extra notes of a model that wrote a whole bar anyway are dropped and both survivors land on
+    // the slot the room named. A cell of nothing is a failed attempt, not a cell.
+    const parsed = parseAiResponse(result.response);
+    const played = parsed === null ? null : ask === 'cell' ? shapeCell(parsed, ctx) : parsed;
+    return {
+      raw: result.response,
+      notes: played && played.length > 0 ? played : null,
+      latencyMs: Date.now() - issuedAt,
+    };
+  };
 
-    const notes = parseAiResponse(rawResponse);
-    if (notes) {
-      // A CELL ASK IS ANSWERED AS A CELL: the model is asked for two notes in a named slot, so the
-      // extra notes of a model that wrote a whole bar anyway are dropped and both survivors land on
-      // the slot the room named. A cell of nothing is a failed parse, not a cell.
-      const played = ask === 'cell' ? shapeCell(notes, ctx) : notes;
-      if (played.length > 0) {
-        return {
-          notes: played,
-          meta: {
-            source: 'llm', ask, tier, model, decider, brief, prompt,
-            response: describeResponse(rawResponse),
-            noteCount: played.length, latencyMs,
-          },
-        };
-      }
+  try {
+    const answer = await firstValidAnswer(askModel, hedgeMs);
+    const latencyMs = Date.now() - startTime;
+
+    if (answer.winner?.notes) {
+      const played = answer.winner.notes;
+      return {
+        notes: played,
+        meta: {
+          source: 'llm', ask, tier, model, decider, brief, prompt,
+          response: describeResponse(answer.winner.raw),
+          noteCount: played.length, latencyMs, calls: answer.calls,
+        },
+      };
     }
 
     const fallbackNotes = fallback();
@@ -535,9 +636,15 @@ export async function generateMeasureWithAi(
       notes: fallbackNotes,
       meta: {
         source: 'fallback', ask, tier, model, decider, brief, prompt,
-        response: describeResponse(rawResponse) || '(empty response)',
-        noteCount: fallbackNotes.length, latencyMs,
-        error: 'Failed to parse AI response',
+        // THE TEXT OF THE FAILED ANSWER, kept whatever the hedge: the first attempt that returned
+        // something unreadable is more informative than the word "failed".
+        response: answer.invalid
+          ? describeResponse(answer.invalid.raw) || '(empty response)'
+          : '(AI call failed)',
+        noteCount: fallbackNotes.length, latencyMs, calls: answer.calls,
+        error: answer.invalid
+          ? 'Failed to parse AI response'
+          : answer.error instanceof Error ? answer.error.message : 'Unknown error',
       },
     };
   } catch (err: unknown) {
@@ -548,7 +655,7 @@ export async function generateMeasureWithAi(
       meta: {
         source: 'fallback', ask, tier, model, decider, brief, prompt,
         response: '(AI call failed)',
-        noteCount: fallbackNotes.length, latencyMs,
+        noteCount: fallbackNotes.length, latencyMs, calls: 0,
         error: err instanceof Error ? err.message : 'Unknown error',
       },
     };
