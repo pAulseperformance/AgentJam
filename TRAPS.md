@@ -55,6 +55,10 @@ reveals it, so the next reader re-measures instead of re-learning.
   bar's brief; a refresh that also calls the decision model costs 1.2s in a 2s bar and never lands.
   Reveal: play one loud phrase and read the velocities per bar (`docs/PATHS.md` P5 lists what a walker
   cannot see), or re-run the dynamics probe described in `README.md`.
+- **2026-10-30. The dynamics pass runs BEFORE a later filter, so a two note cadence can land softer than the
+  note before it.** `shapeLine` puts the peak on the landing when the bar is short, but a note dropped after
+  it (a slot collision, a thinning pass) can leave the taper note and keep the swell note. Open, not fixed.
+  Reveal: a recorded two note bar whose FIRST note carries the higher velocity.
 - **2026-10-30. Every quality pass hung off the DECISION, so the tier that has no judge got none of it.**
   A public room (no Jev) passed `brief: null` into the renderer, which skipped the arc, the role, the
   melody completion and the density cap, and the listener heard the raw 3B bar. Any feature keyed to
