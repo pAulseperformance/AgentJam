@@ -1,7 +1,8 @@
 # Cards: jam band and audit
 
-Plan `~/Projects/Music/agentJam/.hermes/plans/2026-10-31_011630-jam-band-and-audit.md`
-sha16 `94001bdcfe09a08b`, identity `plan:94001bdcfe09a08b:<index>`
+Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md`
+sha16 bc1c6ce369f30093 (the stamp the bodies carry and the one to verify with)
+Identity `plan:94001bdcfe09a08b:<n>`: the cards were created when the plan was stamped 94001bdcfe09a08b, and a card's idempotency key cannot be edited, so the keys stay on the old stamp while every body carries the new one.
 Repo `/Users/v99/Projects/Music/agentJam`, every card in `dir:` on `main`.
 
 ## The graph
@@ -67,3 +68,26 @@ Answered 2026-10-31 by the owner, both recorded here so the next reader sees the
 
 1. **The chain stops after Phase 1.** Tasks 1 to 6 change what the room is at high tempo, and he hears it before the band, the surface and the tools land on top. The stop is the card `t_0d9f0862`, assigned to `default` and parked `blocked`, linked as a parent of Task 7. Completing it on his `carry on` releases Phase 2; leaving it blocked leaves the chain parked with the room on Phase 1. The question was put with three options and he skipped it, which is a decision left to me, so the recommended one stands.
 2. **Task 17 keeps playwright.** One dev dependency plus a one-time chromium download, roughly 120 MB on this host, because otherwise the socket-count fix stays proven only by a probe that never opens the page.
+
+## The independent read, and what it changed
+
+The plan review card `t_f4d7a7fb` returned `VERDICT: CHANGES NEEDED, 9 defects outstanding` and wrote it to
+`.hermes/plans/2026-10-31_011630-jam-band-and-audit.review.md`. It re-ran every claim in the plan against
+this tree. Eight of the nine changed the plan, and the chain stayed parked while they landed, because a
+card that cannot pass its own gate is worse than a card that starts late.
+
+| Defect | What the review measured | What the plan says now |
+|---|---|---|
+| Task 12's gate cannot pass | `vitest.config.ts` uses `defineWorkersConfig`, no DOM environment, no jsdom or testing-library in devDependencies, so a React component test has nowhere to run | Task 12 splits a pure `session-summary.ts` out of the component and tests that module, which runs in the existing pool. The component is judged by opening the room. No new dependency |
+| Suite is 175/175 | `npx vitest run` prints 178, `check.sh:36` carries `FLOOR=178` | the claim reads 178/178, and each task raises the floor in its own commit |
+| Exact probe numbers | two runs gave 37 and 41 model bars, max latency 1,953 and 2,262 ms | the claims read ranges with the run count, not one run's snapshot |
+| The stride A/B is unrepeatable | the switch is deleted at `jam-room.ts:928`, and two same-policy runs differ by 4 bars | the decision's evidence line now says one pair, zero difference, inside run variance, and cannot be repeated |
+| Wrong anchor | `summarizePhrase`'s only caller is `jam-room.ts:1282` | the anchor is corrected |
+| The gate counts test files | 13 today and 10 more created by the tasks, so 14 was never right | the gate asserts every file green and a count at or above the floor, and drops the file count |
+| Task 15 reads a file no task makes | `/tmp/arm-tail.json` exists only because the review re-ran the probe, and it holds 37 model bars where the Run asserted 38 | Task 15 generates its own input with the probe and compares the reader against that same run's summary, no hardcoded count |
+| Task 3 compares against nothing | the 73 pattern bars at 200 BPM appear in no Claims row and no task produces them | Task 3 takes its own baseline first and records the number on the card, then compares after the deploy |
+| 36 or 35 generator bars | the Decisions table and the Claims table disagreed | one range across four runs, tied to the probe command |
+
+The review's strongest point stands and the plan does not pretend otherwise: the decisive numbers sit inside
+run-to-run noise. The answer is already in the plan, in Task 16's post-deploy floor, which is checked after
+every deploy rather than written once in a table.

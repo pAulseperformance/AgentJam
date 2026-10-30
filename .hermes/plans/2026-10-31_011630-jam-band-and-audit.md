@@ -40,7 +40,7 @@ A person creates nothing new: joining a room is a route the app already serves, 
 
 | Decision | Loser (rejected) | Why |
 |---|---|---|
-| The reaction voice plays short cells inside the bar, and the model keeps the bar-sized line | making every agent answer a full bar at every tempo | measured at 160 BPM: a render costs 838 ms at p50 and 2,067 ms at worst against a 1,500 ms bar, so half the slots cannot take a full line and 36 of 87 bars played the generator. A cell asks for 2 notes, which a small model returns in a fraction of the window |
+| The reaction voice plays short cells inside the bar, and the model keeps the bar-sized line | making every agent answer a full bar at every tempo | measured at 160 BPM: a render costs 838 ms at p50 and 2,067 ms at worst against a 1,500 ms bar, so half the slots cannot take a full line and 30 to 36 of 87 bars played the generator across four runs. A cell asks for 2 notes, which a small model returns in a fraction of the window |
 | The stride keeps keying off the render tail, now seeded at the worst measured call | keying it off the mean | measured A/B at 160 BPM, two arms of 45 seconds on the same room: 38 model bars and 2 fallbacks in both, so the tail costs nothing and reacts to one slow call instead of waiting for an average |
 | A failed render still plays a code measure, never silence | dropping the bar entirely when the model misses | the room already does this and it is why a slow model reads as a quieter night rather than as a broken one; Task 6 patches the tail of the bar instead of discarding the answer |
 | The motif bank lives in Durable Object storage with a seven day life | keeping motifs in the client's localStorage | the room is shared and a returning listener on another machine should hear the same band; localStorage is per browser and dies with a cache clear |
@@ -54,14 +54,14 @@ A person creates nothing new: joining a room is a route the app already serves, 
 
 | Claim | Tier | Evidence (command or anchor) |
 |---|---|---|
-| At 160 BPM with three agents and backing on, the room published 38 model bars, 12 rests, 35 generator bars and 2 fallbacks in 45 seconds | MEASURED | `node tools/probe-session.mjs --bpm 160 --seconds 45 --agents jazz,funk,ambient --backing 1 --out /tmp/arm-tail.json` prints that line |
-| Both stride policies publish the same count at 160 BPM | MEASURED | the two runs `arm-tail.json` and `arm-mean.json` print `model bars 38` in each |
-| Render latency at 160 BPM is 376 to 2,067 ms with a median of 838 ms across those runs | MEASURED | the same probe summary line `latency min / median / max` |
+| At 160 BPM with three agents and backing on, four probe runs published 37 to 41 model bars, 10 to 12 rests, 30 to 36 generator bars and 0 to 4 fallbacks in 45 seconds, one figure per run | MEASURED, WIDE | `node tools/probe-session.mjs --bpm 160 --seconds 45 --agents jazz,funk,ambient --backing 1 --out /tmp/arm-tail.json` prints that line |
+| The stride A/B is ONE pair: 38 model bars in each arm, and two same-policy runs since differed by 4 bars, so the pair sits inside run-to-run variance and cannot be repeated because the switch is deleted | MEASURED, ONE PAIR | the two runs `arm-tail.json` and `arm-mean.json` print `model bars 38` in each |
+| Render latency at 160 BPM spans 309 to 2262 ms across those runs, with medians between 808 and 844 ms | MEASURED, WIDE | the same probe summary line `latency min / median / max` |
 | The drummer no longer appears in an agent's prompt as a strong beat or a held note | MEASURED | `node tools/probe-session.mjs --bpm 160 --seconds 45 --agents jazz,funk,ambient --backing 1` prints `naming a drum code as a strong beat: 0` |
-| The suite is 175 tests and the floor is 175 | MEASURED | `npx vitest run` prints `Tests 175 passed (175)` and `check.sh` prints the floor beside it |
+| The suite is 178 tests and the floor is 178 | MEASURED | `npx vitest run` prints `Tests 178 passed (178)` and `check.sh:36` carries `FLOOR="${FLOOR:-178}"`, raised in the same commit as the cases |
 | The live room answers its shell, its socket route and its tier endpoint | MEASURED | `bash check.sh --live` prints four machine rows and `every check passed` |
 | The credential wrapper the deploy needs lives outside the repo and is already used by every ship in this fleet | MEASURED | `bash ~/.hermes/scripts/cf_run.sh npx wrangler deployments list --name agent-jam` prints the newest deployment at 100 percent |
-| One function builds the phrase an agent writes against | READ FROM SOURCE | `src/server/listener.ts:113` is `summarizePhrase`, and `src/server/jam-room.ts:729` is its only caller |
+| One function builds the phrase an agent writes against | READ FROM SOURCE | `src/server/listener.ts:113` is `summarizePhrase`, and its only call site is `src/server/jam-room.ts:1282` |
 | The comping voice already exists and caps itself at two echoes per bar | READ FROM SOURCE | `src/server/jam-room.ts:852` is `maybeComp`, and its guard reads `echoesThisBar >= 2` |
 | A render's cost is Jev plus the model, measured per agent | READ FROM SOURCE | `src/server/jam-room.ts:925` is `strideFor`, reading `renderCostMs` and `renderTailMs` |
 | The rhythm section's notes and the agents' notes share one ring | READ FROM SOURCE | `src/server/jam-room.ts:706` is `recordEvent`, called from `emitBar` at `src/server/jam-room.ts:1081` |
@@ -100,10 +100,11 @@ modify `src/server/jam-room.test.ts`
 modify `src/server/bar-queue.ts`
 create `src/server/reaction.ts`
 create `src/server/reaction.test.ts`
+create `/tmp/probe200.json`, written by the probe in the Run
 
 **Mutation:** remove the cell scheduler from a scratch copy and the case asserting note-on events inside a gap bar fails with an empty list for that bar.
 
-**Run:** `npx vitest run src/server/reaction.test.ts` green, then `bash deploy.sh`, then the probe at 200 BPM prints fewer `pattern` bars than the 73 measured today.
+**Run:** `npx vitest run src/server/reaction.test.ts` green, then take the baseline FIRST with `node tools/probe-session.mjs --bpm 200 --seconds 30 --agents jazz,funk,ambient --backing 1 --out /tmp/probe200.json` and record its `pattern` count on the card, then `bash deploy.sh`, then the same command, overwriting `/tmp/probe200.json`, prints a `pattern` count BELOW that recorded baseline. A run without a recorded baseline is not an acceptance.
 
 ### Task 4: Ask for less when the tail will not fit
 
@@ -205,24 +206,28 @@ create `src/server/motif-bank.test.ts`
 
 ### Task 12: Draw the session panel
 
-**Objective:** the page shows the last session's model bars, rests, quiet bars, latency and failures, computed from the recorder, with the five states the artifact draws.
+**Objective:** the page shows the last session's model bars, rests, quiet bars, latency and failures, computed by a pure function from the recorder, with the five states the artifact draws.
 
-**Files:** create `src/client/features/room/ui/session-panel.tsx`
-create `src/client/features/room/ui/session-panel.test.tsx`
+**The gate cannot be a component test.** `vitest.config.ts` uses `defineWorkersConfig` with no DOM environment, and `jsdom` and `@testing-library/react` are not in devDependencies, so a `.tsx` test has nowhere to run. The cheap fix is to put the numbers in a pure module and test that, which needs no new dependency. Adding a DOM environment to this repo is the expensive fix and is not this task's business.
+
+**Files:** create `src/client/features/room/lib/session-summary.ts`
+create `src/client/features/room/lib/session-summary.test.ts`
+create `src/client/features/room/ui/session-panel.tsx`
 modify `src/client/pages/JamRoom.tsx`
 modify `src/client/features/room/lib/session-recorder.ts`
 read `.hermes/plans/artifacts/2026-10-30-jam-session-summary.html`
 
-**Mutation:** return the empty state always in a scratch copy and the case asserting a populated summary after two recorded bars fails on zero model bars.
+**Mutation:** make `summarize` return the empty state unconditionally in a scratch copy; the case asserting a populated summary after two recorded bars must fail on zero model bars.
 
-**Run:** `npx vitest run src/client` green, then `bash deploy.sh`, then `bash check.sh --live` prints the live shell at 200 with the new bundle name.
+**Run:** `npx vitest run src/client/features/room/lib/session-summary.test.ts` green, then `bash deploy.sh`, then `bash check.sh --live` prints the live shell at 200 with the new bundle name, and the panel is judged by opening the room: the five states draw, each one labelled in plain words.
 
 ### Task 13: Show the stride and the tempo ceiling
 
 **Objective:** each agent carries a badge saying how often it writes, and the tempo control marks where one bar per bar stops being possible.
 
 **Files:** modify `src/client/features/room/ui/session-panel.tsx`
-modify `src/client/features/room/ui/session-panel.test.tsx`
+modify `src/client/features/room/lib/session-summary.ts`
+modify `src/client/features/room/lib/session-summary.test.ts`
 modify `src/client/pages/JamRoom.tsx`
 modify `src/server/jam-room.ts`
 
@@ -252,7 +257,7 @@ read `tools/probe-session.mjs`
 
 **Mutation:** read only the note rows in a scratch copy and the file's own run prints zero model bars on `arm-tail.json`, where the probe printed 38.
 
-**Run:** `node tools/read-session.mjs /tmp/arm-tail.json` prints `model bars 38` beside the same latency line the probe printed for that file.
+**Run:** generate the input first with `node tools/probe-session.mjs --bpm 160 --seconds 30 --agents jazz --out /tmp/rs.json`, then `node tools/read-session.mjs /tmp/rs.json` prints the SAME four numbers and the same latency line the probe printed for that run. No count is hardcoded: a reader that disagrees with the probe's own summary on the same file has failed.
 
 ### Task 16: Gate the room on the probe
 
@@ -308,7 +313,7 @@ Phase 1 (Tasks 1 to 6) makes the model fit the bar: the deploy script, the warm 
 
 Gates, in order, each read before the next:
 
-1. `npx vitest run` prints 14 files and a count at or above the `check.sh` floor.
+1. `npx vitest run` prints every test file green and a count at or above the `check.sh` floor, which each task raises in its own commit.
 2. `bash check.sh --live` prints the suite, the four machine rows and the probe gate line, and exits 0.
 3. `node tools/probe-session.mjs --bpm 160 --seconds 45 --agents jazz,funk,ambient --backing 1 --out /tmp/final-160.json` prints model bars, generator bars, fallbacks and `naming a drum code as a strong beat: 0`.
 4. `node tools/probe-session.mjs --bpm 200 --seconds 45 --agents jazz,funk,ambient --backing 1 --out /tmp/final-200.json` prints the same four numbers at the ceiling tempo.

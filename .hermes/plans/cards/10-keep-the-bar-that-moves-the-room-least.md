@@ -1,10 +1,10 @@
-<!-- Card body for plan:94001bdcfe09a08b:10. The spec is the plan's Task 10 section at
-     .hermes/plans/2026-10-31_011630-jam-band-and-audit.md (sha16 94001bdcfe09a08b). Do not edit the plan.
+<!-- Card body for plan:bc1c6ce369f30093:10. The spec is the plan's Task 10 section at
+     .hermes/plans/2026-10-31_011630-jam-band-and-audit.md (sha16 bc1c6ce369f30093). Do not edit the plan.
      Repo: /Users/v99/Projects/Music/agentJam. Work in place, commit per the task's Commit line. -->
 
 # Task 10: Keep the bar that moves the room least
 
-Repo `agentJam`  |  Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md`  |  Card key `plan:94001bdcfe09a08b:10`
+Repo `agentJam`  |  Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md`  |  Card key `plan:bc1c6ce369f30093:10`
 
 
 

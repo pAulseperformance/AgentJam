@@ -1,6 +1,6 @@
 # SCREEN: the session panel, drawn before the code that fills it
 
-Repo `agentJam` | Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md` (sha16 94001bdcfe09a08b) | Card key `plan:94001bdcfe09a08b:screen`
+Repo `agentJam` | Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md` (sha16 bc1c6ce369f30093) | Card key `plan:bc1c6ce369f30093:screen`
 
 **Objective:** the panel that Task 12 implements is designed here, in the estate's own sheets, before any implementer invents it. The artifact already exists as a drawing of five states; this card turns it into the spec an implementer follows.
 
