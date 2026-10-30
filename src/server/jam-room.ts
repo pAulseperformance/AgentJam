@@ -1596,7 +1596,20 @@ export class JamRoom implements DurableObject {
       bar,
       register: this.registerRange(agent.lastRegister ?? 'mid'),
       cells: cellsForBar(this.barMs()),
+      // A GAP BAR PUBLISHED LATE PLAYS WHAT IS STILL AHEAD OF IT. Measured post-deploy at 200 BPM:
+      // 2 of 37 cell bars were silent because every cell slot was already past when the bar published.
+      fromBeat: this.beatIntoBar(bar),
     });
+  }
+
+  /** How far into bar `bar` the room's clock is, in beats. 0 when the tempo cannot describe one. */
+  private beatIntoBar(bar: number): number {
+    const beatMs = (60 / this.roomState.bpm) * 1000;
+    if (!(beatMs > 0) || !Number.isFinite(beatMs)) return 0;
+    const barStart = this.roomState.transportStartTime + bar * this.barMs();
+    const elapsed = Date.now() - barStart;
+    if (!Number.isFinite(elapsed) || elapsed <= 0) return 0;
+    return elapsed / beatMs;
   }
 
   /**

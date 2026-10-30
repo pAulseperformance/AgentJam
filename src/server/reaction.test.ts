@@ -93,6 +93,21 @@ describe('the cells a gap bar holds', () => {
     expect(cellSlots(1)).toEqual([0]);
   });
 
+  it('plays the slots still ahead when the bar has already started', () => {
+    // Published 2.5 beats into its own bar: the whole-bar slots are all in the past, so the cells
+    // move to what is left instead of leaving the bar silent.
+    const late = cellSlots(3, 2.5);
+    expect(late.length).toBeGreaterThan(0);
+    for (const slot of late) {
+      expect(slot).toBeGreaterThanOrEqual(2.5);
+      expect(slot).toBeLessThan(4);
+    }
+    // and they are not squeezed together: one cell per half beat at most
+    expect(late.length).toBeLessThanOrEqual(3);
+    // a bar with less than a sixteenth left is not addressable at all
+    expect(cellSlots(3, 3.95)).toEqual([]);
+  });
+
   it('plays one held note per cell in ambient and two stabs in funk', () => {
     const ambient = reactionCells({ ...base, style: 'ambient' }).notes;
     const funk = reactionCells({ ...base, style: 'funk' }).notes;

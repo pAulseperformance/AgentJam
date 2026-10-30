@@ -45,6 +45,8 @@ export interface ReactionInput {
   register: { low: number; high: number };
   /** how many cells fit in this bar (see `cellsForBar`) */
   cells: number;
+  /** how far into its own bar this gap bar is being published, in beats: 0 at the bar line */
+  fromBeat?: number;
   /** the room's level, so a soft room is answered softly */
   meanVelocity?: number;
 }
@@ -76,12 +78,26 @@ function cellShape(style: AgentStyle): CellShape {
 }
 
 /**
- * WHERE THE CELLS SIT. Evenly on the bar's eighth grid, the first on the downbeat, so a cell never
- * lands between two slots and the drummer is never masked for a whole beat.
+ * WHERE THE CELLS SIT. In a bar that has not started, evenly on the eighth grid, the first on the
+ * downbeat, so a cell never lands between two slots and the drummer is never masked for a whole beat.
+ *
+ * A BAR THAT HAS ALREADY STARTED is the other case: a gap bar published late (an agent's first
+ * publication after a spawn can land two thirds into its bar) would otherwise find every slot in the
+ * past and go silent. Measured post-deploy at 200 BPM, 2 of 37 cell bars were silent for exactly that.
+ * So the cells move to the slots still ahead, one per half beat at most, because three cells squeezed
+ * into a sixteenth is a smear and not a reply.
  */
-export function cellSlots(cells: number, maxCells: number = CELL_MAX): number[] {
+export function cellSlots(cells: number, fromBeat = 0, maxCells: number = CELL_MAX): number[] {
   const n = Math.max(1, Math.min(Math.max(1, maxCells), Math.round(cells)));
-  return Array.from({ length: n }, (_unused, i) => Math.round((i * 8) / n) / 2);
+  if (!(fromBeat > 0)) {
+    return Array.from({ length: n }, (_unused, i) => Math.round((i * 8) / n) / 2);
+  }
+  const start = Math.ceil(fromBeat * 4) / 4; // the next slot on the sixteenth grid
+  const span = 4 - start;
+  if (!(span >= 0.25)) return []; // less than a sixteenth left is not a bar any player can address
+  const fit = Math.max(1, Math.min(n, Math.floor(span / 0.5)));
+  const spacing = span / fit;
+  return Array.from({ length: fit }, (_unused, i) => Math.round((start + i * spacing) * 4) / 4);
 }
 
 /** The pitch class the key starts on, as a midi number as close to `centre` as an octave allows. */
@@ -129,7 +145,7 @@ function sourcePitches(input: ReactionInput): string[] {
 export function reactionCells(input: ReactionInput): ReactionBar {
   const source = sourcePitches(input);
   const shape = cellShape(input.style);
-  const slots = cellSlots(input.cells);
+  const slots = cellSlots(input.cells, input.fromBeat ?? 0);
   const ceiling = Math.max(40, Math.min(110, input.meanVelocity ?? 92));
 
   const notes: GeneratedNote[] = [];
