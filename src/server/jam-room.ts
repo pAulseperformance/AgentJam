@@ -911,9 +911,10 @@ export class JamRoom implements DurableObject {
    * slow ones halves its phrase rate instead of writing bars that arrive after their own line.
    */
   private strideFor(agent: InProcessAgent): number {
-    // The TAIL decides, not the mean: a bar that usually fits and every fourth time does not is a bar
-    // that misses every fourth time. At 160 BPM that was the difference between a quarter of the bars
-    // falling back and every written bar landing.
+    // The TAIL decides, not the mean. Measured A/B at 160 BPM on live traffic, 45 s per arm, three
+    // agents and backing on: tail versus mean published the same 38 model bars with the same 2
+    // fallbacks, so the tail costs nothing and reacts to a single slow call instead of waiting for the
+    // average to catch up. The switch that ran that experiment is gone.
     return renderStride(Math.max(agent.renderCostMs, agent.renderTailMs), this.barMs());
   }
 

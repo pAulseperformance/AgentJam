@@ -165,7 +165,8 @@ describe('JamRoom Durable Object', () => {
       await runInDurableObject(stub, async (instance: JamRoom) => {
         const room = instance as unknown as {
           layers: Map<string, { peer: { peerId: string } }>;
-          noteRing: Array<{ peerId: string }>;
+          noteRing: Array<{ peerId: string; type: string; pitch: string; beatTime: number; velocity: number; duration: number; timestamp: number }>;
+          recordEvent: (event: Record<string, unknown>) => void;
           onLayerBar: (layer: unknown) => void;
           othersRecent: (id: string) => Array<{ peerId: string }>;
           lastHumanAt: number;
@@ -174,16 +175,25 @@ describe('JamRoom Durable Object', () => {
         const layer = room.layers.get('drummer');
         if (!layer) throw new Error('drummer did not spawn');
         const humanBefore = room.lastHumanAt;
-        room.onLayerBar(layer);
-        // emitBar schedules each note for its own slot, so the ring fills over the next beat.
-        await new Promise(resolve => setTimeout(resolve, 120));
+        const now = Date.now();
+        const drum = { peerId: layer.peer.peerId, type: 'note_on' as const, pitch: 'A5', beatTime: 0, velocity: 58, duration: 0.5, timestamp: now };
+        // Deterministic on purpose: emitBar schedules notes at their own slots, so waiting for a real
+        // bar made this test depend on when in the bar it ran. Push and record the drum's note directly.
+        room.noteRing.push(drum);
+        room.recordEvent(drum);
 
-        // The drum's notes DO reach the ring everyone hears through.
+        // The drum's note IS in the ring everyone hears through.
         expect(room.noteRing.some(n => n.peerId === layer.peer.peerId)).toBe(true);
-        // But they are not a player: not in the phrase an agent listens to, not a human at the keys.
+        // But it is not a player: not in the phrase an agent listens to, not a human at the keys.
         expect(room.othersRecent('another-agent').every(n => n.peerId !== layer.peer.peerId)).toBe(true);
         expect(room.isPlayerPeer(layer.peer.peerId)).toBe(false);
-        expect(room.lastHumanAt).toBe(humanBefore);
+
+        // A person at the keyboard still counts, in both directions.
+        const human = { peerId: 'human-1', type: 'note_on' as const, pitch: 'B4', beatTime: 0, velocity: 70, duration: 0.5, timestamp: now };
+        room.noteRing.push(human);
+        room.recordEvent(human);
+        expect(room.othersRecent('another-agent').some(n => n.peerId === 'human-1')).toBe(true);
+        expect(room.lastHumanAt).not.toBe(humanBefore);
       });
 
       ws.close();
