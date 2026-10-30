@@ -122,9 +122,31 @@ export interface GeneratedNote {
 
 export type AgentStyle = 'jazz' | 'ambient' | 'funk' | 'random';
 
+/**
+ * A LINE, NOT A LOTTERY. Every pattern used to pick a pitch with `Math.random() * scaleNotes.length`,
+ * and measured live that produced `G3 B3 G5 C4 A4 D3 E5 C5 B5` in one bar: six leaps of an octave
+ * inside a two-octave spread. A fallback bar is still heard by a person, so it walks the scale one or
+ * two degrees at a time and turns around every four notes, which is the cheapest way to sound intended.
+ */
+function linePitches(scaleNotes: string[], count: number): string[] {
+  if (scaleNotes.length === 0) return [];
+  const out: string[] = [];
+  let index = Math.floor(scaleNotes.length / 2);
+  let direction = 1;
+  for (let n = 0; n < count; n++) {
+    out.push(scaleNotes[Math.max(0, Math.min(scaleNotes.length - 1, index))]!);
+    index += direction * (1 + Math.floor(Math.random() * 2));
+    if (index >= scaleNotes.length - 1) { index = scaleNotes.length - 1; direction = -1; }
+    else if (index <= 0) { index = 0; direction = 1; }
+    if (n % 4 === 3) direction = -direction;
+  }
+  return out;
+}
+
 function generateJazzPattern(scaleNotes: string[], _bpm: number): GeneratedNote[] {
   const notes: GeneratedNote[] = [];
   const numNotes = 4 + Math.floor(Math.random() * 8);
+  const line = linePitches(scaleNotes, numNotes);
 
   for (let i = 0; i < numNotes; i++) {
     const baseTime = (i / numNotes) * 4;
@@ -132,7 +154,7 @@ function generateJazzPattern(scaleNotes: string[], _bpm: number): GeneratedNote[
     const beatTime = Math.round((baseTime + swing) * 4) / 4;
 
     notes.push({
-      pitch: scaleNotes[Math.floor(Math.random() * scaleNotes.length)]!,
+      pitch: line[i]!,
       beatTime: Math.min(beatTime, 3.75),
       velocity: 50 + Math.random() * 50,
       duration: 0.25 + Math.random() * 0.75,
@@ -145,10 +167,11 @@ function generateJazzPattern(scaleNotes: string[], _bpm: number): GeneratedNote[
 function generateAmbientPattern(scaleNotes: string[], _bpm: number): GeneratedNote[] {
   const notes: GeneratedNote[] = [];
   const numNotes = 2 + Math.floor(Math.random() * 4);
+  const line = linePitches(scaleNotes, numNotes);
 
   for (let i = 0; i < numNotes; i++) {
     notes.push({
-      pitch: scaleNotes[Math.floor(Math.random() * scaleNotes.length)]!,
+      pitch: line[i]!,
       beatTime: Math.round(Math.random() * 3 * 4) / 4,
       velocity: 25 + Math.random() * 40,
       duration: 1.0 + Math.random() * 2.0,
@@ -161,11 +184,13 @@ function generateAmbientPattern(scaleNotes: string[], _bpm: number): GeneratedNo
 function generateFunkPattern(scaleNotes: string[], _bpm: number): GeneratedNote[] {
   const notes: GeneratedNote[] = [];
   const pattern = [1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0];
+  const line = linePitches(scaleNotes, pattern.filter(Boolean).length);
+  let at = 0;
 
   for (let i = 0; i < 16; i++) {
     if (pattern[i]) {
       notes.push({
-        pitch: scaleNotes[Math.floor(Math.random() * Math.min(5, scaleNotes.length))]!,
+        pitch: line[at++]!,
         beatTime: i * 0.25,
         velocity: i % 4 === 0 ? 105 : 60 + Math.random() * 30,
         duration: 0.125 + Math.random() * 0.125,
@@ -179,10 +204,11 @@ function generateFunkPattern(scaleNotes: string[], _bpm: number): GeneratedNote[
 function generateRandomPattern(scaleNotes: string[], _bpm: number): GeneratedNote[] {
   const notes: GeneratedNote[] = [];
   const numNotes = 3 + Math.floor(Math.random() * 10);
+  const line = linePitches(scaleNotes, numNotes);
 
   for (let i = 0; i < numNotes; i++) {
     notes.push({
-      pitch: scaleNotes[Math.floor(Math.random() * scaleNotes.length)]!,
+      pitch: line[i]!,
       beatTime: Math.round(Math.random() * 15) / 4,
       velocity: 40 + Math.random() * 60,
       duration: 0.125 + Math.random() * 1.0,

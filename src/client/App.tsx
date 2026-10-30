@@ -26,6 +26,10 @@ export function App() {
           className="landing__form"
           onSubmit={(e) => {
             e.preventDefault();
+            // FOCUS LEAVES THE FORM WHEN THE ROOM OPENS. The piano listens on window keys and stands
+            // down while a text field holds focus, so a field left focused after joining is a silent
+            // keyboard that looks connected.
+            (document.activeElement as HTMLElement | null)?.blur();
             setJoined(true);
           }}
         >

@@ -73,6 +73,11 @@ export function AgentPanel({ sendMessage, peers }: AgentPanelProps) {
             value={agentName}
             onChange={(e) => setAgentName(e.target.value)}
             maxLength={20}
+            onKeyDown={(e) => {
+              // Enter spawns, then focus LEAVES the field: leaving it focused is how the piano goes
+              // silent after someone names an agent.
+              if (e.key === 'Enter') { e.currentTarget.blur(); handleSpawn(); }
+            }}
           />
           <div className="agent-panel__style-grid">
             {AGENT_STYLES.map(s => (

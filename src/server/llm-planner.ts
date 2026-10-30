@@ -43,6 +43,8 @@ export interface MeasureContext {
   heldNotes?: string[];
   /** what ANOTHER AGENT has already queued for this bar, so two agents do not play the same line */
   peerPlan?: string;
+  /** the phrase arc this bar sits in, in plain words, so the model writes a melody and not a chord */
+  melody?: string;
 }
 
 /** Who is playing: an anonymous visitor, or someone the zpe door knows. */
@@ -92,6 +94,8 @@ export interface AiCallMeta {
   plan?: string;
   /** true when this bar replaced an older render of the SAME bar because something new was played */
   refreshed?: boolean;
+  /** notes the melody completion added to a lead bar that arrived too short or too jumpy */
+  completed?: number;
   error?: string;
 }
 
@@ -153,6 +157,8 @@ function buildUserPrompt(ctx: MeasureContext, brief: DecisionBrief | null): stri
     `They are playing: ${ctx.phrase ?? recentSummary}`,
     `Your motif from last bar: ${ctx.motif ?? 'none yet'}`,
   ];
+
+  if (ctx.melody) lines.push(ctx.melody);
 
   if (brief) {
     lines.push(

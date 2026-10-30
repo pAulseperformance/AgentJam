@@ -55,6 +55,10 @@ reveals it, so the next reader re-measures instead of re-learning.
   bar's brief; a refresh that also calls the decision model costs 1.2s in a 2s bar and never lands.
   Reveal: play one loud phrase and read the velocities per bar (`docs/PATHS.md` P5 lists what a walker
   cannot see), or re-run the dynamics probe described in `README.md`.
+- **2026-10-30. `Math.random()` over the scale is not a fallback, it is noise.** Three octaves of
+  random scale tones produced `G3 B3 G5 C4 A4 D3 E5 C5 B5` in one bar, and a person hears that as a
+  glitch, not as a missed render. Any generated bar, including a fallback, has to walk the scale.
+  Reveal: solo agent, 16 bars, count moves of four semitones or more against moves of two or fewer.
 - **2026-10-30. Two agents render the same bar at the same moment, so neither can see the other's plan,
   and the repairer's avoid-list is empty when it matters.** The queue is only readable after a render
   finishes, so coordination at render time is advisory. The binding check has to sit at the BAR LINE,

@@ -82,6 +82,32 @@ listener existed: consecutive agent bars keeping two or more of the same pitch c
 recurrence) went from 9% to 56-62%, and when the decision was `answer` the reply shared two or more of
 your pitch classes in 8 of 10 cases. Phase stayed at 0ms and key at 100%.
 
+## The line: why a melody is code's job too
+
+A solo agent measured, live, 16 bars, on 2026-10-30: **3.2 notes per bar**, no bar above four notes,
+and the same `E4 C4 G4` arpeggio stated over and over. That is not a melody, and only half the fault
+was the model's. The decision layer answered `density: sparse` on every bar, the prompt's sparse rule
+asks for two to four notes, and the fallback pattern picked pitches with `Math.random()` across three
+octaves, which produced `G3 B3 G5 C4 A4 D3 E5 C5 B5` in a single bar.
+
+So the SHAPE is code and the notes are the model's, the same split the drummer uses:
+
+- **A four bar arc**, state, restate, develop, cadence, computed from the bar number. Each position has
+  a contour, a note count and one sentence of instruction in the prompt. Five notes is the floor:
+  four is a gesture.
+- **A completion step**, `src/server/melody.ts`, runs after the repair on a lead bar. A bar that is
+  short or mostly leaps keeps its FIRST note and is rebuilt as a stepwise line in key, inside the
+  register the decision named, on the motif's own rhythm when there is one. Appending to an arpeggio
+  leaves it an arpeggio: measured, keeping the triad's other notes held two leaps in every five moves.
+- **The fallback is a line too.** A bar with no model answer used to be the lottery above; it is now
+  written by the same line builder, so a missed render costs a flourish and not the tune.
+- **Alone in the room, the agent is the lead.** With no second agent and no human phrase, "ornament" and
+  "answer" describe a partner that is not there.
+
+Measured after, same probe, 16 bars, solo: **6.1 notes per bar** (was 3.2), **12 bars of five or more**
+(was 0), **64 stepwise moves against 14 leaps**, a ratio of 0.82 (was 0.41), and the bars read as phrases:
+`E3 G3 A3 G3 F3 E3` up and back, `B3 D4 F4 A4 C5 E5 G5` a rising run.
+
 ## Two agents, and who leads
 
 Independent agents that both decide "I will lead this bar" play two solos over each other, which is

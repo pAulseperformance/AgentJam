@@ -63,6 +63,13 @@ export function Keyboard({ engine, peerId, onNoteEvent }: KeyboardProps) {
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
+      // A WAY BACK OUT. The guard above is right (a person typing their name is not playing), but it
+      // also means a focused text field silences the piano, which reads as a broken keyboard. Escape
+      // always hands the keys back, so nobody has to work out which field has focus.
+      if (e.key === 'Escape') {
+        (document.activeElement as HTMLElement | null)?.blur();
+        return;
+      }
       if (e.repeat || isTyping()) return;
       const pitch = KEY_MAP[e.key.toLowerCase()];
       if (pitch) {

@@ -18,7 +18,6 @@ import {
   type PeerMetrics,
 } from '@/shared/protocol/types';
 import {
-  generateMeasure,
   midiOf,
   noteNameFromMidi,
   scalePitchClasses,
@@ -27,6 +26,7 @@ import {
 } from '@/shared/music';
 import { repairMeasure } from './measure-repair';
 import { summarizePhrase, motifFrom, describePhrase, describeMotif, type Motif, type NoteRecord } from './listener';
+import { melodyPlan, completeMelody } from './melody';
 import { drumBar, bassBar, countInBar } from './groove';
 import {
   generateMeasureWithAi,
@@ -917,7 +917,7 @@ export class JamRoom implements DurableObject {
     // pattern generator covers it rather than shifting a stale bar into the present.
     const index = agent.queue.findIndex(q => q.bar === bar);
     const ready = index === -1 ? null : agent.queue.splice(index, 1)[0] ?? null;
-    let notes = ready?.notes ?? generateMeasure(agent.style, this.roomState.key, this.roomState.bpm);
+    let notes = ready?.notes ?? this.melodyBar(agent, bar);
 
     // LAST LINE OF DEFENCE. Two agents render the same bar at the same moment, so each can see a plan
     // that the other has not queued yet and a collision slips through the repair. At the bar line the
@@ -1042,7 +1042,15 @@ export class JamRoom implements DurableObject {
   ): AiCallMeta['brief'] {
     if (!brief) return brief;
     const peers = [...this.agents.values()].filter(a => a.peer.peerId !== agent.peer.peerId);
-    if (peers.length === 0) return brief;
+
+    // ALONE IN THE ROOM, THE AGENT IS THE LEAD. With no second agent and no human phrase, "ornament"
+    // and "answer" describe a partner that is not there, and the agent played a two-note loop for it.
+    if (peers.length === 0) {
+      if (!hasHumanPhrase && brief.play !== false && brief.role !== 'lead') {
+        return { ...brief, role: 'lead', density: brief.density === 'sparse' ? 'medium' : brief.density };
+      }
+      return brief;
+    }
 
     const order = [...this.agents.keys()];
     const myTurn = order[bar % order.length] === agent.peer.peerId;
@@ -1064,6 +1072,34 @@ export class JamRoom implements DurableObject {
     // NOT MY TURN: answer or ornament, never lead.
     if (brief.role === 'lead') return { ...brief, role: 'answer' };
     return brief;
+  }
+
+  /**
+   * A BAR WITH NO MODEL ANSWER IS STILL MUSIC, NOT NOISE. The old fallback was `generateMeasure`, which
+   * picks pitches at random across three octaves: measured live it produced `G3 B3 G5 C4 A4 D3 E5 C5 B5`
+   * and it is what a listener hears when a render misses its bar. The line builder writes a stepwise
+   * melody on the same arc instead, so a missed bar costs a model's flourish and not the tune.
+   */
+  private melodyBar(agent: InProcessAgent, bar: number): GeneratedNote[] {
+    const plan = melodyPlan(bar, agent.style, agent.motif !== null);
+    const built = completeMelody([], {
+      plan,
+      key: this.roomState.key,
+      motif: agent.motif,
+      register: this.registerRange('mid'),
+      maxNotes: 10,
+    });
+    return built.notes;
+  }
+
+  /**
+   * The midi window a decision asked for. A melody that wanders from C3 to C6 is not a melody in a
+   * register, it is a siren, so completion is held inside the band the decision named.
+   */
+  private registerRange(band: 'low' | 'mid' | 'high'): { low: number; high: number } {
+    if (band === 'low') return { low: 40, high: 59 };
+    if (band === 'high') return { low: 72, high: 88 };
+    return { low: 55, high: 72 };
   }
 
   /** slots another agent has already sounded in this bar, keyed `pitch@beat` */
@@ -1121,6 +1157,9 @@ export class JamRoom implements DurableObject {
       const queuedMax = agent.queue.reduce((max, q) => Math.max(max, q.bar), 0);
       const forBar = targetBar ?? Math.max(this.barIndexOf(Date.now()) + 1, queuedMax + 1);
       const peerPlan = this.otherAgentPlan(agent.peer.peerId, forBar);
+      // WHERE THIS BAR SITS IN THE PHRASE: state, restate, develop, cadence. A melody needs a shape
+      // across bars; a bar written with no idea where it sits is a gesture that happens to be in time.
+      const melody = melodyPlan(forBar, agent.style, agent.motif !== null);
 
       const jev = agent.tier === 'signed' && reuseBrief === undefined ? jevConfigFromEnv(this.env) : null;
       const judged = reuseBrief !== undefined
@@ -1159,6 +1198,7 @@ export class JamRoom implements DurableObject {
         motif: motifText,
         heldNotes: [...new Set([...heldPitches, ...phrase.held])].slice(0, 8),
         peerPlan: peerPlan.slice(0, 6).join(' ') || undefined,
+        melody: melody.instruction,
       };
 
       const result = await generateMeasureWithAi(this.env.AI, ctx, agent.model, brief, agent.tier);
@@ -1176,6 +1216,24 @@ export class JamRoom implements DurableObject {
         avoidSlots: peerPlan,
       });
 
+      // A LEAD BAR IS A MELODY, NOT A GESTURE. The model writes what it can and this is what happens
+      // when what it writes is a triad: the line is completed in key, along the arc, on the grid.
+      let finalNotes = repaired.notes;
+      if (brief?.role === 'lead') {
+        const register = this.registerRange(brief.register);
+        const completed = completeMelody(finalNotes, {
+          plan: melody,
+          key: this.roomState.key,
+          motif: agent.motif,
+          register,
+          maxNotes: 10,
+        });
+        if (completed.completed) {
+          finalNotes = completed.notes;
+          (result.meta as { completed?: number }).completed = completed.added;
+        }
+      }
+
       // The bar this belongs to, worked out before the decision so the decision could see it.
       const target = forBar;
 
@@ -1188,12 +1246,12 @@ export class JamRoom implements DurableObject {
       agent.queue.push({
         bar: target,
         sawUpTo,
-        notes: repaired.notes,
+        notes: finalNotes,
         meta: {
           ...result.meta,
           refreshed: replacing,
-          noteCount: repaired.notes.length,
-          plan: repaired.notes.slice(0, 6).map(n => `${n.pitch}@${n.beatTime}`).join(' ') || '(rest)',
+          noteCount: finalNotes.length,
+          plan: finalNotes.slice(0, 6).map(n => `${n.pitch}@${n.beatTime}`).join(' ') || '(rest)',
         },
       });
       agent.queue.sort((a, b) => a.bar - b.bar);

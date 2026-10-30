@@ -93,3 +93,13 @@ turn rule and a publish-time slot check the same probe measured 0 collisions, a 
 never two leads, and no silent bar. Loser also for one synth playing every drum code: a kick, a snare
 and a hat are three different voices, so the client builds a kit. Falsifier: a run where two agents
 sound the same pitch on the same beat, or a run of 16 bars where neither agent leads any bar.
+
+## 2026-10-30 A melody is a shape in code with notes from the model
+
+Loser: leaving the melody to the decision layer and the model. Reason: measured live, a solo agent
+played 3.2 notes per bar with no bar above four and the same arpeggio repeated (Jev answered sparse
+every bar, and the prompt's sparse rule asks for 2-4 notes). Loser also for the pitch lottery in the
+fallback pattern: it spread across three octaves. With a four-bar arc, a five-note floor and a
+completion step the same probe measured 6.1 notes per bar, 12 bars of five or more, and 64 stepwise
+moves against 14 leaps. Falsifier: a run where a lead bar still has fewer than four notes, or where
+more than a third of the moves are leaps of a fourth or more.
