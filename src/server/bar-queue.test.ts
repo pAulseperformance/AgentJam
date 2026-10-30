@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   keepNewest, prunePast, renderBudget, renderStride, takeForBar, RENDER_COST_ASSUMED_MS,
-  barDelayMs, barMsFor, barElapsedEnough, DEFAULT_BAR_MS, MAX_BPM, MIN_BPM, MIN_BAR_MS,
+  barDelayMs, barMsFor, barElapsedEnough, firstReachableBar, DEFAULT_BAR_MS, MAX_BPM, MIN_BPM,
+  MIN_BAR_MS,
 } from './bar-queue';
 
 type Entry = { bar: number };
@@ -235,5 +236,34 @@ describe('barElapsedEnough', () => {
       if (barElapsedEnough(last, now, 2086.95)) { accepted++; last = now; }
     }
     expect(accepted).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('firstReachableBar', () => {
+  const start = 1_700_000_000_000;
+  const barMs = (bpm: number) => 240_000 / bpm;
+
+  it('leaves the target alone when there is a whole bar of room', () => {
+    // 80 BPM: a bar is 3000 ms, and a render costs about 1400 ms, so bar 1 is reachable from the top.
+    expect(firstReachableBar(start, barMs(80), 1, start + 100, 1400)).toBe(1);
+  });
+
+  it('moves out when the spawn inherited the remainder of a bar', () => {
+    // The measured cold start: 2226 ms into an 80 BPM bar, so 774 ms to the next line.
+    expect(firstReachableBar(start, barMs(80), 1, start + 2226, 1400)).toBe(2);
+  });
+
+  it('moves out at a tempo where one bar cannot hold a render', () => {
+    // 200 BPM: 1200 ms bars, so the first line is too close and the second is just enough.
+    expect(firstReachableBar(start, barMs(200), 1, start + 10, 1400)).toBe(2);
+  });
+
+  it('is bounded, so a wrong clock cannot walk the bar number away', () => {
+    expect(firstReachableBar(start, barMs(80), 1, start, 1_000_000)).toBe(5);
+  });
+
+  it('refuses to guess on a grid it cannot compute', () => {
+    expect(firstReachableBar(Number.NaN, barMs(80), 1, start, 1400)).toBe(1);
+    expect(firstReachableBar(start, Number.NaN, 1, start, 1400)).toBe(1);
   });
 });

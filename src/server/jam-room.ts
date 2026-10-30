@@ -40,7 +40,7 @@ import {
 } from './llm-planner';
 import {
   prunePast, keepNewest, takeForBar, renderBudget, renderStride, RENDER_COST_ASSUMED_MS,
-  barDelayMs, barMsFor, barElapsedEnough, DEFAULT_BAR_MS, MIN_BPM, MAX_BPM,
+  barDelayMs, barMsFor, barElapsedEnough, firstReachableBar, DEFAULT_BAR_MS, MIN_BPM, MAX_BPM,
 } from './bar-queue';
 import { decideWithJev, jevConfigFromEnv, type JevState } from './jev';
 
@@ -1240,7 +1240,18 @@ export class JamRoom implements DurableObject {
       // ahead of anything already queued, so a bar that has gone can never be written twice.
       const stride = this.strideFor(agent);
       const queuedMax = agent.queue.reduce((max, q) => Math.max(max, q.bar), 0);
-      const forBar = targetBar ?? Math.max(this.barIndexOf(Date.now()) + stride, queuedMax + stride);
+      let forBar = targetBar ?? Math.max(this.barIndexOf(Date.now()) + stride, queuedMax + stride);
+      if (targetBar === undefined) {
+        // AND NEVER AT A LINE IT CANNOT REACH: a spawning agent inherits the remainder of the current
+        // bar, so its first render can be handed a third of a bar and fail on a cold start.
+        forBar = firstReachableBar(
+          this.roomState.transportStartTime,
+          this.barMs(),
+          forBar,
+          Date.now(),
+          agent.renderCostMs + 100,
+        );
+      }
       const peerPlan = this.otherAgentPlan(agent.peer.peerId, forBar);
       // WHERE THIS BAR SITS IN THE PHRASE: state, restate, develop, cadence. A melody needs a shape
       // across bars; a bar written with no idea where it sits is a gesture that happens to be in time.

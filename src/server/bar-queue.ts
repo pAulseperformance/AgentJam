@@ -130,3 +130,30 @@ export function barElapsedEnough(lastPublishedAt: number, now: number, barMs: nu
   if (!(barMs > 0)) return true;
   return now - lastPublishedAt >= barMs * BAR_FLOOR;
 }
+
+/**
+ * The first bar line this render can actually reach.
+ *
+ * A render started mid-bar inherits only the remainder of that bar: measured 2026-10-30 17:02, an agent
+ * spawned 2.2 s into an 80 BPM bar had 774 ms to produce its first bar and failed with "AI call
+ * exceeded 674ms", while every later bar of the same agent took 411-909 ms. So the target moves out one
+ * bar at a time until the time to its own line covers the agent's measured cost. Bounded, because a
+ * caller with a wrong clock must not walk the bar number into the distance.
+ */
+export function firstReachableBar(
+  transportStartTime: number,
+  barMs: number,
+  fromBar: number,
+  now: number,
+  needMs: number,
+  maxSteps = 4,
+): number {
+  if (!(barMs > 0) || !Number.isFinite(transportStartTime) || !Number.isFinite(now)) return fromBar;
+  let bar = fromBar;
+  for (let i = 0; i < maxSteps; i++) {
+    const lineAt = transportStartTime + bar * barMs;
+    if (lineAt - now >= needMs) break;
+    bar += 1;
+  }
+  return bar;
+}
