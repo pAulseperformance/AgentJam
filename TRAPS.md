@@ -55,6 +55,11 @@ reveals it, so the next reader re-measures instead of re-learning.
   bar's brief; a refresh that also calls the decision model costs 1.2s in a 2s bar and never lands.
   Reveal: play one loud phrase and read the velocities per bar (`docs/PATHS.md` P5 lists what a walker
   cannot see), or re-run the dynamics probe described in `README.md`.
+- **2026-10-30. Two agents render the same bar at the same moment, so neither can see the other's plan,
+  and the repairer's avoid-list is empty when it matters.** The queue is only readable after a render
+  finishes, so coordination at render time is advisory. The binding check has to sit at the BAR LINE,
+  where the other agent's bar is already sounding. Reveal: two agents, no human, count `pitch@beat`
+  pairs both played in one bar.
 - **2026-10-30. `grep -c` exits 1 when it counts zero, so a gate that folds its status into `$?`
   fails on exactly the result it wants.** Print the count and take the exit status from the suite.
   Reveal: `bash check.sh` on a clean tree; the floor line prints the count beside the floor it wanted.

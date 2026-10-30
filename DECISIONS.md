@@ -84,3 +84,12 @@ accidentally match, every reply shared exactly one pitch class (0 of 5 bars clea
 which reads as its own material with a note borrowed; with two it cleared 4 of 8, and 2 of 2 on bars
 rebuilt from a freshly heard window. Falsifier: a run where replies still share one pitch class on
 most bars, which would mean the model's own line overrides the constraint.
+
+## 2026-10-30 One agent leads a bar, the turn rotates, and a human outranks both
+
+Loser: letting each agent decide for itself whether to lead. Reason: measured with two agents and no
+human, both chose lead or both chose answer, 2 slot collisions, and the room read as an echo. With the
+turn rule and a publish-time slot check the same probe measured 0 collisions, a lead in 12 of 14 bars,
+never two leads, and no silent bar. Loser also for one synth playing every drum code: a kick, a snare
+and a hat are three different voices, so the client builds a kit. Falsifier: a run where two agents
+sound the same pitch on the same beat, or a run of 16 bars where neither agent leads any bar.

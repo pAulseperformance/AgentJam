@@ -46,6 +46,11 @@ export interface RepairOptions {
    */
   answerPitches?: string[];
   /**
+   * Slots another agent already claimed for this bar, spelled `pitch@beat`. Two agents landing the same
+   * note on the same beat is the sound of not listening, so those slots are dropped before anything else.
+   */
+  avoidSlots?: string[];
+  /**
    * How many of your pitch classes the reply must CARRY when the decision was `answer`. One was the
    * original gesture; measured, a reply with one shared pitch class reads as its own default material
    * with a single note borrowed, and two reads as an echo.
@@ -71,6 +76,8 @@ export interface RepairReport {
     offGrid: number;
     outOfKey: number;
     unison: number;
+    /** slots dropped because another agent had already claimed them for this bar */
+    avoided: number;
     duplicate: number;
     overCap: number;
   };
@@ -90,7 +97,7 @@ function normalizeVelocity(velocity: number): number {
 export function repairMeasure(notes: GeneratedNote[], options: RepairOptions): RepairReport {
   const maxNotes = options.maxNotes ?? 10;
   const held = new Set((options.heldPitches ?? []).map(p => p.trim()));
-  const dropped = { rescaled: 0, invalid: 0, offGrid: 0, outOfKey: 0, unison: 0, duplicate: 0, overCap: 0 };
+  const dropped = { rescaled: 0, invalid: 0, offGrid: 0, outOfKey: 0, unison: 0, duplicate: 0, overCap: 0, avoided: 0 };
 
   const repaired: GeneratedNote[] = [];
 
@@ -107,6 +114,17 @@ export function repairMeasure(notes: GeneratedNote[], options: RepairOptions): R
     // UNISON. Someone is holding that note right now; playing it doubles their voice instead of
     // answering it.
     if (held.has(pitch)) { dropped.unison++; continue; }
+
+    // NOT ON TOP OF ANOTHER AGENT. Their plan for this bar is already queued and about to sound, so a
+    // collision here is heard as one player following another, never as two listening to each other.
+    if (options.avoidSlots?.length) {
+      const claimed = new Set(options.avoidSlots.map(s => s.replace(/\s/g, '').toLowerCase()));
+      const before = repaired.length;
+      for (let i = repaired.length - 1; i >= 0; i--) {
+        if (claimed.has(`${repaired[i]!.pitch}@${repaired[i]!.beatTime}`.toLowerCase())) repaired.splice(i, 1);
+      }
+      dropped.avoided += before - repaired.length;
+    }
 
     // KEY. Move it, do not mute it: a stray accidental is a mistake in address, not in intent.
     const inKey = isInKey(pitch, options.key);

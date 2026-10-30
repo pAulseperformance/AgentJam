@@ -699,7 +699,8 @@ export class JamRoom implements DurableObject {
       peerId: crypto.randomUUID(),
       name: role === 'drummer' ? 'Drummer' : 'Bass',
       kind: 'agent',
-      instrument: role === 'drummer' ? 'MembraneSynth' : 'PolySynth',
+      // The client builds a drum KIT for this name: a kick, a snare and a hat are three voices
+      instrument: role === 'drummer' ? 'DrumKit' : 'PolySynth',
       color,
     };
 
@@ -916,7 +917,16 @@ export class JamRoom implements DurableObject {
     // pattern generator covers it rather than shifting a stale bar into the present.
     const index = agent.queue.findIndex(q => q.bar === bar);
     const ready = index === -1 ? null : agent.queue.splice(index, 1)[0] ?? null;
-    const notes = ready?.notes ?? generateMeasure(agent.style, this.roomState.key, this.roomState.bpm);
+    let notes = ready?.notes ?? generateMeasure(agent.style, this.roomState.key, this.roomState.bpm);
+
+    // LAST LINE OF DEFENCE. Two agents render the same bar at the same moment, so each can see a plan
+    // that the other has not queued yet and a collision slips through the repair. At the bar line the
+    // other agent's bar is already sounding, so a shared slot is dropped here, where it is a fact.
+    const sounded = this.soundedSlots(agent.peer.peerId, bar);
+    if (sounded.size > 0) {
+      notes = notes.filter(n => !sounded.has(`${n.pitch}@${n.beatTime}`.toLowerCase()));
+    }
+    this.markSoundedSlots(agent.peer.peerId, bar, notes);
     const meta = ready?.meta ?? this.patternMeta(agent, notes, 'pattern bar, the queue was empty');
 
     this.emitAgentBar(agent, notes, bar, beatMs);
@@ -1004,6 +1014,82 @@ export class JamRoom implements DurableObject {
    * Render the bar after the one now playing. One call, one battery: Jev decides, the model writes,
    * the repairer puts it in key and on the grid, and the result waits in the buffer.
    */
+  /**
+   * WHAT THE OTHER AGENTS HAVE ALREADY QUEUED for this bar. Their plan is written a bar ahead, so a
+   * second agent can see what is coming and answer it instead of walking on top of it.
+   */
+  private otherAgentPlan(excludePeerId: string, bar: number): string[] {
+    const slots: string[] = [];
+    for (const other of this.agents.values()) {
+      if (other.peer.peerId === excludePeerId) continue;
+      const entry = other.queue.find(q => q.bar === bar);
+      if (!entry) continue;
+      for (const n of entry.notes) slots.push(`${n.pitch}@${n.beatTime}`);
+    }
+    return slots;
+  }
+
+  /**
+   * ONE AGENT LEADS A BAR. Two agents both deciding to lead is two solos played over each other, which
+   * is exactly what "they are not collaborating" sounds like. The turn rotates by bar over the agents
+   * in spawn order, so a room of two agents has a call and an answer with nobody at the keyboard.
+   */
+  private coordinateRole(
+    agent: InProcessAgent,
+    bar: number,
+    brief: AiCallMeta['brief'],
+    hasHumanPhrase: boolean,
+  ): AiCallMeta['brief'] {
+    if (!brief) return brief;
+    const peers = [...this.agents.values()].filter(a => a.peer.peerId !== agent.peer.peerId);
+    if (peers.length === 0) return brief;
+
+    const order = [...this.agents.keys()];
+    const myTurn = order[bar % order.length] === agent.peer.peerId;
+    // A HUMAN WHO JUST PLAYED IS THE LEAD. An agent that leads over them is not answering, it is talking
+    // over the person the room is built for.
+    const humanLeading = hasHumanPhrase
+      && this.lastHumanAt > 0
+      && Date.now() - this.lastHumanAt < this.barMs() * 2;
+
+    if (brief.role === 'lead' && humanLeading) return { ...brief, role: 'answer' };
+
+    // NOBODY BUT AGENTS ARE PLAYING: the turn holder takes the line. Alternating by bar means the room
+    // keeps a conversation going with no one at the keyboard, which is the point of independent agents.
+    if (myTurn) {
+      if (brief.role === 'rest') return { ...brief, role: 'lead', play: true, density: 'sparse' };
+      return { ...brief, role: 'lead' };
+    }
+
+    // NOT MY TURN: answer or ornament, never lead.
+    if (brief.role === 'lead') return { ...brief, role: 'answer' };
+    return brief;
+  }
+
+  /** slots another agent has already sounded in this bar, keyed `pitch@beat` */
+  private soundedSlots(excludePeerId: string, bar: number): Set<string> {
+    const slots = new Set<string>();
+    for (const other of this.agents.values()) {
+      if (other.peer.peerId === excludePeerId) continue;
+      const played = this.playedByBar.get(other.peer.peerId)?.get(bar);
+      if (!played) continue;
+      for (const slot of played) slots.add(slot);
+    }
+    return slots;
+  }
+
+  private markSoundedSlots(peerId: string, bar: number, notes: GeneratedNote[]): void {
+    let byBar = this.playedByBar.get(peerId);
+    if (!byBar) { byBar = new Map(); this.playedByBar.set(peerId, byBar); }
+    const slots = new Set(notes.map(n => `${n.pitch}@${n.beatTime}`.toLowerCase()));
+    byBar.set(bar, slots);
+    // a bar is only interesting for two bars: keeping more would leak memory as the room ages
+    for (const b of byBar.keys()) if (b < bar - 2) byBar.delete(b);
+  }
+
+  /** per agent, the slots it actually sounded per bar, so two agents cannot double a note on a beat */
+  private playedByBar = new Map<string, Map<number, Set<string>>>();
+
   private async renderAgentBar(
     agent: InProcessAgent,
     targetBar?: number,
@@ -1030,6 +1116,12 @@ export class JamRoom implements DurableObject {
       });
       const motifText = describeMotif(agent.motif);
 
+      // THE BAR THIS RENDER IS FOR, and what the other agents have queued for it. Both are needed
+      // BEFORE the decision, because a second agent has to decide against the first agent's plan.
+      const queuedMax = agent.queue.reduce((max, q) => Math.max(max, q.bar), 0);
+      const forBar = targetBar ?? Math.max(this.barIndexOf(Date.now()) + 1, queuedMax + 1);
+      const peerPlan = this.otherAgentPlan(agent.peer.peerId, forBar);
+
       const jev = agent.tier === 'signed' && reuseBrief === undefined ? jevConfigFromEnv(this.env) : null;
       const judged = reuseBrief !== undefined
         ? reuseBrief
@@ -1051,9 +1143,10 @@ export class JamRoom implements DurableObject {
       // soon as it has played a few bars, and measured over 20 live bars that made the agent silent
       // for 7 of them, which is not jamming, it is leaving. Jev keeps the JUDGEMENT (it may rest);
       // the room bounds the HABIT to one bar in five.
-      const brief = judged && judged.role === 'rest' && agent.barsSinceRest < 5
+      const rested = judged && judged.role === 'rest' && agent.barsSinceRest < 5
         ? { ...judged, role: 'ornament' as const, play: true, density: 'sparse' as const }
         : judged;
+      const brief = this.coordinateRole(agent, forBar, rested, phrase.count > 0);
 
       const ctx = {
         key: this.roomState.key,
@@ -1065,6 +1158,7 @@ export class JamRoom implements DurableObject {
         phrase: describePhrase(phrase),
         motif: motifText,
         heldNotes: [...new Set([...heldPitches, ...phrase.held])].slice(0, 8),
+        peerPlan: peerPlan.slice(0, 6).join(' ') || undefined,
       };
 
       const result = await generateMeasureWithAi(this.env.AI, ctx, agent.model, brief, agent.tier);
@@ -1078,12 +1172,12 @@ export class JamRoom implements DurableObject {
         answerShare: brief?.role === 'answer' ? 2 : undefined,
         // PLAY AT THE ROOM'S LEVEL: a shout answered by a whisper is not an answer either.
         targetMeanVelocity: phrase.count > 0 ? phrase.meanVelocity : undefined,
+        // NOT THE SAME SLOT AS THE OTHER AGENT: their bar is already queued and about to sound.
+        avoidSlots: peerPlan,
       });
 
-      // The bar this belongs to: the first one that is neither playing nor already queued, unless the
-      // caller named one (a mid-bar refresh names the queued bar it is replacing).
-      const queuedMax = agent.queue.reduce((max, q) => Math.max(max, q.bar), 0);
-      const target = targetBar ?? Math.max(this.barIndexOf(Date.now()) + 1, queuedMax + 1);
+      // The bar this belongs to, worked out before the decision so the decision could see it.
+      const target = forBar;
 
       // A REFRESH THAT CAME BACK AS A FALLBACK DOES NOT GET TO REPLACE A MODEL BAR: the old entry is
       // stale but it is real music, and the repairer's fallback is only a bar.

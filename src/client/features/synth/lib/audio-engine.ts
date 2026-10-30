@@ -3,15 +3,77 @@ import { PLAYOUT_DELAY_MS, MAX_NOTE_HOLD_S } from '@/shared/protocol/constants';
 
 // ── Instrument Definitions ────────────────────────────────────────────────
 
-export type InstrumentType = 'PolySynth' | 'AMSynth' | 'FMSynth' | 'MembraneSynth' | 'PluckSynth';
+export type InstrumentType = 'PolySynth' | 'AMSynth' | 'FMSynth' | 'MembraneSynth' | 'PluckSynth' | 'DrumKit';
 
 export const INSTRUMENT_LIST: { value: InstrumentType; label: string; icon: string }[] = [
   { value: 'PolySynth', label: 'Classic', icon: '🎹' },
   { value: 'AMSynth', label: 'AM Synth', icon: '🔔' },
   { value: 'FMSynth', label: 'FM Synth', icon: '🎸' },
-  { value: 'MembraneSynth', label: 'Drums', icon: '🥁' },
+  { value: 'DrumKit', label: 'Drums', icon: '🥁' },
   { value: 'PluckSynth', label: 'Pluck', icon: '🪕' },
 ];
+
+/**
+ * A REAL DRUM KIT, not a pitched synth pretending.
+ *
+ * A single MembraneSynth for every drum code made the room's drummer sound like a sink being hit: a
+ * kick, a snare and a hi-hat are three different instruments (a membrane, a noise burst, and a bright
+ * metallic tick). The server sends drum CODES as pitches (C2 kick, G2 tom, D3 snare, A5 hat), so this
+ * maps a code to the voice that makes that sound.
+ */
+interface DrumVoice {
+  trigger(pitch: string, when: number, velocity: number): void;
+  dispose(): void;
+}
+
+function createDrumKit(output: Tone.InputNode): DrumVoice {
+  const kick = new Tone.MembraneSynth({
+    pitchDecay: 0.06,
+    octaves: 6,
+    oscillator: { type: 'sine' },
+    envelope: { attack: 0.001, decay: 0.42, sustain: 0.001, release: 0.01 },
+    volume: 2,
+  }).connect(output);
+
+  const tom = new Tone.MembraneSynth({
+    pitchDecay: 0.03,
+    octaves: 3,
+    oscillator: { type: 'triangle' },
+    envelope: { attack: 0.002, decay: 0.22, sustain: 0.001, release: 0.01 },
+    volume: -2,
+  }).connect(output);
+
+  // a snare is a noise burst with a short body: wider, darker, and shaped by a fast decay
+  const snare = new Tone.NoiseSynth({
+    noise: { type: 'white' },
+    envelope: { attack: 0.001, decay: 0.18, sustain: 0, release: 0.02 },
+    volume: -4,
+  }).connect(output);
+
+  // a hat is a shorter, brighter tick: pink noise through a high band keeps it from sounding like a
+  // snare, and 60ms is the difference between a hat and a hiss
+  const hat = new Tone.NoiseSynth({
+    noise: { type: 'pink' },
+    envelope: { attack: 0.001, decay: 0.055, sustain: 0, release: 0.01 },
+    volume: -8,
+  }).connect(output);
+
+  return {
+    trigger(pitch: string, when: number, velocity: number): void {
+      const v = Math.max(0.02, Math.min(1, velocity));
+      switch (pitch) {
+        case 'C2': kick.triggerAttackRelease('C1', 0.4, when, v); break;
+        case 'G2': tom.triggerAttackRelease('G2', 0.22, when, v); break;
+        case 'D3': snare.triggerAttack(when, v); snare.triggerRelease(when + 0.19); break;
+        case 'A5': hat.triggerAttack(when, v); hat.triggerRelease(when + 0.06); break;
+        default: kick.triggerAttackRelease('C1', 0.35, when, v); break;
+      }
+    },
+    dispose(): void {
+      kick.dispose(); tom.dispose(); snare.dispose(); hat.dispose();
+    },
+  };
+}
 
 function createInstrumentSynth(type: InstrumentType, output: Tone.InputNode): Tone.PolySynth {
   switch (type) {
@@ -72,6 +134,10 @@ export class AudioEngine {
 
   /** Per-peer synth instances keyed by peerId, different instruments per peer */
   private peerSynths: Map<string, Tone.PolySynth> = new Map();
+  /** Per-peer drum kits: a kit is not a PolySynth, it is four one-shot voices */
+  private peerKits: Map<string, DrumVoice> = new Map();
+  /** The local player's kit, when they pick Drums */
+  private localKit: DrumVoice | null = null;
   /** Per-peer instrument type tracking */
   private peerInstruments: Map<string, InstrumentType> = new Map();
   /** Per-peer volume nodes: peerId → Gain */
@@ -90,8 +156,12 @@ export class AudioEngine {
     await Tone.start();
 
     this.masterGain = new Tone.Gain(1).toDestination();
-    this.synth = createInstrumentSynth(this.currentInstrument, this.masterGain);
-    this.synth.maxPolyphony = 16;
+    if (this.currentInstrument === 'DrumKit') {
+      this.localKit = createDrumKit(this.masterGain);
+    } else {
+      this.synth = createInstrumentSynth(this.currentInstrument, this.masterGain);
+      this.synth.maxPolyphony = 16;
+    }
 
     this.started = true;
   }
@@ -107,6 +177,9 @@ export class AudioEngine {
       synth.dispose();
     }
     this.peerSynths.clear();
+    for (const [, kit] of this.peerKits) kit.dispose();
+    this.peerKits.clear();
+    if (this.localKit) { this.localKit.dispose(); this.localKit = null; }
     this.peerInstruments.clear();
     for (const [, gain] of this.peerGains) {
       gain.dispose();
@@ -208,6 +281,13 @@ export class AudioEngine {
     if (this.synth) {
       this.synth.releaseAll();
       this.synth.dispose();
+      this.synth = null;
+    }
+    // Switching to drums swaps the melodic synth for a kit, and back again
+    if (this.localKit) { this.localKit.dispose(); this.localKit = null; }
+    if (instrument === 'DrumKit') {
+      this.localKit = createDrumKit(this.masterGain);
+      return;
     }
     this.synth = createInstrumentSynth(instrument, this.masterGain);
     this.synth.maxPolyphony = 16;
@@ -224,7 +304,21 @@ export class AudioEngine {
    * cut whatever that peer is holding.
    */
   setPeerInstrument(peerId: string, instrument: InstrumentType): void {
-    if (this.peerSynths.has(peerId) && this.peerInstruments.get(peerId) === instrument) return;
+    const hasVoice = this.peerSynths.has(peerId) || this.peerKits.has(peerId);
+    if (hasVoice && this.peerInstruments.get(peerId) === instrument) return;
+
+    // a kit and a synth cannot both exist for the same peer
+    const kit = this.peerKits.get(peerId);
+    if (kit) { kit.dispose(); this.peerKits.delete(peerId); }
+
+    if (instrument === 'DrumKit') {
+      const existing = this.peerSynths.get(peerId);
+      if (existing) { existing.releaseAll(); existing.dispose(); this.peerSynths.delete(peerId); }
+      this.peerKits.set(peerId, createDrumKit(this.getOrCreatePeerGain(peerId)));
+      this.peerInstruments.set(peerId, instrument);
+      return;
+    }
+
     const existing = this.peerSynths.get(peerId);
     if (existing) {
       existing.releaseAll();
@@ -256,7 +350,8 @@ export class AudioEngine {
    * peerId is used to route through the peer's Gain node.
    */
   playNote(pitch: string, velocity: number, isRemote: boolean, peerId?: string): void {
-    if (!this.synth) return;
+    // A kit has no melodic synth, so this guard cannot be a synth check alone
+    if (!this.synth && !this.localKit && this.peerKits.size === 0) return;
 
     // If this is a muted peer, skip entirely
     if (peerId && this.mutedPeers.has(peerId)) return;
@@ -269,16 +364,21 @@ export class AudioEngine {
     const delay = isRemote ? PLAYOUT_DELAY_MS / 1000 : 0;
     const when = Tone.now() + delay;
 
-    // Route to correct synth instance
-    if (peerId && isRemote) {
-      // Remote peer: use peer-specific synth (instrument-aware)
-      const peerSynth = this.getOrCreatePeerSynth(peerId);
-      const peerGain = this.getOrCreatePeerGain(peerId);
-      const peerVol = peerGain.gain.value;
-      peerSynth.triggerAttack(pitch, when, normalizedVelocity * peerVol);
+    // Route to correct voice
+    if (isRemote && peerId) {
+      const peerVol = this.getOrCreatePeerGain(peerId).gain.value;
+      const kit = this.peerKits.get(peerId);
+      if (kit) {
+        kit.trigger(pitch, when, normalizedVelocity * peerVol);
+        return; // a drum is a one-shot: no release, no active-note bookkeeping
+      }
+      this.getOrCreatePeerSynth(peerId).triggerAttack(pitch, when, normalizedVelocity * peerVol);
     } else {
-      // Local notes: use local synth with master volume
-      this.synth.triggerAttack(pitch, when, normalizedVelocity * this.masterVolumeLevel);
+      if (this.localKit) {
+        this.localKit.trigger(pitch, when, normalizedVelocity * this.masterVolumeLevel);
+        return;
+      }
+      this.synth?.triggerAttack(pitch, when, normalizedVelocity * this.masterVolumeLevel);
     }
 
     const releaseTimer = setTimeout(() => {
@@ -293,6 +393,8 @@ export class AudioEngine {
   /** Release a note (optionally scoped to peerId) */
   releaseNote(pitch: string, peerId?: string): void {
     if (!this.synth) return;
+    // a drum already finished: releasing it would only cut the next hit
+    if (peerId ? this.peerKits.has(peerId) : this.localKit !== null) return;
 
     const key = peerId ? `${peerId}:${pitch}` : pitch;
     const existing = this.activeNotes.get(key);

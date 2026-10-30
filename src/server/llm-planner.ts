@@ -41,6 +41,8 @@ export interface MeasureContext {
   motif?: string;
   /** pitches still held by someone else, so the bar does not double them */
   heldNotes?: string[];
+  /** what ANOTHER AGENT has already queued for this bar, so two agents do not play the same line */
+  peerPlan?: string;
 }
 
 /** Who is playing: an anonymous visitor, or someone the zpe door knows. */
@@ -160,6 +162,9 @@ function buildUserPrompt(ctx: MeasureContext, brief: DecisionBrief | null): stri
     );
   }
 
+  if (ctx.peerPlan) {
+    lines.push(`ANOTHER AGENT IS ABOUT TO PLAY THIS BAR: ${ctx.peerPlan}. Answer it or leave room for it, never copy it.`);
+  }
   if (ctx.heldNotes?.length) {
     lines.push(`DO NOT PLAY (someone is holding these): ${ctx.heldNotes.join(', ')}`);
   }

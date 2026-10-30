@@ -84,7 +84,17 @@ describe('repairMeasure', () => {
     const { notes, dropped } = repairMeasure(clean, { key: 'C major' });
 
     expect(notes).toEqual(clean);
-    expect(dropped).toEqual({ rescaled: 0, invalid: 0, offGrid: 0, outOfKey: 0, unison: 0, duplicate: 0, overCap: 0 });
+    expect(dropped).toEqual({ rescaled: 0, invalid: 0, offGrid: 0, outOfKey: 0, unison: 0, duplicate: 0, overCap: 0, avoided: 0 });
+  });
+
+  // TWO AGENTS ON ONE SLOT is the sound of not listening, so a queued slot owned by another agent wins
+  it('drops a slot another agent has already queued for the same bar', () => {
+    const { notes, dropped } = repairMeasure(
+      [note('C4', 0), note('E4', 1), note('G4', 2)],
+      { key: 'C major', avoidSlots: ['E4@1'] },
+    );
+    expect(notes.map(n => n.pitch)).toEqual(['C4', 'G4']);
+    expect(dropped.avoided).toBe(1);
   });
 
   describe('when the bar is an answer', () => {
