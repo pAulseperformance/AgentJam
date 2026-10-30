@@ -97,6 +97,17 @@ describe('repairMeasure', () => {
     expect(dropped.avoided).toBe(1);
   });
 
+  // MEASURED by a reviewer: the claimed-slot scan ran over the notes already accepted and never over
+  // the note being processed, so the LAST note of a bar always survived another agent's claim.
+  it('drops a claimed slot even when it is the last note of the bar', () => {
+    const { notes, dropped } = repairMeasure(
+      [note('C4', 0), note('E4', 1), note('G4', 2)],
+      { key: 'C major', avoidSlots: ['G4@2'] },
+    );
+    expect(notes.map(n => n.pitch)).toEqual(['C4', 'E4']);
+    expect(dropped.avoided).toBe(1);
+  });
+
   describe('when the bar is an answer', () => {
     it('leaves a bar that already shares a pitch class alone', () => {
       const { notes, answered } = repairMeasure(

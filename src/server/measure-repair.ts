@@ -98,6 +98,9 @@ export function repairMeasure(notes: GeneratedNote[], options: RepairOptions): R
   const maxNotes = options.maxNotes ?? 10;
   const held = new Set((options.heldPitches ?? []).map(p => p.trim()));
   const dropped = { rescaled: 0, invalid: 0, offGrid: 0, outOfKey: 0, unison: 0, duplicate: 0, overCap: 0, avoided: 0 };
+  const claimedSlots = options.avoidSlots?.length
+    ? new Set(options.avoidSlots.map(s => s.replace(/\s/g, '').toLowerCase()))
+    : null;
 
   const repaired: GeneratedNote[] = [];
 
@@ -115,22 +118,19 @@ export function repairMeasure(notes: GeneratedNote[], options: RepairOptions): R
     // answering it.
     if (held.has(pitch)) { dropped.unison++; continue; }
 
-    // NOT ON TOP OF ANOTHER AGENT. Their plan for this bar is already queued and about to sound, so a
-    // collision here is heard as one player following another, never as two listening to each other.
-    if (options.avoidSlots?.length) {
-      const claimed = new Set(options.avoidSlots.map(s => s.replace(/\s/g, '').toLowerCase()));
-      const before = repaired.length;
-      for (let i = repaired.length - 1; i >= 0; i--) {
-        if (claimed.has(`${repaired[i]!.pitch}@${repaired[i]!.beatTime}`.toLowerCase())) repaired.splice(i, 1);
-      }
-      dropped.avoided += before - repaired.length;
-    }
-
     // KEY. Move it, do not mute it: a stray accidental is a mistake in address, not in intent.
     const inKey = isInKey(pitch, options.key);
     const snapped = inKey ? pitch : snapPitchToKey(pitch, options.key);
     if (!inKey) dropped.outOfKey++;
     if (held.has(snapped)) { dropped.unison++; continue; }
+
+    // NOT ON TOP OF ANOTHER AGENT. Their bar is already queued and about to sound, so the same slot
+    // would be heard as one player following another. This tests the note being processed: the old
+    // version rescanned only the notes already accepted, so the LAST note of a bar always survived.
+    if (claimedSlots && claimedSlots.has(`${snapped}@${onGrid}`.toLowerCase())) {
+      dropped.avoided++;
+      continue;
+    }
 
     repaired.push({
       pitch: snapped,

@@ -1,5 +1,5 @@
 /**
- * page.ts — the jam page wears the estate's shell instead of being its own document.
+ * page.ts: the jam page wears the estate's shell instead of being its own document.
  *
  * WHAT WAS WRONG, measured 2026-10-30: `/jam/` answered a 2,033-byte Vite document with one stylesheet of its own
  * (`/jam/assets/index-*.css`, 18,850 B), no fleet sheet and no estate bar. Layer 11 of ADMISSION asks the page to

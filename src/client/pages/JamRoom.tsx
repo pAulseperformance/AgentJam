@@ -66,6 +66,9 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
   }, []);
 
   // Handle incoming remote note events, bypass React entirely
+  /** who had a voice last time, so a departure can be told from a peer that was never heard */
+  const knownPeersRef = useRef<Set<string>>(new Set());
+
   const handleRemoteNoteEvent = useCallback((event: NoteEvent) => {
     if (!engine) return;
 
@@ -129,6 +132,12 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
   // piano. Idempotent, so a repeated peer list costs nothing.
   useEffect(() => {
     if (!engine) return;
+    const present = new Set(peers.map(p => p.peerId));
+    // A PEER THAT LEFT GIVES ITS VOICES BACK, or every departing drummer leaks a gain and four voices.
+    for (const peerId of knownPeersRef.current) {
+      if (!present.has(peerId)) engine.removePeer(peerId);
+    }
+    knownPeersRef.current = present;
     for (const peer of peers) {
       if (peer.instrument) engine.setPeerInstrument(peer.peerId, peer.instrument as InstrumentType);
     }

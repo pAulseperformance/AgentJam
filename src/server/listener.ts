@@ -183,7 +183,7 @@ export function describePhrase(summary: PhraseSummary): string {
   const strong = summary.strongBeatPitches.join(', ') || 'nothing on the strong beats';
   const open = summary.openSlots.length ? `open slots at ${summary.openSlots.slice(0, 6).join(', ')} (sixteenths)` : 'the bar is full';
   return [
-    `${summary.count} notes, contour ${summary.contour}, ${summary.register} register, ${summary.articulation} articulation, ${summary.loudness} at mean velocity ${summary.meanVelocity}`,
+    `${summary.count} notes, contour ${summary.contour}, ${summary.register} register, ${summary.articulation} articulation, ${summary.loudness} at mean velocity ${summary.meanVelocity} (peak ${summary.peakVelocity})`,
     `strong beats: ${strong}; last note: ${summary.lastPitch ?? 'none'}`,
     `they are holding: ${summary.held.join(', ') || 'nothing'}`,
     open,

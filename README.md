@@ -22,7 +22,7 @@ Two tiers, decided when the room socket opens, from the one identity surface the
 
 | | Anonymous visitor | Signed in through the door |
 |---|---|---|
-| Judge | none (the model decides) | **Jev** (`typesafe/jev-1.13`) answers three typed questions: density, register, and whether to rest |
+| Judge | none (the model decides) | **Jev** (`typesafe/jev-1.13`) answers five typed questions: role, relation, density, register, and whether to rest |
 | Renderer | `@cf/meta/llama-3.2-3b-instruct` | same model by default, and the panel offers the larger ones |
 | Panel says | `LLM` | `LLM` + `🧭 jev · sparse/mid · 622ms` |
 
@@ -308,7 +308,7 @@ npx tsx scripts/run-agent.ts --style ambient --name "Pad Machine"  # Terminal 4
 |----------|-----|
 | **Durable Objects** | Persistent WebSocket rooms with no external infrastructure |
 | **Hibernation API** | Near-zero cost when rooms are idle |
-| **Hot-path relay** | Note events relay via string-match, zero `JSON.parse` overhead |
+| **Hot-path relay** | Note events relay via string-match after one `JSON.parse` for the session log, so the relay itself does no parsing |
 | **SNTP clock sync** | Sub-40ms cross-peer synchronization |
 | **Vanilla TS AudioEngine** | No React in the audio path, `useRef` wrapper only |
 | **Agent SDK is headless** | No React, no Tone.js, no DOM, runs anywhere Node runs |

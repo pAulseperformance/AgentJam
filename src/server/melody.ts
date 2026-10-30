@@ -213,18 +213,38 @@ export function applyContourRules(
   if (notes.length < 2) return notes;
   const allowed = scalePitchClasses(options.key);
   const clamp = (m: number) => Math.max(options.register.low, Math.min(options.register.high, m));
+  /**
+   * The nearest in-key pitch inside the register, searching the WHOLE band before giving up. The old
+   * version clamped the answer onto the register bound, and a bound is not a scale tone (40 is E2,
+   * not in C minor), so it returned an out-of-key note and a repeated pitch in exactly the case this
+   * function exists to fix.
+   */
   const nearestInKey = (from: number, target: number, direction: 1 | -1): number => {
-    let midi = from;
-    for (let guard = 0; guard < 12; guard++) {
-      midi += direction;
-      if (allowed.includes(((midi % 12) + 12) % 12)) {
-        if (Math.abs(midi - target) <= 6) return clamp(midi);
+    for (let d = 1; d <= 24; d++) {
+      for (const midi of [from + direction * d, from - direction * d]) {
+        if (midi < options.register.low || midi > options.register.high) continue;
+        if (!allowed.includes(((midi % 12) + 12) % 12)) continue;
+        if (Math.abs(midi - target) <= 6) return midi;
       }
     }
-    return clamp(from + direction * 2);
+    // nothing in key inside the band: stay where we are rather than leave the key or the register
+    return clamp(from);
   };
 
-  const out: GeneratedNote[] = [{ ...notes[0]! }];
+  // THE FIRST NOTE GOES THROUGH THE SAME PATH. It used to be copied verbatim, so the one note that
+  // sets a bar's register was the only one never clamped to it (measured: cadenceLine from C6 into a
+  // 40..59 band published B5, outside the band it was handed).
+  const inBand = (m: number) =>
+    m >= options.register.low && m <= options.register.high && allowed.includes(((m % 12) + 12) % 12);
+  const snapFirst = (m: number): number => {
+    if (inBand(m)) return m;
+    for (let d = 1; d <= 6; d++) {
+      for (const candidate of [m + d, m - d]) if (inBand(candidate)) return candidate;
+    }
+    return clamp(m);
+  };
+  const firstMidi = snapFirst(clamp(midiOf(notes[0]!.pitch) ?? options.register.low));
+  const out: GeneratedNote[] = [{ ...notes[0]!, pitch: noteNameFromMidi(firstMidi) }];
   let lastLeapDirection = 0;
 
   for (let i = 1; i < notes.length; i++) {
@@ -245,8 +265,14 @@ export function applyContourRules(
       midi = nearestInKey(prevMidi, midi, lastLeapDirection === 1 ? -1 : 1);
     }
 
-    lastLeapDirection = Math.abs(midi - prevMidi) >= 4 ? Math.sign(midi - prevMidi) : 0;
-    out.push({ ...note, pitch: noteNameFromMidi(clamp(midi)) });
+    // EVERY note leaves through the same door: in the register AND in the key. A plain step could still
+    // land on a band edge that is not a scale tone, which is how E2 survived into a C minor bar.
+    let settled = snapFirst(clamp(midi));
+    // AND SETTLING CAN CREATE A STUTTER: E2 settled to F2 twice in a row, which is the same defect one
+    // layer down. If the snap lands back on the note already sounding, step away from it.
+    if (settled === prevMidi) settled = snapFirst(clamp(prevMidi + 2)) === prevMidi ? snapFirst(clamp(prevMidi - 2)) : snapFirst(clamp(prevMidi + 2));
+    lastLeapDirection = Math.abs(settled - prevMidi) >= 4 ? Math.sign(settled - prevMidi) : 0;
+    out.push({ ...note, pitch: noteNameFromMidi(settled) });
   }
 
   return out;
@@ -261,7 +287,10 @@ export function cadenceLine(
 ): GeneratedNote[] {
   const allowed = scalePitchClasses(options.key);
   const tonic = allowed[0] ?? 0;
-  const from = options.fromMidi ?? Math.round((options.register.low + options.register.high) / 2);
+  const from = Math.max(
+    options.register.low,
+    Math.min(options.register.high, options.fromMidi ?? Math.round((options.register.low + options.register.high) / 2)),
+  );
 
   // the nearest tonic to where the line already is, so the landing is a step and not a jump
   let landing = from;

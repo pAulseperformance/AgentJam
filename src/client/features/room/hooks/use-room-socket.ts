@@ -148,6 +148,7 @@ export function useRoomSocket({
           case 'peer_left':
             setPeers((prev) => prev.filter((p) => p.peerId !== msg.peerId));
             break;
+
           case 'agent_spawned':
             // Agent also triggers peer_joined, so just log
             break;
@@ -174,12 +175,22 @@ export function useRoomSocket({
           case 'error':
             console.warn('[useRoomSocket] Server error:', msg.message);
             break;
-          default:
+          default: {
             // Handle ai_debug and other dynamic messages
-            if ('type' in msg && (msg as { type: string }).type === 'ai_debug') {
+            const loose = msg as { type: string; peerId?: unknown; instrument?: unknown };
+            if (loose.type === 'ai_debug') {
               setAiDebugEntries(prev => [...prev.slice(-19), msg]);
             }
+            // A PLAYER WHO SWITCHES VOICE IS HEARD SWITCHING. The server broadcasts instrument_change
+            // with the peer's id, but the shared ServerMessage union has no variant for it, so it is
+            // read loosely here rather than by editing a protocol file another session is also writing.
+            if (loose.type === 'instrument_change' && typeof loose.peerId === 'string') {
+              const peerId = loose.peerId;
+              const instrument = String(loose.instrument ?? '');
+              setPeers(prev => prev.map(p => (p.peerId === peerId && instrument ? { ...p, instrument } : p)));
+            }
             break;
+          }
         }
       } catch {
         console.warn('[useRoomSocket] Failed to parse message');

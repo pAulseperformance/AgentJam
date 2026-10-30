@@ -238,6 +238,32 @@ describe('restateHook slot collisions', () => {
   });
 });
 
+// MEASURED by a reviewer: in C minor the band 40..59 starts on E2, which is not in the key, so the
+// old nearestInKey clamped its answer onto the bound and returned an out-of-key repeated pitch.
+describe('contour rules at a register bound', () => {
+  it('stays in a minor key when the band edge is not a scale tone', () => {
+    const opts = { key: 'C minor', register: { low: 40, high: 59 } };
+    const stutter = [note('E2', 0), note('E2', 0.5), note('E2', 1)];
+    const fixed = applyContourRules(stutter, opts);
+    for (const n of fixed) {
+      expect(isInKey(n.pitch, 'C minor')).toBe(true);
+      const m = midiOf(n.pitch)!;
+      expect(m).toBeGreaterThanOrEqual(40);
+      expect(m).toBeLessThanOrEqual(59);
+    }
+    expect(fixed[1]!.pitch).not.toBe(fixed[0]!.pitch);
+  });
+
+  it('clamps a cadence start that sits outside the band it was handed', () => {
+    const cadence = cadenceLine({ key: 'C major', register: { low: 40, high: 59 }, fromMidi: 84 });
+    for (const n of cadence) {
+      const m = midiOf(n.pitch)!;
+      expect(m).toBeGreaterThanOrEqual(40);
+      expect(m).toBeLessThanOrEqual(59);
+    }
+  });
+});
+
 describe('shapeLine on a landing', () => {
   it('makes the landing the strongest note in a two note cadence', () => {
     const cadence = [note('B4', 0.5, 92), note('C5', 1.5, 76)];

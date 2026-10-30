@@ -39,9 +39,15 @@ let meta: SessionMeta = {
 
 let messages: RecordedMessage[] = [];
 
-export function beginSession(room: string): void {
+/**
+ * Start a session ONCE per room. `room_state` is broadcast again on every tempo and key change, so
+ * calling this from that handler emptied the whole log mid-session.
+ */
+export function beginSession(room: string): boolean {
+  if (meta.room === room && messages.length > 0) return false;
   meta = { ...meta, room, startedAt: Date.now(), recordedFrom: Date.now() };
   messages = [];
+  return true;
 }
 
 export function noteRoomState(roomState: { bpm: number; key: string; transportStartTime: number }): void {
@@ -49,12 +55,16 @@ export function noteRoomState(roomState: { bpm: number; key: string; transportSt
 }
 
 export function recordMessage(text: string): void {
-  let data: Record<string, unknown>;
+  let parsed: unknown;
   try {
-    data = JSON.parse(text) as Record<string, unknown>;
+    parsed = JSON.parse(text);
   } catch {
     return;
   }
+  // JSON.parse('null') is null, and null.type throws. A malformed payload must cost one log line,
+  // not the room's message handler: this runs inside ws.onmessage, outside any try.
+  if (!parsed || typeof parsed !== 'object') return;
+  const data = parsed as Record<string, unknown>;
   const type = typeof data.type === 'string' ? data.type : 'unknown';
   // the message types worth keeping: what played, and what the agent decided for each bar
   if (!/note_o|ai_debug|agent_spawned|peer_|bpm_change|key_change|error/.test(type)) return;

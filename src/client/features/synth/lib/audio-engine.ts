@@ -293,6 +293,21 @@ export class AudioEngine {
     this.synth.maxPolyphony = 16;
   }
 
+  /**
+   * A DEPARTED PEER GIVES ITS VOICES BACK. `peer_left` only filtered the React list, so every drummer
+   * that left leaked a Tone.Gain and four one-shot voices for the life of the tab.
+   */
+  removePeer(peerId: string): void {
+    const kit = this.peerKits.get(peerId);
+    if (kit) { kit.dispose(); this.peerKits.delete(peerId); }
+    const synth = this.peerSynths.get(peerId);
+    if (synth) { synth.releaseAll(); synth.dispose(); this.peerSynths.delete(peerId); }
+    const gain = this.peerGains.get(peerId);
+    if (gain) { gain.dispose(); this.peerGains.delete(peerId); }
+    this.peerInstruments.delete(peerId);
+    this.mutedPeers.delete(peerId);
+  }
+
   /** Get current instrument */
   getInstrument(): InstrumentType {
     return this.currentInstrument;
@@ -392,7 +407,9 @@ export class AudioEngine {
 
   /** Release a note (optionally scoped to peerId) */
   releaseNote(pitch: string, peerId?: string): void {
-    if (!this.synth) return;
+    // The guard has to ask about the voice that will be released: with Drums chosen locally there is
+    // no melodic synth, and this returned early for every peer's note_off, leaving their notes ringing.
+    if (peerId ? !this.peerSynths.has(peerId) && !this.peerKits.has(peerId) : !this.synth && !this.localKit) return;
     // a drum already finished: releasing it would only cut the next hit
     if (peerId ? this.peerKits.has(peerId) : this.localKit !== null) return;
 
@@ -411,7 +428,7 @@ export class AudioEngine {
         return;
       }
     }
-    this.synth.triggerRelease(pitch);
+    this.synth?.triggerRelease(pitch);
   }
 
   releaseAll(): void {

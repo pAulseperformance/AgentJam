@@ -58,8 +58,12 @@ export function Keyboard({ engine, peerId, onNoteEvent }: KeyboardProps) {
   // QWERTY keyboard bindings — skip when user is typing in inputs
   useEffect(() => {
     const isTyping = () => {
-      const tag = document.activeElement?.tagName;
-      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+      const active = document.activeElement as HTMLElement | null;
+      if (!active) return false;
+      const tag = active.tagName;
+      // SELECT is NOT typing: the transport keeps a select focused after a mouse pick, and counting it
+      // here swallowed every letter key. Editable regions are typing, and so are text inputs.
+      return tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable === true;
     };
 
     const onKeyDown = (e: KeyboardEvent) => {

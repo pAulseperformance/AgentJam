@@ -159,6 +159,10 @@ interface InProcessAgent {
   phraseStartBar: number;
   /** the phrase's hook, kept so the restate bar can bring it back with one change (Yin-Yang's "vary") */
   hook: GeneratedNote[] | null;
+  /** the register the last decision asked for, so a fallback bar lands in the same band */
+  lastRegister: 'low' | 'mid' | 'high';
+  /** the last bar index this agent published, so one bar cannot be announced twice */
+  lastBarIndex: number;
   activeNotes: Set<string>;
   noteCount: number;
 }
@@ -555,6 +559,12 @@ export class JamRoom implements DurableObject {
 
   private handleKeyChange(_ws: WebSocket, key: string): void {
     this.roomState.key = key;
+    // A BAR RENDERED IN THE OLD KEY MAY NOT PLAY UNDER THE NEW ONE. The tempo path already drops the
+    // queue for the same reason; the hook goes with it, because a restate copies its pitches verbatim.
+    for (const agent of this.agents.values()) {
+      agent.queue = [];
+      agent.hook = null;
+    }
     this.roomState.serverTime = Date.now();
     void this.ctx.storage.put('roomState', this.roomState);
     this.broadcastAll(JSON.stringify({
@@ -617,6 +627,8 @@ export class JamRoom implements DurableObject {
       // cadence rotated with the room instead of landing at the end of the agent's own phrase.
       phraseStartBar: this.barIndexOf(Date.now()) + 1,
       hook: null,
+      lastRegister: 'mid',
+      lastBarIndex: -1,
       activeNotes: new Set(),
       noteCount: 0,
     };
@@ -998,10 +1010,14 @@ export class JamRoom implements DurableObject {
     // still unproven, so the guard is on the clock: no agent may announce a bar sooner than half a bar
     // after the last one. A fire that trips this waits for the real next line instead of repeating.
     const publishedAt = Date.now();
-    if (!barElapsedEnough(agent.lastPublishedAt, publishedAt, this.barMs())) {
+    // THE BAR INDEX IS THE INVARIANT, because the clock is not. At a fractional bar length (140 BPM is
+    // 1714.2857ms) a wait can land on the PREVIOUS index and the half-bar guard passes, so one bar is
+    // announced twice and its fallback bar is addressed into the past (measured 2 of 25 waits).
+    if (bar <= agent.lastBarIndex || !barElapsedEnough(agent.lastPublishedAt, publishedAt, this.barMs())) {
       this.armAgentBar(agent);
       return;
     }
+    agent.lastBarIndex = bar;
     agent.lastPublishedAt = publishedAt;
 
     // PUBLISH. An entry queued for THIS bar plays; anything else is a bar the model missed, and the
@@ -1041,6 +1057,9 @@ export class JamRoom implements DurableObject {
       type: 'ai_debug',
       agentPeerId: agent.peer.peerId,
       agentName: agent.peer.name,
+      // THE BAR, so a recorded session can place a decision. Without it every bar in an export was
+      // only a millisecond offset, and two agents made them unreadable.
+      bar,
       meta,
     }));
 
@@ -1186,17 +1205,24 @@ export class JamRoom implements DurableObject {
    * melody on the same arc instead, so a missed bar costs a model's flourish and not the tune.
    */
   private melodyBar(agent: InProcessAgent, bar: number): GeneratedNote[] {
-    const plan = melodyPlan(bar, agent.style, agent.motif !== null);
+    const barInPhrase = ((bar - agent.phraseStartBar) % 4 + 4) % 4;
+    const plan = melodyPlan(barInPhrase, agent.style, agent.motif !== null);
+    const register = this.registerRange(agent.lastRegister ?? 'mid');
     const built = completeMelody([], {
       plan,
       key: this.roomState.key,
       motif: agent.motif,
-      register: this.registerRange('mid'),
+      register,
       maxNotes: 10,
     });
-    // THE SAME RULES AS A MODEL BAR. A fallback bar published straight from this path skipped both the
-    // contour pass and the dynamics pass: measured, three C5s in a row and one bar at a flat velocity 80.
-    const conformed = applyContourRules(built.notes, { key: this.roomState.key, register: this.registerRange('mid') });
+    // THE SAME RULES AS A MODEL BAR, including the repair: a fallback bar used to skip the unison drop,
+    // the slot check and the register, and measured three C5s in a row and a bar at a flat velocity 80.
+    const repaired = repairMeasure(built.notes, {
+      key: this.roomState.key,
+      heldPitches: this.heldByOthers(agent.peer.peerId),
+      maxNotes: 10,
+    });
+    const conformed = applyContourRules(repaired.notes, { key: this.roomState.key, register });
     return shapeLine(conformed, { contour: plan.contour, density: 'medium' });
   }
 
@@ -1374,6 +1400,7 @@ export class JamRoom implements DurableObject {
       // when what it writes is a triad: the line is completed in key, along the arc, on the grid.
       let finalNotes = repaired.notes;
       const register = this.registerRange(brief?.register ?? 'mid');
+      agent.lastRegister = brief?.register ?? 'mid';
 
       if (brief?.role === 'lead' && melody.position === 'cadence') {
         // THE PHRASE LANDS: two notes, the last on the tonic, approached by step, held longer
@@ -1384,7 +1411,7 @@ export class JamRoom implements DurableObject {
         });
       } else if (brief?.role === 'lead' && melody.position === 'restate' && agent.hook?.length) {
         // THE HOOK COMES BACK. One change, chosen by the bar, never a new line (arXiv 2501.17759)
-        finalNotes = restateHook(agent.hook, { key: this.roomState.key, register, bar: barInPhrase });
+        finalNotes = restateHook(agent.hook, { key: this.roomState.key, register, bar: forBar });
       } else if (brief?.role === 'lead') {
         const register = this.registerRange(brief.register);
         const completed = completeMelody(finalNotes, {

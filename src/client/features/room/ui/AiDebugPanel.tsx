@@ -42,7 +42,8 @@ export function AiDebugPanel({ entries, signedIn = false, onModelChange }: AiDeb
   const [exported, setExported] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 
-  if (entries.length === 0) return null;
+  // A HUMAN-ONLY ROOM HAS NO AGENT ENTRIES, and the export button is the reason the panel exists there.
+  if (entries.length === 0 && recordedCount() === 0) return null;
 
   // Group by agent, keep only latest entry per agent
   const latest = new Map<string, AiDebugEntry>();

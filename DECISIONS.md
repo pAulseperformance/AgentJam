@@ -119,9 +119,10 @@ of the bars sit at a single velocity, or a bar with eight or more consecutive si
 
 Loser: a five-note floor on every position including the cadence. Reason: the recorded 20-bar session
 had 5 to 7 notes in every bar, no bar under four and no silence, so no phrase sounded finished. The
-cadence is now three notes with the rest of the bar open. Measured after, 2 of 16 bars landed at three
-notes, which is fewer than expected because the phrase position is the ABSOLUTE bar number modulo four,
-so a listener who joins mid-bar hears a cadence on a different bar than the first phrase. Also recorded:
+cadence is now TWO notes, one of them the tonic, approached by a step with the rest of the bar open.
+Measured before the anchoring fix, only 2 of 16 bars landed short, because the phrase position was the
+ROOM's absolute bar number, so the cadence rotated with the room rather than with the agent's phrase. The
+arc now runs from the agent's own start. Also recorded:
 a hand-written 8-bar phrase in the same key through the same renderer (`reference-8-bars.mp3`), so
 "in key and on the scale" can be judged against something that is deliberately intentional. Falsifier:
 a session where no bar lands under four notes across sixteen bars, which would mean the cadence rule
