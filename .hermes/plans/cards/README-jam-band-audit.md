@@ -1,7 +1,7 @@
 # Cards: jam band and audit
 
 Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md`
-sha16 bc1c6ce369f30093 (the stamp the bodies carry and the one to verify with)
+sha16 938f032372d333da (the stamp the bodies carry and the one to verify with)
 Identity `plan:94001bdcfe09a08b:<n>`: the cards were created when the plan was stamped 94001bdcfe09a08b, and a card's idempotency key cannot be edited, so the keys stay on the old stamp while every body carries the new one.
 Repo `/Users/v99/Projects/Music/agentJam`, every card in `dir:` on `main`.
 
@@ -30,7 +30,7 @@ Repo `/Users/v99/Projects/Music/agentJam`, every card in `dir:` on `main`.
 | t_8a14f7db | 16 | Gate the room on the probe | implementer |
 | t_9f8d73df | 17 | Verify the browser half | implementer |
 | t_5e4feba0 | 18 | Prove the bar loop over many bars | implementer |
-| t_0d9f0862 | owner-phase1-listening | OWNER: listen to the room at 160 BPM, then say carry on | default, parked `blocked` |
+| t_0d9f0862 | owner-phase1-listening | archived: the owner overrode the stop and the chain runs to the end | default |
 | t_d9c4b6ab | review | REVIEW: jam band and audit, eighteen cards | reviewer, `z-ai/glm-5.3-flash` via `veil` |
 
 Order: story then screen, then the plan review gates Task 1, then Tasks 1 to 18 in sequence, then the review. Every implementation card waits on the screen card and on the previous card; the review waits on all eighteen and on the screen. One subscription row, on the review card, so it is the only card that messages the owner.
@@ -96,3 +96,19 @@ every deploy rather than written once in a table.
 
 - `hermes kanban set-model <id> <model> --provider <name>` exists, so a wrong provider pin is repairable on the card itself. Recreating the two review cards was a heavier repair than the defect deserved.
 - Name a provider that exists in the ASSIGNEE's own config (`model.provider` in `~/.hermes/profiles/<name>/config.yaml`), never the integration that provider wraps. `custom` is what the router is called, `veil` is what the profile configures.
+
+## The owner overrode the stop, and asked for harmony
+
+He said the chain runs all the way: `t_0d9f0862` was unlinked from Task 7 and archived, so nothing parks
+at Task 6 any more. Two tasks now carry a harmony acceptance that was not in the plan before:
+
+- Task 8 voice-leads ACROSS agents, not only across the bar line: when the lead changes hands the new
+  agent starts a step from the other agent's last note, so the phrase passes between them instead of
+  restarting at the new agent's own centre.
+- Task 10 agrees ONE room-wide tonal centre from every agent's recent notes, never prefers a bar that
+  puts two agents a semitone apart in the same slot, and must show the probe's `clashes` count falling
+  against its own baseline while model bars do not fall by more than a fifth. Harmony bought with
+  silence is not harmony.
+
+His next subject, after this chain: an API layer for different instruments and synthesizers. Not started
+here, and it does not belong in this plan.

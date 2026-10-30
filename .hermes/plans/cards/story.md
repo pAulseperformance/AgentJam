@@ -1,6 +1,6 @@
 # STORY: who walks in, and what they must see
 
-Repo `agentJam` | Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md` (sha16 bc1c6ce369f30093) | Card key `plan:bc1c6ce369f30093:story`
+Repo `agentJam` | Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md` (sha16 938f032372d333da) | Card key `plan:938f032372d333da:story`
 
 **Objective:** put the two people this plan serves in front of the designer, in their own words, before any implementation card runs.
 

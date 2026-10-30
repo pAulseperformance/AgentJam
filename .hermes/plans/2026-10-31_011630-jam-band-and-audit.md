@@ -157,13 +157,13 @@ create `src/server/accents.test.ts`
 
 ### Task 8: Voice-lead across the bar line
 
-**Objective:** where a bar can start a step from the previous bar's last note, it does.
+**Objective:** where a bar can start a step from the previous bar's last note, it does, and when the lead changes hands the new agent starts a step from the OTHER agent's last note, so the phrase passes between them instead of restarting.
 
 **Files:** modify `src/server/melody.ts`
 modify `src/server/jam-room.ts`
 create `src/server/voice-leading.test.ts`
 
-**Mutation:** remove the step move in a scratch copy and the case asserting a stepwise start after a phrase ends fails on a leap.
+**Mutation:** remove the step move in a scratch copy and the case asserting a stepwise start after a phrase ends fails on a leap; the second case asserts the handover bar starts a step from the outgoing agent's last note, and removing the handover move fails it on a restart at the agent's own centre.
 
 **Run:** `npx vitest run src/server/voice-leading.test.ts` green, then `bash deploy.sh`.
 
@@ -181,15 +181,17 @@ create `src/server/trade.test.ts`
 
 ### Task 10: Keep the bar that moves the room least
 
-**Objective:** when two candidate bars exist for the same slot, the code keeps the one whose pitch classes stay closest to the room's centre.
+**Objective:** the room agrees on ONE tonal centre per session, computed from every agent's recent notes rather than each agent's own, and when two candidate bars exist for the same slot the code keeps the one whose pitch classes stay closest to that centre. A bar that would put two agents a semitone apart in the same slot is never the preferred one, so the band sounds like one band instead of three playing near each other.
 
 **Files:** modify `src/server/jam-room.ts`
 create `src/server/tonal-map.ts`
 create `src/server/tonal-map.test.ts`
+modify `tools/probe-session.mjs`
+create `/tmp/probe160.json`, written by the probe in the Run
 
-**Mutation:** score by note count instead of pitch class distance in a scratch copy and the case preferring the closer bar fails on the wider one.
+**Mutation:** score by note count instead of pitch class distance in a scratch copy and the case preferring the closer bar fails on the wider one; drop the semitone check and the clash case passes a bar it must reject.
 
-**Run:** `npx vitest run src/server/tonal-map.test.ts` green, then `bash deploy.sh`.
+**Run:** take the baseline FIRST with `node tools/probe-session.mjs --bpm 160 --seconds 45 --agents jazz,funk,ambient --backing 1 --out /tmp/probe160.json` and record its `clashes` count and its model bar count on the card, then `npx vitest run src/server/tonal-map.test.ts` green, then `bash deploy.sh`, then the same command again prints `clashes` BELOW the recorded baseline while model bars do not fall by more than a fifth. Harmony bought with silence is not harmony.
 
 ### Task 11: Store the band's motifs for a room, with the sweep
 

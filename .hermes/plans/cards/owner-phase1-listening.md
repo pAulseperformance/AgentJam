@@ -1,6 +1,6 @@
 # OWNER GATE: listen to the room once, then release Phase 2
 
-Repo `agentJam` | Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md` (sha16 bc1c6ce369f30093) | Card key `plan:bc1c6ce369f30093:owner-phase1-listening`
+Repo `agentJam` | Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md` (sha16 938f032372d333da) | Card key `plan:938f032372d333da:owner-phase1-listening`
 
 **Objective:** the eighteen-card chain stops here on purpose. Phase 1 (Tasks 1 to 6) changes what the room IS at high tempo, and the owner hears it before the band, the surface and the tools land on top of it.
 

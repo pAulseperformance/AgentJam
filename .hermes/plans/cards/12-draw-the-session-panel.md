@@ -1,16 +1,16 @@
-<!-- Card body for plan:bc1c6ce369f30093:12. The spec is the plan's Task 12 section at
-     .hermes/plans/2026-10-31_011630-jam-band-and-audit.md (sha16 bc1c6ce369f30093). Do not edit the plan.
+<!-- Card body for plan:938f032372d333da:12. The spec is the plan's Task 12 section at
+     .hermes/plans/2026-10-31_011630-jam-band-and-audit.md (sha16 938f032372d333da). Do not edit the plan.
      Repo: /Users/v99/Projects/Music/agentJam. Work in place, commit per the task's Commit line. -->
 
 # Task 12: Draw the session panel
 
-Repo `agentJam`  |  Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md`  |  Card key `plan:bc1c6ce369f30093:12`
+Repo `agentJam`  |  Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md`  |  Card key `plan:938f032372d333da:12`
 
 
 
 **Objective:** the page shows the last session's model bars, rests, quiet bars, latency and failures, computed by a pure function from the recorder, with the five states the artifact draws.
 
-**The gate cannot be a component test.** `vitest.config.ts` uses `defineWorkersConfig` with no DOM environment, and `jsdom` and `@testing-library/react` are not in devDependencies, so a React component test has nowhere to run. The cheap fix is to put the numbers in a pure module and test that, which needs no new dependency. Adding a DOM environment to this repo is the expensive fix and is not this task's business.
+**The gate cannot be a component test.** `vitest.config.ts` uses `defineWorkersConfig` with no DOM environment, and `jsdom` and `@testing-library/react` are not in devDependencies, so a `.tsx` test has nowhere to run. The cheap fix is to put the numbers in a pure module and test that, which needs no new dependency. Adding a DOM environment to this repo is the expensive fix and is not this task's business.
 
 **Files:** create `src/client/features/room/lib/session-summary.ts`
 create `src/client/features/room/lib/session-summary.test.ts`

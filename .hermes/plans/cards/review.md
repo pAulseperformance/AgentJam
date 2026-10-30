@@ -1,6 +1,6 @@
 # REVIEW: jam band and audit, eighteen cards
 
-Repo `agentJam` | Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md` (sha16 bc1c6ce369f30093) | Card key `plan:bc1c6ce369f30093:review.md`
+Repo `agentJam` | Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md` (sha16 938f032372d333da) | Card key `plan:938f032372d333da:review.md`
 
 **Objective:** grade the eighteen implementation cards as a whole against the plan's own gates, on the tree as it stands, and report a verdict the owner can act on.
 
