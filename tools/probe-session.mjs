@@ -41,7 +41,8 @@ const spawnAt = String(arg('spawn-at', '')).split(',').filter(Boolean).map(Numbe
 const backing = arg('backing', '') !== '';
 // THE HEDGED ASK. Off is the room's default, so a probe that never asks cannot see what the second
 // call buys: `--hedge` turns it on before the agents spawn and the summary prints the spend per bar.
-const hedge = arg('hedge', '') !== '';
+// A bare flag, because there is nothing to tune here: one gap, one setting, off or on.
+const hedge = process.argv.includes('--hedge');
 
 let cookie = '';
 try { cookie = readFileSync(cookieFile, 'utf8').trim(); } catch { /* public tier */ }
