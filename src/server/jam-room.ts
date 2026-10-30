@@ -38,7 +38,9 @@ import {
   type AiCallMeta,
   type Tier,
 } from './llm-planner';
-import { prunePast, keepNewest, takeForBar, renderBudget } from './bar-queue';
+import {
+  prunePast, keepNewest, takeForBar, renderBudget, renderStride, RENDER_COST_ASSUMED_MS,
+} from './bar-queue';
 import { decideWithJev, jevConfigFromEnv, type JevState } from './jev';
 
 /** Set by the Worker entry on the upgrade request, computed from the door's answer. */
@@ -100,6 +102,11 @@ interface InProcessAgent {
   tier: Tier;
   /** a decision or a render already in flight: a measure that cannot fit is skipped, never queued */
   busy: boolean;
+  /**
+   * WHAT A RENDER COSTS THIS AGENT, smoothed: Jev plus the model. The stride below is derived from it,
+   * so a room whose calls are fast keeps playing every bar and a slow one writes less often.
+   */
+  renderCostMs: number;
   /**
    * THE BAR QUEUE, two deep. Bars are rendered AHEAD of the bar playing and published on the bar line,
    * so the model's latency never reaches the grid. Two slots matter: one render that overruns its bar
@@ -571,6 +578,7 @@ export class JamRoom implements DurableObject {
       model: tier === 'signed' ? SIGNED_MODEL : FREE_MODEL,
       tier,
       busy: false,
+      renderCostMs: RENDER_COST_ASSUMED_MS,
       // Nothing is queued at spawn: the first boundary plays a pattern bar (never silence) while two
       // model renders fill the queue behind it.
       queue: [],
@@ -857,6 +865,15 @@ export class JamRoom implements DurableObject {
     return (60 / this.roomState.bpm) * 4 * 1000;
   }
 
+  /**
+   * How many bars this agent writes one bar of music, derived from what its own renders cost rather
+   * than from a tempo table. A 240 BPM room with fast calls still plays every bar; a 160 BPM room with
+   * slow ones halves its phrase rate instead of writing bars that arrive after their own line.
+   */
+  private strideFor(agent: InProcessAgent): number {
+    return renderStride(agent.renderCostMs, this.barMs());
+  }
+
   private barIndexOf(at: number): number {
     return Math.floor((at - this.roomState.transportStartTime) / this.barMs());
   }
@@ -885,7 +902,8 @@ export class JamRoom implements DurableObject {
 
     const head = agent.queue[0];
     if (!head) return;
-    if (head.bar !== this.barIndexOf(Date.now()) + 1) return;
+    // The next bar this agent intends to write, which at a high tempo is more than one bar away.
+    if (head.bar !== this.barIndexOf(Date.now()) + this.strideFor(agent)) return;
 
     // STALENESS IS WHEN THE RENDER BEGAN, not when it finished: a bar written at the bar line finished
     // a second later and still heard nothing of the bar it plays in.
@@ -933,7 +951,14 @@ export class JamRoom implements DurableObject {
       notes = notes.filter(n => !sounded.has(`${n.pitch}@${n.beatTime}`.toLowerCase()));
     }
     this.markSoundedSlots(agent.peer.peerId, bar, notes);
-    const meta = ready?.meta ?? this.patternMeta(agent, notes, 'pattern bar, the queue was empty');
+    // WHY A PATTERN BAR, SAID OUT LOUD. At a tempo where one render cannot fit one bar, the agent
+    // writes every stride-th bar on purpose. Calling that "the queue was empty" is what made the
+    // 2026-10-30 recording read as a stall instead of a tempo policy.
+    const stride = this.strideFor(agent);
+    const meta = ready?.meta ?? this.patternMeta(agent, notes,
+      stride > 1
+        ? `pattern bar, this agent writes every ${stride} bars at ${this.roomState.bpm} BPM`
+        : 'pattern bar, the queue was empty');
 
     this.emitAgentBar(agent, notes, bar, beatMs);
     agent.motif = motifFrom(notes);
@@ -948,9 +973,12 @@ export class JamRoom implements DurableObject {
       meta,
     }));
 
-    // REFILL. Two slots means a slow render costs freshness, not the next bar's coherence.
+    // REFILL. Two slots means a slow render costs freshness, not the next bar's coherence. When a bar
+    // is shorter than a render, one slot IS the cadence: a second would queue a bar the agent cannot
+    // reach, and the queue would fill with exactly the entries the prune exists to remove.
     agent.refreshesThisBar = 0;
-    if (agent.queue.length < 2) void this.renderAgentBar(agent);
+    const depth = stride > 1 ? 1 : 2;
+    if (agent.queue.length < depth) void this.renderAgentBar(agent);
     else this.maybeRefreshHead(agent);
 
     this.armAgentBar(agent);
@@ -1162,8 +1190,12 @@ export class JamRoom implements DurableObject {
 
       // THE BAR THIS RENDER IS FOR, and what the other agents have queued for it. Both are needed
       // BEFORE the decision, because a second agent has to decide against the first agent's plan.
+      // THE TARGET MOVES OUT when one bar no longer holds a render: at 200 BPM a 1200 ms bar cannot
+      // take 1.3 s of Jev plus model, so the agent's next statement is two bars out. Always strictly
+      // ahead of anything already queued, so a bar that has gone can never be written twice.
+      const stride = this.strideFor(agent);
       const queuedMax = agent.queue.reduce((max, q) => Math.max(max, q.bar), 0);
-      const forBar = targetBar ?? Math.max(this.barIndexOf(Date.now()) + 1, queuedMax + 1);
+      const forBar = targetBar ?? Math.max(this.barIndexOf(Date.now()) + stride, queuedMax + stride);
       const peerPlan = this.otherAgentPlan(agent.peer.peerId, forBar);
       // WHERE THIS BAR SITS IN THE PHRASE: state, restate, develop, cadence. A melody needs a shape
       // across bars; a bar written with no idea where it sits is a gesture that happens to be in time.
@@ -1225,10 +1257,20 @@ export class JamRoom implements DurableObject {
       // THE MODEL'S BUDGET COMES FROM THE ROOM, NOT FROM A CONSTANT. 2500ms against a 1500ms bar at
       // 160 BPM is over by a whole bar, so a hung call guaranteed the miss that started the cascade.
       // The time left before the bar line is the only honest deadline, less a margin for the write.
-      const budgetMs = renderBudget(this.nextBarStart() - Date.now(), AI_BUDGET_MS);
+      // The deadline is the start of the bar being written for, which at a high tempo is more than
+      // one bar away. Measuring to the NEXT bar line would cancel a call that has the time to finish.
+      const deadlineMs = this.roomState.transportStartTime + forBar * this.barMs();
+      const budgetMs = renderBudget(deadlineMs - Date.now(), AI_BUDGET_MS);
       const result = await generateMeasureWithAi(
         this.env.AI, ctx, agent.model, brief, agent.tier, budgetMs,
       );
+      // WHAT A RENDER ACTUALLY COSTS, smoothed per agent. This is the number the stride comes from, so
+      // the tempo policy is measured rather than guessed, and it survives a model that gets slower.
+      // Weighted hard towards history: one slow call must not halve a 160 BPM room's phrase rate, and
+      // the prune now covers the occasional overrun that made a single outlier expensive to ignore.
+      const costMs = (brief?.latencyMs ?? 0) + result.meta.latencyMs;
+      agent.renderCostMs = agent.renderCostMs * 0.85 + costMs * 0.15;
+
       const repaired = repairMeasure(result.notes, {
         key: this.roomState.key,
         heldPitches,

@@ -59,3 +59,22 @@ export function takeForBar<T extends QueuedBar>(
 export function renderBudget(untilBarMs: number, maxMs: number, marginMs = 100): number {
   return Math.max(400, Math.min(maxMs, untilBarMs - marginMs));
 }
+
+/**
+ * What one bar costs before it can be published, measured on the live route (2026-10-30): 407-420 ms
+ * of Jev plus 675-879 ms of model. A new agent starts at the worst observed call, not the median,
+ * because guessing low is the expensive direction: a first bar that overruns costs the agent its slot.
+ */
+export const RENDER_COST_ASSUMED_MS = 1300;
+
+/**
+ * How many bars an agent writes one bar of music: 1 when a render fits inside a bar, n when it does
+ * not. At 160 BPM a bar is 1500 ms and a render costs about 1.3 s, so stride 1; at 200 BPM the bar is
+ * 1200 ms and the same render needs 2 bars. This is the "reduce the tempo of the player" rule: the
+ * room's grid is untouched and the agent's phrase rate in real time stays about level, instead of
+ * writing bars that miss their line and are thrown away.
+ */
+export function renderStride(renderCostMs: number, barMs: number, marginMs = 100): number {
+  if (!(barMs > 0) || !(renderCostMs > 0)) return 1;
+  return Math.max(1, Math.ceil((renderCostMs + marginMs) / barMs));
+}

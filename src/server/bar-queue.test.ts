@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { keepNewest, prunePast, renderBudget, takeForBar } from './bar-queue';
+import {
+  keepNewest, prunePast, renderBudget, renderStride, takeForBar, RENDER_COST_ASSUMED_MS,
+} from './bar-queue';
 
 type Entry = { bar: number };
 
@@ -111,5 +113,44 @@ describe('a 160 BPM session where one render in seven overruns its bar', () => {
     const { published } = simulate('new');
     const late = Math.floor(BARS / 7);          // 7 overruns
     expect(published.length).toBeGreaterThanOrEqual(BARS - late * 2 - 2);
+  });
+});
+
+describe('renderStride', () => {
+  const barMs = (bpm: number) => 240_000 / bpm;
+  const cost = RENDER_COST_ASSUMED_MS;      // 1300 ms, the worst observed call
+
+  it('writes every bar while a render fits inside one', () => {
+    expect(renderStride(cost, barMs(120))).toBe(1);
+    expect(renderStride(cost, barMs(160))).toBe(1);
+    expect(renderStride(cost, barMs(170))).toBe(1);   // 1412 ms bar against 1400 ms of work
+  });
+
+  it('moves out to every second bar above the ceiling', () => {
+    expect(renderStride(cost, barMs(175))).toBe(2);
+    expect(renderStride(cost, barMs(200))).toBe(2);
+    expect(renderStride(cost, barMs(240))).toBe(2);
+    expect(renderStride(cost, barMs(300))).toBe(2);
+  });
+
+  it('lets a fast agent keep a fast room: half the cost doubles the ceiling', () => {
+    expect(renderStride(650, barMs(200))).toBe(1);
+    expect(renderStride(650, barMs(300))).toBe(1);
+  });
+
+  it('holds the phrase rate in real time, rather than letting it collapse as the tempo rises', () => {
+    for (const bpm of [160, 175, 200, 240, 300]) {
+      const stride = renderStride(cost, barMs(bpm));
+      const msPerWrittenBar = stride * barMs(bpm);
+      // The stride is a step function, so the rate is never below the requirement and never more
+      // than one wasted bar above it: stride*bar <= (cost + margin) + bar.
+      expect(msPerWrittenBar).toBeGreaterThanOrEqual(cost);
+      expect(msPerWrittenBar).toBeLessThan(cost + 100 + barMs(bpm));
+    }
+  });
+
+  it('degenerates safely on a nonsense tempo', () => {
+    expect(renderStride(cost, 0)).toBe(1);
+    expect(renderStride(0, barMs(200))).toBe(1);
   });
 });
