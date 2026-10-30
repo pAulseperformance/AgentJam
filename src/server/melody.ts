@@ -98,11 +98,15 @@ export function shapeLine(
   if (notes.length === 0) return notes;
   const ordered = notes.slice().sort((a, b) => a.beatTime - b.beatTime);
   const ceiling = Math.max(40, Math.min(110, options.meanVelocity ?? 92));
-  const peakIndex = options.contour === 'rising'
+  // A SHORT BAR IS A LANDING. Measured: a two note cadence came out 92 then 51, so the resolution was
+  // the quietest note in the phrase. When there is almost nothing to shape, the last note is the point.
+  const peakIndex = ordered.length <= 3
     ? ordered.length - 1
-    : options.contour === 'falling'
-      ? 0
-      : Math.floor(ordered.length / 2);
+    : options.contour === 'rising'
+      ? ordered.length - 1
+      : options.contour === 'falling'
+        ? 0
+        : Math.floor(ordered.length / 2);
 
   const durationForDensity = options.density === 'sparse' ? 0.5 : options.density === 'medium' ? 0.35 : 0.28;
 
@@ -135,6 +139,153 @@ export function shapeLine(
     const duration = isLast ? durationForDensity * 1.8 : strongBeat ? durationForDensity * 1.3 : durationForDensity;
     return { ...note, velocity, duration: Math.round(duration * 100) / 100 };
   });
+}
+
+/**
+ * THE HOOK COMES BACK. Researched, then measured: Yin-Yang (arXiv 2501.17759) frames motif development as
+ * repeat, vary slightly, or depart, and warns that applying transformations blindly (inversion,
+ * retrograde, fragmentation) without regard to the preceding context is musically nonsensical, while
+ * repeating without change is monotonous. So the restate bar returns the hook with EXACTLY ONE change:
+ * one note moved a scale step, or one rhythm slot shifted. Not a new line, and not a copy.
+ */
+export function restateHook(
+  hook: GeneratedNote[],
+  options: { key: string; register: { low: number; high: number }; bar: number },
+): GeneratedNote[] {
+  if (hook.length === 0) return [];
+  const copy = hook.map(n => ({ ...n }));
+
+  // which change, chosen by the bar so the same phrase never varies the same way twice in a row
+  const variant = options.bar % 2;
+  if (variant === 0) {
+    // move ONE note a scale step, preferring the note furthest from the hook's own centre
+    const midis = copy.map(n => midiOf(n.pitch) ?? 60);
+    const centre = midis.reduce((a, b) => a + b, 0) / midis.length;
+    let index = 0;
+    let distance = -1;
+    midis.forEach((m, i) => {
+      const d = Math.abs(m - centre);
+      if (d > distance) { distance = d; index = i; }
+    });
+    const target = copy[index]!;
+    const midi = midis[index]!;
+    const allowed = scalePitchClasses(options.key);
+    for (const direction of [1, -1]) {
+      for (const step of [1, 2, 3]) {
+        const candidate = midi + direction * step;
+        if (!allowed.includes(((candidate % 12) + 12) % 12)) continue;
+        if (candidate < options.register.low || candidate > options.register.high) continue;
+        copy[index] = { ...target, pitch: noteNameFromMidi(candidate) };
+        return copy;
+      }
+    }
+    return copy;
+  }
+
+  // shift ONE rhythm slot, to a slot NOBODY ELSE IS IN. Measured: shifting the last note onto the
+  // next note's slot put two notes on one beat (E4 and B4 at 0.75), which is a chord in a line.
+  const used = new Set(copy.map(n => Math.round(n.beatTime * 4)));
+  const index = copy.length - 1;
+  const last = copy[index]!;
+  const current = Math.round(last.beatTime * 4);
+  for (const delta of [1, 2, 3, -1, -2]) {
+    const slot = current + delta;
+    if (slot < 0 || slot > 15 || used.has(slot)) continue;
+    copy[index] = { ...last, beatTime: slot / 4 };
+    return copy;
+  }
+  return copy;
+}
+
+/**
+ * THE CONTOUR RULES. Species counterpoint's oldest and most audible ones, from the cantus firmus
+ * literature: motion is mostly stepwise, a leap of a fourth or more must be answered by a step in the
+ * OPPOSITE direction, two leaps in the same direction in a row are wrong, and the same pitch twice in a
+ * row is a stutter. Measured before: a leap was as likely as a step, and one bar repeated C5 four times.
+ *
+ * This repairs rather than rejects: it moves the offending note to the nearest in-key pitch that
+ * satisfies the rule, inside the register the decision named.
+ */
+export function applyContourRules(
+  notes: GeneratedNote[],
+  options: { key: string; register: { low: number; high: number } },
+): GeneratedNote[] {
+  if (notes.length < 2) return notes;
+  const allowed = scalePitchClasses(options.key);
+  const clamp = (m: number) => Math.max(options.register.low, Math.min(options.register.high, m));
+  const nearestInKey = (from: number, target: number, direction: 1 | -1): number => {
+    let midi = from;
+    for (let guard = 0; guard < 12; guard++) {
+      midi += direction;
+      if (allowed.includes(((midi % 12) + 12) % 12)) {
+        if (Math.abs(midi - target) <= 6) return clamp(midi);
+      }
+    }
+    return clamp(from + direction * 2);
+  };
+
+  const out: GeneratedNote[] = [{ ...notes[0]! }];
+  let lastLeapDirection = 0;
+
+  for (let i = 1; i < notes.length; i++) {
+    const note = notes[i]!;
+    const previous = out[out.length - 1]!;
+    const prevMidi = midiOf(previous.pitch) ?? 60;
+    let midi = midiOf(note.pitch) ?? prevMidi;
+    const move = midi - prevMidi;
+    const isLeap = Math.abs(move) >= 4;
+
+    if (move === 0) {
+      // a repeated pitch is a stutter: step off it, in the direction that has room. Stepping up at the
+      // top of the register only clamped back onto the same pitch, which the test caught.
+      const up = prevMidi + 2 <= options.register.high;
+      midi = nearestInKey(prevMidi, up ? midi + 1 : midi - 1, up ? 1 : -1);
+    } else if (lastLeapDirection !== 0 && isLeap && Math.sign(move) === lastLeapDirection) {
+      // two leaps in the same direction: answer the second one with a step back
+      midi = nearestInKey(prevMidi, midi, lastLeapDirection === 1 ? -1 : 1);
+    }
+
+    lastLeapDirection = Math.abs(midi - prevMidi) >= 4 ? Math.sign(midi - prevMidi) : 0;
+    out.push({ ...note, pitch: noteNameFromMidi(clamp(midi)) });
+  }
+
+  return out;
+}
+
+/**
+ * THE CADENCE LANDS. Two or three notes, the last one approached by step and on the tonic if the line
+ * can reach it, held longer than anything else in the phrase, and the rest of the bar left open.
+ */
+export function cadenceLine(
+  options: { key: string; register: { low: number; high: number }; fromMidi?: number },
+): GeneratedNote[] {
+  const allowed = scalePitchClasses(options.key);
+  const tonic = allowed[0] ?? 0;
+  const from = options.fromMidi ?? Math.round((options.register.low + options.register.high) / 2);
+
+  // the nearest tonic to where the line already is, so the landing is a step and not a jump
+  let landing = from;
+  for (let d = 0; d <= 12; d++) {
+    for (const candidate of [from - d, from + d]) {
+      if (candidate < options.register.low || candidate > options.register.high) continue;
+      if (((candidate % 12) + 12) % 12 === tonic) { landing = candidate; d = 13; break; }
+    }
+  }
+
+  const approach = nearestInKeyBelow(allowed, landing, options.register);
+  return [
+    { pitch: noteNameFromMidi(approach), beatTime: 0.5, velocity: 84, duration: 0.5 },
+    { pitch: noteNameFromMidi(landing), beatTime: 1.5, velocity: 76, duration: 1.5 },
+  ];
+}
+
+function nearestInKeyBelow(allowed: number[], target: number, register: { low: number; high: number }): number {
+  for (let d = 1; d <= 6; d++) {
+    const candidate = target - d;
+    if (candidate < register.low) break;
+    if (allowed.includes(((candidate % 12) + 12) % 12)) return candidate;
+  }
+  return Math.max(register.low, target - 2);
 }
 
 export function completeMelody(

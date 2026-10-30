@@ -1,6 +1,6 @@
 # SPEC: AgentJam
 
-**Last verified:** 2026-10-30 by bash check.sh --live
+**Last verified:** 2026-10-31 by bash check.sh --live
 
 A real-time jam room where a human, an AI agent and a rhythm section play the same bar together.
 Humans join by name, spawn an agent, hear its notes on the same synth engine, and watch what it is
@@ -24,7 +24,7 @@ on the same clock. Each of those has a measurement in `README.md` beside the cha
 ## Ownership
 
 - Own repository: ~/Projects/Music/agentJam
-- Own deploy target: Cloudflare Worker agent-jam, live at https://zpe.vc/jam/ (version 95716dfe, deployed 2026-10-30)
+- Own deploy target: Cloudflare Worker agent-jam, live at https://zpe.vc/jam/ (version ec15457f, deployed 2026-10-30)
 - Serves users outside the host app: yes, the mount is public and any stranger with the address reaches it
 - Data owner: this repo's Durable Object class JamRoom, whose per-room SQLite storage holds the room state and the note history; no other app reads it
 

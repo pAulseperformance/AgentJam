@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { melodyPlan, completeMelody, shapeLine } from './melody';
+import { melodyPlan, completeMelody, shapeLine, restateHook, applyContourRules, cadenceLine } from './melody';
 import { midiOf, isInKey } from '../shared/music/pattern-generator';
 
 const note = (pitch: string, beatTime: number, velocity = 80, duration = 0.25) => ({ pitch, beatTime, velocity, duration });
@@ -142,5 +142,106 @@ describe('completeMelody', () => {
     });
     expect(notes.length).toBeLessThanOrEqual(10);
     expect(notes.length).toBeGreaterThanOrEqual(5);
+  });
+});
+
+// RESEARCHED, then measured: Yin-Yang (arXiv 2501.17759) says a motif should come back varied slightly,
+// and that blind inversion or retrograde without context is musically nonsensical. One change, not a
+// new line.
+describe('restateHook', () => {
+  const hook = [note('C4', 0, 90), note('E4', 0.5, 100), note('G4', 1.5, 80), note('C5', 2, 70)];
+
+  it('brings the hook back with exactly one change', () => {
+    const same = restateHook(hook, { key: 'C major', register: { low: 55, high: 72 }, bar: 0 });
+    const changed = same.filter((n, i) => n.pitch !== hook[i]!.pitch);
+    expect(same).toHaveLength(hook.length);
+    expect(changed).toHaveLength(1);
+    expect(isInKey(changed[0]!.pitch, 'C major')).toBe(true);
+    // and it keeps the rhythm, so the phrase is recognised
+    expect(same.map(n => n.beatTime)).toEqual(hook.map(n => n.beatTime));
+  });
+
+  it('moves one slot later on the other variant, and never off the bar', () => {
+    const shifted = restateHook(hook, { key: 'C major', register: { low: 55, high: 72 }, bar: 1 });
+    const moved = shifted.filter((n, i) => n.beatTime !== hook[i]!.beatTime);
+    expect(moved).toHaveLength(1);
+    expect(moved[0]!.beatTime).toBeLessThanOrEqual(3.75);
+    expect(shifted.map(n => n.pitch)).toEqual(hook.map(n => n.pitch));
+  });
+});
+
+// Species counterpoint's audible rules: mostly steps, a leap answered by a step the other way,
+// never two leaps in the same direction, never the same pitch twice.
+describe('applyContourRules', () => {
+  const opts = { key: 'C major', register: { low: 55, high: 72 } };
+
+  it('breaks a repeated pitch into a step', () => {
+    const stutter = [note('C5', 0), note('C5', 0.5), note('C5', 1), note('C5', 1.5)];
+    const fixed = applyContourRules(stutter, opts);
+    for (let i = 1; i < fixed.length; i++) {
+      expect(fixed[i]!.pitch).not.toBe(fixed[i - 1]!.pitch);
+    }
+  });
+
+  it('answers a leap with a step instead of another leap in the same direction', () => {
+    const leapy = [note('C4', 0), note('G4', 0.5), note('C5', 1), note('E5', 1.5)];
+    const fixed = applyContourRules(leapy, opts);
+    const midis = fixed.map(n => midiOf(n.pitch)!);
+    let leapsInARow = 0;
+    let last = 0;
+    for (let i = 1; i < midis.length; i++) {
+      const move = midis[i]! - midis[i - 1]!;
+      const leap = Math.abs(move) >= 4;
+      if (leap && last !== 0 && Math.sign(move) === last) leapsInARow++;
+      last = leap ? Math.sign(move) : 0;
+    }
+    expect(leapsInARow).toBe(0);
+  });
+
+  it('keeps everything in key and inside the register', () => {
+    const wild = [note('C5', 0), note('C5', 0.25), note('B5', 0.5), note('A3', 0.75), note('A3', 1)];
+    const fixed = applyContourRules(wild, opts);
+    expect(fixed.every(n => isInKey(n.pitch, 'C major'))).toBe(true);
+    expect(fixed.every(n => {
+      const m = midiOf(n.pitch);
+      return m !== null && m >= opts.register.low && m <= opts.register.high;
+    })).toBe(true);
+  });
+});
+
+
+describe('cadenceLine', () => {
+  it('lands on the tonic in two notes, the second held longer', () => {
+    const cadence = cadenceLine({ key: 'C major', register: { low: 55, high: 72 }, fromMidi: 64 });
+    expect(cadence).toHaveLength(2);
+    const last = cadence[1]!;
+    expect(((midiOf(last.pitch)! % 12) + 12) % 12).toBe(0); // C is the tonic
+    expect(last.duration).toBeGreaterThan(cadence[0]!.duration);
+    expect(last.beatTime).toBeGreaterThan(cadence[0]!.beatTime);
+  });
+
+  it('approaches the landing by a step, not a jump', () => {
+    const cadence = cadenceLine({ key: 'C major', register: { low: 55, high: 72 }, fromMidi: 69 });
+    const gap = Math.abs(midiOf(cadence[1]!.pitch)! - midiOf(cadence[0]!.pitch)!);
+    expect(gap).toBeLessThanOrEqual(3);
+  });
+});
+
+// MEASURED in a recorded session: a shifted note landed on the next note's slot, and two notes
+// sounded on one beat inside a monophonic line.
+describe('restateHook slot collisions', () => {
+  it('never puts two notes on one beat', () => {
+    const hook = [note('D4', 0.25), note('E4', 0.75), note('B4', 0.5)];
+    const out = restateHook(hook, { key: 'C major', register: { low: 55, high: 72 }, bar: 1 });
+    const slots = out.map(n => Math.round(n.beatTime * 4));
+    expect(new Set(slots).size).toBe(out.length);
+  });
+});
+
+describe('shapeLine on a landing', () => {
+  it('makes the landing the strongest note in a two note cadence', () => {
+    const cadence = [note('B4', 0.5, 92), note('C5', 1.5, 76)];
+    const shaped = shapeLine(cadence, { contour: 'falling', density: 'medium', meanVelocity: 92 });
+    expect(shaped[1]!.velocity).toBeGreaterThan(shaped[0]!.velocity);
   });
 });

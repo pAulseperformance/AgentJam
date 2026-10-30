@@ -126,3 +126,21 @@ a hand-written 8-bar phrase in the same key through the same renderer (`referenc
 "in key and on the scale" can be judged against something that is deliberately intentional. Falsifier:
 a session where no bar lands under four notes across sixteen bars, which would mean the cadence rule
 is not reaching the renderer.
+
+## 2026-10-30 The phrase is anchored to the agent, the hook comes back, and the line obeys counterpoint
+
+Loser: a free-running model bar per bar, with the four-bar arc read from the ROOM's bar number. Reason:
+measured, the cadence fired on 2 of 16 bars and no bar was ever under four notes, so nothing sounded
+finished. The arc now runs from the agent's own phrase start, so a listener always hears
+state, restate, develop, cadence.
+
+Three researched rules, each measured on a recording:
+
+- restate returns the HOOK with exactly one change (arXiv 2501.17759: vary slightly, never transform
+  blindly), which produced a bar identical to its predecessor except one note or slot
+- `applyContourRules` enforces the cantus firmus rules (mostly steps, a leap answered by a step the
+  other way, no two leaps in one direction, no repeated pitch), which removed three C5s in a row
+- `cadenceLine` lands on the tonic in two notes, approached by step, and leaves the bar open
+
+Falsifier: a recording where the second bar of a phrase differs from the first by more than one note,
+or where any bar has two notes on one beat, or where no bar in sixteen is under four notes.

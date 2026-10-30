@@ -140,6 +140,32 @@ Measured on a recorded 20-bar solo session after those three: **5 to 7 notes per
 velocity, a median gap of 250ms**, and the first bars read `F4 A4 B4 A4 G4 E4 D4` at
 `71 78 85 92 85 78 71`, an arch you can hear.
 
+## What the research changed
+
+Three sources were worth implementing, and each produced a rule rather than a wish:
+
+- **Yin-Yang, "Developing Motifs With Long-Term Structure And Controllability" (arXiv 2501.17759):**
+  a motif is developed by repeating it, varying it slightly, or departing from it, and applying
+  transformations like inversion or retrograde blindly, without regard to context, is "musically
+  nonsensical", while repeating without change is monotonous. So a phrase keeps its HOOK, and the
+  restate bar returns it with **exactly one change**: one note moved a scale step, or one rhythm slot
+  shifted to a slot nobody else is in.
+- **Species counterpoint, the cantus firmus literature:** motion is mostly stepwise, a leap of a fourth
+  or more must be answered by a step in the OPPOSITE direction, two leaps in the same direction are
+  wrong, and the same pitch twice in a row is a stutter. `applyContourRules` enforces all four by moving
+  the offending note to the nearest in-key pitch, in register.
+- **LK Jam (arXiv 2606.21018)** on real-time human-AI jazz: interactive systems lack "role awareness"
+  and turn-taking and produce "unidirectional continuations rather than genuine dialogues". That is why
+  the turn rule exists, and why a phrase is the unit of a turn rather than a bar.
+
+Measured on a recorded 20-bar solo session after all of it: bars arrive in a four-bar shape (6, 6, 7,
+2), the second bar is the first one with a single note changed, every fourth bar is a **two-note
+cadence**, no bar has two notes on one beat, no bar has three identical pitches in a row, and the
+median inter-onset gap is 250ms.
+
+The phrase arc was also anchored to the AGENT's own start, not the room's bar number: measured before,
+the cadence fired on 2 of 16 bars because it rotated with the room instead of with the phrase.
+
 ## Two agents, and who leads
 
 Independent agents that both decide "I will lead this bar" play two solos over each other, which is

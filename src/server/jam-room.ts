@@ -26,7 +26,7 @@ import {
 } from '@/shared/music';
 import { repairMeasure } from './measure-repair';
 import { summarizePhrase, motifFrom, describePhrase, describeMotif, type Motif, type NoteRecord } from './listener';
-import { melodyPlan, completeMelody, shapeLine } from './melody';
+import { melodyPlan, completeMelody, shapeLine, restateHook, applyContourRules, cadenceLine } from './melody';
 import { drumBar, bassBar, countInBar } from './groove';
 import {
   generateMeasureWithAi,
@@ -151,6 +151,10 @@ interface InProcessAgent {
    * motif is what the decision layer may restate or vary, and what the model is told to keep.
    */
   motif: Motif | null;
+  /** the bar this agent's phrase began at, so the arc is measured from ITS start, not the room's bar 0 */
+  phraseStartBar: number;
+  /** the phrase's hook, kept so the restate bar can bring it back with one change (Yin-Yang's "vary") */
+  hook: GeneratedNote[] | null;
   activeNotes: Set<string>;
   noteCount: number;
 }
@@ -604,6 +608,10 @@ export class JamRoom implements DurableObject {
       lastEchoBar: -1,
       refreshesThisBar: 0,
       motif: null,
+      // THE PHRASE STARTS WHEN THE AGENT DOES. Measured: the arc used the ROOM's bar number, so the
+      // cadence rotated with the room instead of landing at the end of the agent's own phrase.
+      phraseStartBar: this.barIndexOf(Date.now()) + 1,
+      hook: null,
       activeNotes: new Set(),
       noteCount: 0,
     };
@@ -1159,9 +1167,10 @@ export class JamRoom implements DurableObject {
       register: this.registerRange('mid'),
       maxNotes: 10,
     });
-    // SHAPED HERE TOO. A fallback bar published straight from this path skipped the dynamics pass and
-    // measured as a flat velocity 80 in three of sixteen recorded bars.
-    return shapeLine(built.notes, { contour: plan.contour, density: 'medium' });
+    // THE SAME RULES AS A MODEL BAR. A fallback bar published straight from this path skipped both the
+    // contour pass and the dynamics pass: measured, three C5s in a row and one bar at a flat velocity 80.
+    const conformed = applyContourRules(built.notes, { key: this.roomState.key, register: this.registerRange('mid') });
+    return shapeLine(conformed, { contour: plan.contour, density: 'medium' });
   }
 
   /**
@@ -1235,7 +1244,8 @@ export class JamRoom implements DurableObject {
       const peerPlan = this.otherAgentPlan(agent.peer.peerId, forBar);
       // WHERE THIS BAR SITS IN THE PHRASE: state, restate, develop, cadence. A melody needs a shape
       // across bars; a bar written with no idea where it sits is a gesture that happens to be in time.
-      const melody = melodyPlan(forBar, agent.style, agent.motif !== null);
+      const barInPhrase = ((forBar - agent.phraseStartBar) % 4 + 4) % 4;
+      const melody = melodyPlan(barInPhrase, agent.style, agent.motif !== null);
 
       const jev = agent.tier === 'signed' && reuseBrief === undefined ? jevConfigFromEnv(this.env) : null;
       const judged = reuseBrief !== undefined
@@ -1324,7 +1334,19 @@ export class JamRoom implements DurableObject {
       // A LEAD BAR IS A MELODY, NOT A GESTURE. The model writes what it can and this is what happens
       // when what it writes is a triad: the line is completed in key, along the arc, on the grid.
       let finalNotes = repaired.notes;
-      if (brief?.role === 'lead') {
+      const register = this.registerRange(brief?.register ?? 'mid');
+
+      if (brief?.role === 'lead' && melody.position === 'cadence') {
+        // THE PHRASE LANDS: two notes, the last on the tonic, approached by step, held longer
+        finalNotes = cadenceLine({
+          key: this.roomState.key,
+          register,
+          fromMidi: finalNotes.length ? midiOf(finalNotes.at(-1)!.pitch) ?? undefined : undefined,
+        });
+      } else if (brief?.role === 'lead' && melody.position === 'restate' && agent.hook?.length) {
+        // THE HOOK COMES BACK. One change, chosen by the bar, never a new line (arXiv 2501.17759)
+        finalNotes = restateHook(agent.hook, { key: this.roomState.key, register, bar: barInPhrase });
+      } else if (brief?.role === 'lead') {
         const register = this.registerRange(brief.register);
         const completed = completeMelody(finalNotes, {
           plan: melody,
@@ -1339,6 +1361,11 @@ export class JamRoom implements DurableObject {
         }
       }
 
+      // THE CONTOUR RULES, from species counterpoint: mostly steps, a leap answered by a step the other
+      // way, never two leaps in the same direction, never the same pitch twice. Measured before, leaps
+      // were as likely as steps and one bar repeated C5 four times (four C5s came from clamping).
+      finalNotes = applyContourRules(finalNotes, { key: this.roomState.key, register });
+
       // AND IT BREATHES. Dynamics are code's, not the model's: a 3B model writes one velocity for the
       // whole bar, and a flat eight-sixteenth run is heard as a typewriter, not as a player.
       finalNotes = shapeLine(finalNotes, {
@@ -1346,6 +1373,12 @@ export class JamRoom implements DurableObject {
         density: brief?.density ?? 'medium',
         meanVelocity: phrase.count > 0 ? phrase.meanVelocity : undefined,
       });
+
+      // THE FIRST BAR OF A PHRASE IS THE HOOK. Kept exactly as it will be heard, because the restate
+      // bar returns this, not a re-render of it.
+      if (brief?.role === 'lead' && melody.position === 'state' && finalNotes.length >= 3) {
+        agent.hook = finalNotes.map(n => ({ ...n }));
+      }
 
       // The bar this belongs to, worked out before the decision so the decision could see it.
       const target = forBar;
