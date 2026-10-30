@@ -45,16 +45,28 @@ storage belongs to that room; nothing else reads it.
 ## Deploy
 
 ```
-npm run build
-npx wrangler versions upload            # prints the Version ID, does not move traffic
-bash check.sh                          # suite + live probes against what is live NOW
+bash deploy.sh
+```
+
+One command: it resolves the account from the zone, refuses a tree with uncommitted tracked changes,
+builds, runs `bash check.sh` against what is live NOW, uploads a version, moves 100% of traffic to it,
+**reads the version id back from Cloudflare** and fails when the version serving is not the one it
+uploaded, then runs `bash check.sh --live --version <id>`. It prints `uploaded <id>`,
+`deployed <id>@100%`, and the rollback line.
+
+The steps it runs, in order, each of which is reversible on its own:
+
+```
+npm run build                          # the build the upload ships
+bash check.sh                          # suite + five live readings against what is live NOW
+npx wrangler versions upload           # prints the Version ID, does not move traffic
 npx wrangler versions deploy <id>@100% --yes
-bash check.sh --live                   # the same probes against the new version, plus the page walk
+bash check.sh --live --version <id>    # the same readings on the new version, plus the page walk
 ```
 
 A deploy is a version, traffic moves only at `versions deploy`, and every step is reversible by
-`bash HALT`. Deploying without `check.sh` first is the same as trusting the last green suite to
-describe a live edge it never touched.
+`bash HALT`. `wrangler deploy` is deliberately not the path: it prints success and leaves no id this
+repo can hold the system to.
 
 ## The two addresses
 
