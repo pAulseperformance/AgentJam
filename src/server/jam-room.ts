@@ -1074,6 +1074,8 @@ export class JamRoom implements DurableObject {
         maxNotes: 10,
         // AN ANSWER THAT SHARES NOTHING IS NOT AN ANSWER: only enforced when the decision said so.
         answerPitches: brief?.role === 'answer' ? phrase.pitches : undefined,
+        // TWO of their pitch classes, not one: measured, a one-note borrow reads as its own material.
+        answerShare: brief?.role === 'answer' ? 2 : undefined,
         // PLAY AT THE ROOM'S LEVEL: a shout answered by a whisper is not an answer either.
         targetMeanVelocity: phrase.count > 0 ? phrase.meanVelocity : undefined,
       });

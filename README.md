@@ -71,7 +71,13 @@ Two deterministic guarantees back it up: if the decision said answer and the mod
 pitch class with the phrase, one note moves onto the nearest of their pitches; and the motif is handed
 to the model as text, so restate and vary have something concrete to restate or vary.
 
-Measured on the live room, the same 20-bar probe run three times before and three times after the
+Re-measured on 2026-10-30 with phrases a default answer cannot accidentally match (F-A-D and B-D-G),
+the composed reply shared two or more of those pitch classes in **0 of 5** bars, because the answer
+constraint moved exactly one note. With `answerShare: 2` it shares two or more in **4 of 8**, and the
+two replies built from a freshly heard bar hit both times. Level and pitch are separate measurements
+and both are now on the record.
+
+Measured on the live room, the same 20-bar probe run three times before and three after the
 listener existed: consecutive agent bars keeping two or more of the same pitch classes (motif
 recurrence) went from 9% to 56-62%, and when the decision was `answer` the reply shared two or more of
 your pitch classes in 8 of 10 cases. Phase stayed at 0ms and key at 100%.

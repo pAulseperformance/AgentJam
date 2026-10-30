@@ -76,3 +76,11 @@ quiet phrases the reply was a flat 100 either way, and after the shift rule the 
 measured 1.2s against a 2s bar and never landed. Falsifier: a run where a loud phrase and a quiet one
 still get replies within 10 velocity points of each other, which would mean the refresh is missing its
 bar again.
+
+## 2026-10-30 An answer carries two of their pitch classes, not one
+
+Loser: the original single-note gesture. Reason: measured with phrases a default C-D-E answer cannot
+accidentally match, every reply shared exactly one pitch class (0 of 5 bars cleared a two-note bar),
+which reads as its own material with a note borrowed; with two it cleared 4 of 8, and 2 of 2 on bars
+rebuilt from a freshly heard window. Falsifier: a run where replies still share one pitch class on
+most bars, which would mean the model's own line overrides the constraint.

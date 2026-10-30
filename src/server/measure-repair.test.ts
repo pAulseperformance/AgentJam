@@ -108,6 +108,18 @@ describe('repairMeasure', () => {
       expect(notes.filter(n => n.pitch !== 'C4' && n.pitch !== 'D4' && n.pitch !== 'E4')).toHaveLength(1);
     });
 
+    // MEASURED: with phrases a default C-D-E answer cannot accidentally match, every reply shared
+    // exactly ONE pitch class, which reads as borrowed rather than answered. Share 2 is the target.
+    it('carries two of their pitch classes when the answer asks for two', () => {
+      const { notes, answered } = repairMeasure(
+        [note('C4', 0), note('D4', 1), note('E4', 2)],
+        { key: 'C major', answerPitches: ['F4', 'A4'], answerShare: 2 },
+      );
+      const carried = notes.filter(n => [5, 9].includes(pitchClassOf(n.pitch) ?? -1));
+      expect(carried).toHaveLength(2);
+      expect(answered).toBe(true);
+    });
+
     it('answers in the register of the phrase rather than jumping octaves', () => {
       const { notes } = repairMeasure(
         [note('C4', 0), note('D4', 1), note('E4', 2), note('F4', 3)],

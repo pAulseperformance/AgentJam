@@ -46,6 +46,12 @@ export interface RepairOptions {
    */
   answerPitches?: string[];
   /**
+   * How many of your pitch classes the reply must CARRY when the decision was `answer`. One was the
+   * original gesture; measured, a reply with one shared pitch class reads as its own default material
+   * with a single note borrowed, and two reads as an echo.
+   */
+  answerShare?: number;
+  /**
    * PLAY AT THEIR LEVEL. The listener reads how hard the room is playing; this is the number the bar
    * is brought to. The model is told the level in the prompt as well, but a 3B model's dynamics are
    * not reliable, so the rule that actually holds is here, in code.
@@ -116,37 +122,54 @@ export function repairMeasure(notes: GeneratedNote[], options: RepairOptions): R
     });
   }
 
-  // ANSWER. One deterministic correction, because the intent was explicit and the model may ignore it.
+  // ANSWER. A deterministic correction, because the intent was explicit and the model may ignore it.
+  //
+  // SHARE means how many of their pitch classes the reply carries. One was a gesture; measured with
+  // phrases that a default C-D-E answer cannot accidentally match, every reply shared exactly one,
+  // which reads as its own material with a single note borrowed. Two is where a listener hears an echo.
   let answered = true;
   const targets = (options.answerPitches ?? [])
     .map(pc => pitchClassOf(pc))
     .filter((pc): pc is number => pc !== null);
 
-  if (targets.length > 0) {
-    answered = repaired.some(n => {
-      const pc = pitchClassOf(n.pitch);
-      return pc !== null && targets.includes(pc);
-    });
+  if (targets.length > 0 && repaired.length > 0) {
+    const want = Math.max(1, Math.min(repaired.length, targets.length, options.answerShare ?? 1));
+    const carried = new Set(
+      repaired
+        .map(n => pitchClassOf(n.pitch))
+        .filter((pc): pc is number => pc !== null && targets.includes(pc)),
+    );
+    answered = carried.size >= want;
 
-    if (!answered && repaired.length > 0) {
-      const anchorMidi = midiOf(options.answerPitches!.at(-1)!) ?? 60;
-      const targetPc = ((anchorMidi % 12) + 12) % 12;
+    const moved = new Set<number>();
+    const anchorMidi = midiOf(options.answerPitches!.at(-1)!) ?? 60;
+
+    while (carried.size < want && moved.size < repaired.length) {
+      const nextPc = targets.find(pc => !carried.has(pc));
+      if (nextPc === undefined) break;
+
       // the note closest in register to what they played is the one that should echo it
-      let bestIndex = 0;
+      let bestIndex = -1;
       let bestDistance = Infinity;
       repaired.forEach((n, i) => {
+        if (moved.has(i)) return;
         const distance = Math.abs((midiOf(n.pitch) ?? 60) - anchorMidi);
         if (distance < bestDistance) { bestDistance = distance; bestIndex = i; }
       });
+      if (bestIndex < 0) break;
+
       const here = midiOf(repaired[bestIndex]!.pitch) ?? 60;
       // A pitch class is 0-11, so the octave has to be rebuilt around the note being moved: taking the
       // class alone would send an E4 answer to A0.
-      const base = Math.round((here - targetPc) / 12) * 12 + targetPc;
+      const base = Math.round((here - nextPc) / 12) * 12 + nextPc;
       const candidates = [base - 12, base, base + 12];
       const nearest = candidates.reduce((best, c) => (Math.abs(c - here) < Math.abs(best - here) ? c : best), base);
       repaired[bestIndex] = { ...repaired[bestIndex]!, pitch: noteNameFromMidi(nearest) };
-      answered = true;
+      moved.add(bestIndex);
+      carried.add(nextPc);
     }
+
+    answered = carried.size >= want;
   }
 
   // SHAPE. One note per pitch per grid slot, in time order.
