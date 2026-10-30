@@ -29,6 +29,7 @@ Repo `/Users/v99/Projects/Music/agentJam`, every card in `dir:` on `main`.
 | t_8a14f7db | 16 | Gate the room on the probe | implementer |
 | t_9f8d73df | 17 | Verify the browser half | implementer |
 | t_5e4feba0 | 18 | Prove the bar loop over many bars | implementer |
+| t_0d9f0862 | owner-phase1-listening | OWNER: listen to the room at 160 BPM, then say carry on | default, parked `blocked` |
 | t_d9c4b6ab | review | REVIEW: jam band and audit, eighteen cards | reviewer, `z-ai/glm-5.3-flash` via `veil` |
 
 Order: story then screen, then the plan review gates Task 1, then Tasks 1 to 18 in sequence, then the review. Every implementation card waits on the screen card and on the previous card; the review waits on all eighteen and on the screen. One subscription row, on the review card, so it is the only card that messages the owner.
@@ -59,3 +60,10 @@ no override and inherit the implementer profile's provider, so they were untouch
 
 Lesson for the next cut: name a provider that exists in the ASSIGNEE's own config (`model.provider` in
 `~/.hermes/profiles/<name>/config.yaml`), not the name of the integration it wraps.
+
+## The two owner decisions taken before Task 1 dispatched
+
+Answered 2026-10-31 by the owner, both recorded here so the next reader sees the call rather than a gap.
+
+1. **The chain stops after Phase 1.** Tasks 1 to 6 change what the room is at high tempo, and he hears it before the band, the surface and the tools land on top. The stop is the card `t_0d9f0862`, assigned to `default` and parked `blocked`, linked as a parent of Task 7. Completing it on his `carry on` releases Phase 2; leaving it blocked leaves the chain parked with the room on Phase 1. The question was put with three options and he skipped it, which is a decision left to me, so the recommended one stands.
+2. **Task 17 keeps playwright.** One dev dependency plus a one-time chromium download, roughly 120 MB on this host, because otherwise the socket-count fix stays proven only by a probe that never opens the page.
