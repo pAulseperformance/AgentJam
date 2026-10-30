@@ -332,8 +332,12 @@ export function parseAiResponse(response: unknown): GeneratedNote[] | null {
   return salvageNotes(typeof response === 'string' ? response : JSON.stringify(candidate));
 }
 
-/** How long a render may block a measure's slot before the pattern generator takes over. */
-const AI_BUDGET_MS = 2500;
+/**
+ * How long a render may block a measure's slot before the pattern generator takes over. Exported so
+ * the room can cap it against the bar it is writing for: at 160 BPM a bar is 1500ms, and a budget of
+ * 2500ms is over by a whole bar.
+ */
+export const AI_BUDGET_MS = 2500;
 
 /** The panel renders this string; an object or array must not arrive as "[object Object]". */
 function describeResponse(response: unknown): string {

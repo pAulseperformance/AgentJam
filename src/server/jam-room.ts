@@ -30,6 +30,7 @@ import { melodyPlan, completeMelody, shapeLine } from './melody';
 import { drumBar, bassBar, countInBar } from './groove';
 import {
   generateMeasureWithAi,
+  AI_BUDGET_MS,
   FREE_MODEL,
   SIGNED_MODEL,
   isFreeModel,
@@ -37,6 +38,7 @@ import {
   type AiCallMeta,
   type Tier,
 } from './llm-planner';
+import { prunePast, keepNewest, takeForBar, renderBudget } from './bar-queue';
 import { decideWithJev, jevConfigFromEnv, type JevState } from './jev';
 
 /** Set by the Worker entry on the upgrade request, computed from the door's answer. */
@@ -914,9 +916,13 @@ export class JamRoom implements DurableObject {
     const beatMs = (60 / this.roomState.bpm) * 1000;
 
     // PUBLISH. An entry queued for THIS bar plays; anything else is a bar the model missed, and the
-    // pattern generator covers it rather than shifting a stale bar into the present.
-    const index = agent.queue.findIndex(q => q.bar === bar);
-    const ready = index === -1 ? null : agent.queue.splice(index, 1)[0] ?? null;
+    // pattern generator covers it rather than shifting a stale bar into the present. Entries for bars
+    // that have gone are pruned HERE first, because keeping them is what locked the queue on the
+    // 2026-10-30 recording: two dead entries held both slots and no render was attempted again.
+    agent.queue = prunePast(agent.queue, bar);
+    const claimed = takeForBar(agent.queue, bar);
+    agent.queue = claimed.rest;
+    const ready = claimed.ready;
     let notes = ready?.notes ?? this.melodyBar(agent, bar);
 
     // LAST LINE OF DEFENCE. Two agents render the same bar at the same moment, so each can see a plan
@@ -1216,7 +1222,13 @@ export class JamRoom implements DurableObject {
         melody: melody.instruction,
       };
 
-      const result = await generateMeasureWithAi(this.env.AI, ctx, agent.model, brief, agent.tier);
+      // THE MODEL'S BUDGET COMES FROM THE ROOM, NOT FROM A CONSTANT. 2500ms against a 1500ms bar at
+      // 160 BPM is over by a whole bar, so a hung call guaranteed the miss that started the cascade.
+      // The time left before the bar line is the only honest deadline, less a margin for the write.
+      const budgetMs = renderBudget(this.nextBarStart() - Date.now(), AI_BUDGET_MS);
+      const result = await generateMeasureWithAi(
+        this.env.AI, ctx, agent.model, brief, agent.tier, budgetMs,
+      );
       const repaired = repairMeasure(result.notes, {
         key: this.roomState.key,
         heldPitches,
@@ -1277,8 +1289,9 @@ export class JamRoom implements DurableObject {
           plan: finalNotes.slice(0, 6).map(n => `${n.pitch}@${n.beatTime}`).join(' ') || '(rest)',
         },
       });
-      agent.queue.sort((a, b) => a.bar - b.bar);
-      agent.queue = agent.queue.slice(0, 2);
+      // KEEP THE NEWEST, not the lowest. Sorting ascending and slicing kept the two OLDEST entries,
+      // which on a late render were bars that had already passed, and threw away the bar just written.
+      agent.queue = keepNewest(agent.queue, 2);
     } finally {
       agent.busy = false;
       // CHAIN: a render that just finished is the only moment a second one can start without a clash.
