@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   keepNewest, prunePast, renderBudget, renderStride, takeForBar, RENDER_COST_ASSUMED_MS,
-  barDelayMs, barMsFor, barElapsedEnough, firstReachableBar, DEFAULT_BAR_MS, MAX_BPM, MIN_BPM,
-  MIN_BAR_MS,
+  barDelayMs, barMsFor, barElapsedEnough, firstReachableBar, nextRenderTail, DEFAULT_BAR_MS, MAX_BPM,
+  MIN_BPM, MIN_BAR_MS,
 } from './bar-queue';
 
 type Entry = { bar: number };
@@ -265,5 +265,31 @@ describe('firstReachableBar', () => {
   it('refuses to guess on a grid it cannot compute', () => {
     expect(firstReachableBar(Number.NaN, barMs(80), 1, start, 1400)).toBe(1);
     expect(firstReachableBar(start, Number.NaN, 1, start, 1400)).toBe(1);
+  });
+});
+
+describe('nextRenderTail', () => {
+  it('takes a cost above the tail and holds it', () => {
+    expect(nextRenderTail(1300, 1800)).toBe(1800);
+  });
+
+  it('decays a held outlier instead of keeping it for the session', () => {
+    expect(nextRenderTail(1800, 1200)).toBe(1620);
+    expect(nextRenderTail(1620, 1200)).toBe(1458);
+  });
+
+  it('never falls to zero, so a quiet stretch cannot pretend every render fits', () => {
+    expect(nextRenderTail(500, 0)).toBe(450);
+  });
+
+  it('starts from nothing safely', () => {
+    expect(nextRenderTail(0, 0)).toBe(0);
+    expect(nextRenderTail(0, 1400)).toBe(1400);
+  });
+
+  it('is the number the stride needs at 160 BPM, where the mean is not', () => {
+    const barMs = 240_000 / 160;                       // 1500 ms
+    expect(renderStride(1300, barMs)).toBe(1);          // the mean says "one bar per bar"
+    expect(renderStride(Math.max(1300, 1800), barMs)).toBe(2);  // the tail says it will miss
   });
 });

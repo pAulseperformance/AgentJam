@@ -40,7 +40,9 @@ import {
 } from './llm-planner';
 import {
   prunePast, keepNewest, takeForBar, renderBudget, renderStride, RENDER_COST_ASSUMED_MS,
-  barDelayMs, barMsFor, barElapsedEnough, firstReachableBar, DEFAULT_BAR_MS, MIN_BPM, MAX_BPM,
+  RENDER_TAIL_ASSUMED_MS,
+  barDelayMs, barMsFor, barElapsedEnough, firstReachableBar, nextRenderTail, DEFAULT_BAR_MS,
+  MIN_BPM, MAX_BPM,
 } from './bar-queue';
 import { decideWithJev, jevConfigFromEnv, type JevState } from './jev';
 
@@ -108,6 +110,8 @@ interface InProcessAgent {
    * so a room whose calls are fast keeps playing every bar and a slow one writes less often.
    */
   renderCostMs: number;
+  /** The same cost as a decaying maximum: the stride needs the tail, not the average. */
+  renderTailMs: number;
   /**
    * THE BAR QUEUE, two deep. Bars are rendered AHEAD of the bar playing and published on the bar line,
    * so the model's latency never reaches the grid. Two slots matter: one render that overruns its bar
@@ -597,6 +601,7 @@ export class JamRoom implements DurableObject {
       tier,
       busy: false,
       renderCostMs: RENDER_COST_ASSUMED_MS,
+      renderTailMs: RENDER_TAIL_ASSUMED_MS,
       // Nothing is queued at spawn: the first boundary plays a pattern bar (never silence) while two
       // model renders fill the queue behind it.
       queue: [],
@@ -688,8 +693,11 @@ export class JamRoom implements DurableObject {
 
   private recordEvent(event: NoteRecord): void {
     if (!event || (event.type !== 'note_on' && event.type !== 'note_off')) return;
-    if (event.type === 'note_on' && !Array.from(this.agents.values()).some(a => a.peer.peerId === event.peerId)) {
-      this.lastHumanAt = Date.now();
+    // A DRUM HIT IS NOT A PERSON AT THE KEYBOARD. The backing section set this on every bar, so the
+    // "someone is playing, do not lead" rule fired continuously in every room that had a drummer on.
+    if (event.type === 'note_on' && this.isPlayerPeer(event.peerId)) {
+      const isAgent = Array.from(this.agents.values()).some(a => a.peer.peerId === event.peerId);
+      if (!isAgent) this.lastHumanAt = Date.now();
     }
     this.noteRing.push({
       peerId: event.peerId,
@@ -708,7 +716,11 @@ export class JamRoom implements DurableObject {
   /** Everything someone ELSE played in the last two bars, as events the listener can summarize. */
   private othersRecent(agentPeerId: string): NoteRecord[] {
     const since = Date.now() - this.barMs() * 2;
-    return this.noteRing.filter(n => n.peerId !== agentPeerId && n.timestamp >= since);
+    // THE DRUMMER IS NOT A PLAYER TO ANSWER. Left in, its fixed figure was summarized as "they are
+    // playing: ... strong beats: C2, A5" and as a note someone is holding, so an agent was told not to
+    // play A5 because a hi-hat had it, and was asked to answer a kick drum.
+    return this.noteRing.filter(n =>
+      n.peerId !== agentPeerId && n.timestamp >= since && this.isPlayerPeer(n.peerId));
   }
 
   // ─── The rhythm section ────────────────────────────────────────────────────
@@ -899,7 +911,21 @@ export class JamRoom implements DurableObject {
    * slow ones halves its phrase rate instead of writing bars that arrive after their own line.
    */
   private strideFor(agent: InProcessAgent): number {
-    return renderStride(agent.renderCostMs, this.barMs());
+    // The TAIL decides, not the mean: a bar that usually fits and every fourth time does not is a bar
+    // that misses every fourth time. At 160 BPM that was the difference between a quarter of the bars
+    // falling back and every written bar landing.
+    return renderStride(Math.max(agent.renderCostMs, agent.renderTailMs), this.barMs());
+  }
+
+  /**
+   * Whether a peer is a PLAYER: a human at a keyboard or another model agent. The room's drummer and
+   * bass are not: they count and they accompany, so their notes must not enter the phrase an agent
+   * listens to, and a drum hit must not read as a person at the keyboard.
+   */
+  private isPlayerPeer(peerId: string): boolean {
+    for (const agent of this.agents.values()) if (agent.peer.peerId === peerId) return false;
+    for (const layer of this.layers.values()) if (layer.peer.peerId === peerId) return false;
+    return true;
   }
 
   private barIndexOf(at: number): number {
@@ -1327,6 +1353,7 @@ export class JamRoom implements DurableObject {
       // the prune now covers the occasional overrun that made a single outlier expensive to ignore.
       const costMs = (brief?.latencyMs ?? 0) + result.meta.latencyMs;
       agent.renderCostMs = agent.renderCostMs * 0.85 + costMs * 0.15;
+      agent.renderTailMs = nextRenderTail(agent.renderTailMs, costMs);
 
       const repaired = repairMeasure(result.notes, {
         key: this.roomState.key,

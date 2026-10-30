@@ -155,6 +155,73 @@ describe('JamRoom Durable Object', () => {
       await settle(stub);
     });
 
+    it('does not let the room drummer count as a player', async () => {
+      const { stub, ws } = await openSocket();
+      ws.send(JSON.stringify({ type: 'join_room', name: 'DrumPeer', kind: 'human' }));
+      await new Promise(r => setTimeout(r, 40));
+      ws.send(JSON.stringify({ type: 'set_backing', drummer: true, bass: false }));
+      await new Promise(r => setTimeout(r, 80));
+
+      await runInDurableObject(stub, async (instance: JamRoom) => {
+        const room = instance as unknown as {
+          layers: Map<string, { peer: { peerId: string } }>;
+          noteRing: Array<{ peerId: string }>;
+          onLayerBar: (layer: unknown) => void;
+          othersRecent: (id: string) => Array<{ peerId: string }>;
+          lastHumanAt: number;
+          isPlayerPeer: (id: string) => boolean;
+        };
+        const layer = room.layers.get('drummer');
+        if (!layer) throw new Error('drummer did not spawn');
+        const humanBefore = room.lastHumanAt;
+        room.onLayerBar(layer);
+        // emitBar schedules each note for its own slot, so the ring fills over the next beat.
+        await new Promise(resolve => setTimeout(resolve, 120));
+
+        // The drum's notes DO reach the ring everyone hears through.
+        expect(room.noteRing.some(n => n.peerId === layer.peer.peerId)).toBe(true);
+        // But they are not a player: not in the phrase an agent listens to, not a human at the keys.
+        expect(room.othersRecent('another-agent').every(n => n.peerId !== layer.peer.peerId)).toBe(true);
+        expect(room.isPlayerPeer(layer.peer.peerId)).toBe(false);
+        expect(room.lastHumanAt).toBe(humanBefore);
+      });
+
+      ws.close();
+      await new Promise(r => setTimeout(r, 50));
+      await settle(stub);
+    });
+
+    it('lets the tail decide the stride, where the mean keeps one bar per bar', async () => {
+      const { stub, ws } = await openSocket();
+      ws.send(JSON.stringify({ type: 'join_room', name: 'TailPeer', kind: 'human' }));
+      await new Promise(r => setTimeout(r, 30));
+      ws.send(JSON.stringify({ type: 'bpm_change', bpm: 160 }));
+      ws.send(JSON.stringify({ type: 'spawn_agent', name: 'Tail Bot', style: 'jazz' }));
+      await new Promise(r => setTimeout(r, 60));
+
+      await runInDurableObject(stub, async (instance: JamRoom) => {
+        const room = instance as unknown as {
+          agents: Map<string, { renderCostMs: number; renderTailMs: number }>;
+          strideFor: (agent: unknown) => number;
+          renderAgentBar: (agent: unknown) => Promise<void>;
+        };
+        const agent = [...room.agents.values()][0];
+        if (!agent) throw new Error('agent did not spawn');
+        room.renderAgentBar = async () => {};
+
+        // 160 BPM is a 1500 ms bar: a 1300 ms mean fits, a 1800 ms tail does not.
+        agent.renderCostMs = 1300;
+        agent.renderTailMs = 1300;
+        expect(room.strideFor(agent)).toBe(1);
+        agent.renderTailMs = 1800;
+        expect(room.strideFor(agent)).toBe(2);
+      });
+
+      ws.close();
+      await new Promise(r => setTimeout(r, 50));
+      await settle(stub);
+    });
+
     it('refuses a tempo the grid cannot use, and keeps the room where it was', async () => {
       const { stub, ws } = await openSocket();
       ws.send(JSON.stringify({ type: 'join_room', name: 'TempoPeer', kind: 'human' }));

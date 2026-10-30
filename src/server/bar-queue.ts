@@ -157,3 +157,25 @@ export function firstReachableBar(
   }
   return bar;
 }
+
+/**
+ * The tail of what a render costs, as a decaying maximum.
+ *
+ * An EWMA answers "what does a render usually cost", and the stride needs "how long can one take before
+ * it misses". Measured at 160 BPM: the p90 model call is 1166 ms against a 1500 ms bar, so an EWMA of
+ * about 1300 keeps stride 1 and misses roughly a quarter of its bars, while the tail (1800) steps to 2
+ * and every written bar lands. The decay is what lets a cold start pass: 10% a render, so an outlier is
+ * forgotten in about ten bars instead of pinning the room's phrase rate for the session.
+ */
+export function nextRenderTail(previous: number, cost: number, decay = 0.9): number {
+  if (!(cost > 0)) return previous > 0 ? previous * decay : 0;
+  return Math.max(cost, previous > 0 ? previous * decay : 0);
+}
+
+/**
+ * What a render's TAIL is assumed to be before any has been measured: the worst call seen on the live
+ * route (1777 ms of model at 200 BPM, 1822 ms at 160). Seeding the tail at the typical 1300 ms is what
+ * cost two agents their first bar at 160 BPM: the mean said a 1500 ms bar had room, and the first real
+ * call took 1,312 ms of budget and overran it.
+ */
+export const RENDER_TAIL_ASSUMED_MS = 1800;

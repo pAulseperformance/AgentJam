@@ -36,6 +36,9 @@ const cookieFile = arg('cookie-file', `${process.env.HOME}/.hermes/secrets/door-
 // WHEN each agent is spawned, in ms after the join. A spawn late in a bar is the cold-start case: it
 // used to inherit whatever was left of the bar and fail. Default spreads three agents over half a second.
 const spawnAt = String(arg('spawn-at', '')).split(',').filter(Boolean).map(Number);
+// The room's own drummer and bass. A probe that never switches them on cannot see how the agents treat
+// them, and their fixed figure reached the prompt as "strong beats" until it was filtered out.
+const backing = arg('backing', '') !== '';
 
 let cookie = '';
 try { cookie = readFileSync(cookieFile, 'utf8').trim(); } catch { /* public tier */ }
@@ -56,6 +59,7 @@ const send = (obj) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.strin
 ws.on('open', () => {
   send({ type: 'join_room', name: 'Probe', kind: 'human', instrument: 'PolySynth' });
   setTimeout(() => send({ type: 'bpm_change', bpm }), 250);
+  if (backing) setTimeout(() => send({ type: 'set_backing', drummer: true, bass: true }), 350);
   agents.forEach((style, i) => {
     const at = spawnAt[i] ?? (500 + i * 250);
     setTimeout(() => send({ type: 'spawn_agent', name: `Probe ${style}`, style }), at);
@@ -107,6 +111,7 @@ ws.on('message', (buf) => {
       relation: brief.relation ?? null,
       error: m.error ?? null,
       response: m.response ?? null,
+      prompt: m.prompt ?? null,
     });
   }
 });
@@ -136,6 +141,11 @@ function report() {
     `  pattern ${bars.filter(b => b.source === 'pattern').length}  fallback ${bars.filter(b => b.source === 'fallback').length}`);
   if (lat.length) {
     console.log(`latency   min ${lat[0]}  median ${lat[Math.floor(lat.length / 2)]}  max ${lat[lat.length - 1]} ms`);
+  }
+  const prompts = bars.map(b => b.prompt).filter(Boolean);
+  if (prompts.length) {
+    const drumHits = prompts.filter(p => /strong beats:.*\b(C2|D3|A5)\b/.test(p)).length;
+    console.log(`prompts   ${prompts.length}  naming a drum code as a strong beat: ${drumHits}`);
   }
   if (paced.length) console.log(`paced     ${paced.length} bars paced by the tempo rule, e.g. "${paced[0].response}"`);
   for (const [agent, row] of byAgent) {
