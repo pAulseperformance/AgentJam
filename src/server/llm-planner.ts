@@ -258,7 +258,7 @@ function buildUserPrompt(ctx: MeasureContext, brief: DecisionBrief | null, ask: 
     // THE TAIL WILL NOT FIT: the ask is two notes in ONE named slot, not a bar. The room named the
     // beat, so the model answers with pitches only.
     lines.push(
-      `${CELL_ASK}: there is not time for a bar. Do not write a measure. ` +
+      `${CELL_ASK}: the window is too short for a bar. Do not write a measure. ` +
       `Write exactly ${CELL_NOTES} notes, BOTH at beatTime ${cellSlotOf(ctx).toFixed(2)}, ` +
       `duration 0.5, nothing at any other beat.`,
     );
