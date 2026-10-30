@@ -1,0 +1,71 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>AgentJam session summary, five states</title>
+<style>
+  body { margin: 0; font: 15px/1.45 ui-sans-serif, system-ui, sans-serif; color: var(--foreground, #e8e8ea); }
+  .panel { max-width: 520px; border: 1px solid var(--border, #333); border-radius: 10px; padding: 14px 16px; margin: 0 0 18px; background: var(--card, #141416); }
+  .head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .title { font-weight: 600; letter-spacing: .01em; }
+  .tag { font-size: 12px; color: var(--muted-foreground, #9a9aa2); text-transform: uppercase; letter-spacing: .08em; }
+  .state { font-size: 12px; color: var(--accent, #8b5cf6); margin: 0 0 8px; }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin-top: 8px; }
+  .k { color: var(--muted-foreground, #9a9aa2); }
+  .v { font-variant-numeric: tabular-nums; }
+  .bars { display: flex; gap: 2px; margin-top: 10px; flex-wrap: wrap; }
+  .b { width: 10px; height: 22px; border-radius: 2px; }
+  .b.model { background: var(--accent, #8b5cf6); }
+  .b.gap { background: #3a3a44; }
+  .b.fail { background: #b91c1c; }
+  .note { font-size: 12px; color: var(--muted-foreground, #9a9aa2); margin-top: 10px; }
+  .err { border-color: #7f1d1d; }
+</style>
+
+<section class="panel" data-state="empty">
+  <p class="state">state: empty</p>
+  <div class="head"><span class="title">Last session</span><span class="tag">no session yet</span></div>
+  <p class="note">Nothing has played in this room since the page opened. Join, spawn an agent, and this panel fills at the bar line.</p>
+</section>
+
+<section class="panel" data-state="one">
+  <p class="state">state: one agent, short session</p>
+  <div class="head"><span class="title">Last session</span><span class="tag">38 s at 160 BPM</span></div>
+  <div class="row">
+    <span class="k">Model bars</span><span class="v">12 of 25</span>
+    <span class="k">Rests</span><span class="v">3</span>
+    <span class="k">Quiet bars (generator)</span><span class="v">10</span>
+    <span class="k">Render p50 / worst</span><span class="v">838 / 2067 ms</span>
+  </div>
+  <div class="bars"><i class="b model"></i><i class="b model"></i><i class="b gap"></i><i class="b model"></i><i class="b model"></i><i class="b gap"></i><i class="b model"></i><i class="b model"></i></div>
+  <p class="note">One agent, writing every 2 bars at this tempo.</p>
+</section>
+
+<section class="panel" data-state="many">
+  <p class="state">state: three agents, long session</p>
+  <div class="head"><span class="title">Last session</span><span class="tag">45 s at 160 BPM</span></div>
+  <div class="row">
+    <span class="k">Model bars</span><span class="v">50 of 87</span>
+    <span class="k">Rests</span><span class="v">12</span>
+    <span class="k">Quiet bars (generator)</span><span class="v">35</span>
+    <span class="k">Render p50 / worst</span><span class="v">838 / 2067 ms</span>
+  </div>
+  <div class="bars"><i class="b model"></i><i class="b gap"></i><i class="b model"></i><i class="b model"></i><i class="b gap"></i><i class="b model"></i><i class="b model"></i><i class="b model"></i><i class="b gap"></i><i class="b model"></i></div>
+  <p class="note">Jazz Bot, Funk Bot and Ambient Bot, each writing every 2 bars, with the drummer and bass under them.</p>
+</section>
+
+<section class="panel err" data-state="error">
+  <p class="state">state: a render failed</p>
+  <div class="head"><span class="title">Last session</span><span class="tag">failure recorded</span></div>
+  <div class="row">
+    <span class="k">Model bars</span><span class="v">9 of 25</span>
+    <span class="k">Failed renders</span><span class="v">2</span>
+    <span class="k">Reason</span><span class="v">AI call exceeded 1565ms</span>
+  </div>
+  <div class="bars"><i class="b model"></i><i class="b fail"></i><i class="b gap"></i><i class="b model"></i><i class="b fail"></i><i class="b model"></i></div>
+  <p class="note">A failed render plays a code measure. The reason is printed here because the export carries it and nobody reads a log.</p>
+</section>
+
+<section class="panel" data-state="signed out">
+  <p class="state">state: signed out</p>
+  <div class="head"><span class="title">Last session</span><span class="tag">public tier</span></div>
+  <p class="note">Signed out, the band renders without the decision layer, so bars carry no rest and no role. The summary says so instead of showing an empty chart.</p>
+</section>
