@@ -10,7 +10,7 @@ Repo `/Users/v99/Projects/Music/agentJam`, every card in `dir:` on `main`.
 |---|---|---|---|
 | t_ce470719 | story | STORY: who walks in, and what they must see | designer |
 | t_0c1e3366 | screen | SCREEN: the session panel, drawn before the code that fills it | designer |
-| t_b971af34 | plan-review | PLAN REVIEW: the plan read by a different model | reviewer |
+| t_f4d7a7fb | plan-review | PLAN REVIEW: the plan read by a different model | reviewer |
 | t_1de3fa17 | 1 | Deploy through a version, with the credential wrapper on the line | implementer |
 | t_cff49d5a | 2 | Warm the model before the first bar | implementer |
 | t_f6511b2c | 3 | Give the agent a reaction voice inside the bar | implementer |
@@ -29,7 +29,7 @@ Repo `/Users/v99/Projects/Music/agentJam`, every card in `dir:` on `main`.
 | t_8a14f7db | 16 | Gate the room on the probe | implementer |
 | t_9f8d73df | 17 | Verify the browser half | implementer |
 | t_5e4feba0 | 18 | Prove the bar loop over many bars | implementer |
-| t_8e81ba7d | review | REVIEW: jam band and audit, eighteen cards | reviewer, `z-ai/glm-5.3-flash` via `custom` |
+| t_d9c4b6ab | review | REVIEW: jam band and audit, eighteen cards | reviewer, `z-ai/glm-5.3-flash` via `veil` |
 
 Order: story then screen, then the plan review gates Task 1, then Tasks 1 to 18 in sequence, then the review. Every implementation card waits on the screen card and on the previous card; the review waits on all eighteen and on the screen. One subscription row, on the review card, so it is the only card that messages the owner.
 
@@ -47,3 +47,15 @@ The plan review is a PARENT of Task 1: no build starts until a different model h
 ## One change made to the tooling, not to this graph
 
 `scripts/cut_plan_cards.py` in the `execute-plan-in-the-lane` skill wrote the plan's BARE filename into each body's provenance line, and the card checker reads that token as an anchor, so every body in the first cut failed `ANCHOR` on its own header. The cutter now writes the repo-relative path when the plan lives inside the repo. The bodies in this directory were re-cut after that fix.
+
+## The provider pin, corrected
+
+The first cut created both review cards with `--provider custom`, which no profile serves: the reviewer
+profile's own model block names `provider: veil` against the local proxy, so the plan review blocked on
+its first turn with `No LLM provider configured` and the graph review would have blocked the same way.
+Both were archived (`t_b971af34`, `t_8e81ba7d`) and re-created on `--provider veil` with
+`z-ai/glm-5.3-flash`, which is what `t_f4d7a7fb` and `t_d9c4b6ab` are. The 18 implementation cards carry
+no override and inherit the implementer profile's provider, so they were untouched.
+
+Lesson for the next cut: name a provider that exists in the ASSIGNEE's own config (`model.provider` in
+`~/.hermes/profiles/<name>/config.yaml`), not the name of the integration it wraps.
