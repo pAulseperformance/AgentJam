@@ -2,6 +2,7 @@ import { env, runInDurableObject } from 'cloudflare:test';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { JamRoom } from './jam-room';
 import { DEFAULT_BPM } from '@/shared/protocol/constants';
+import { FREE_MODEL } from '@/shared/ai/models';
 
 
 describe('JamRoom Durable Object', () => {
@@ -230,6 +231,76 @@ describe('JamRoom Durable Object', () => {
       ws.close();
       await new Promise(r => setTimeout(r, 50));
       await settle(stub);
+    });
+
+    it('warms the model exactly once per room, and no render starts before it answers', async () => {
+      const { stub, ws } = await openSocket();
+
+      // The room's model calls in the order it made them. A warm ask is the short one: a bar is asked
+      // for 512 tokens, the warm for a word, so this reads what the room SENT and not what it says
+      // about itself.
+      type ModelCall = { model: string; warm: boolean; issuedAt: number; answeredAt: number };
+      const calls: ModelCall[] = [];
+      // THE WARM IS HELD OPEN. A render that starts while the model is still loading is the defect
+      // this case exists to catch, so the test watches what the room does during the wait.
+      let answerTheWarm: () => void = () => {};
+      const whileWarmIsLoading = new Promise<void>(resolve => { answerTheWarm = resolve; });
+
+      await runInDurableObject(stub, async (instance: JamRoom) => {
+        const room = instance as unknown as {
+          env: { AI: { run: (model: string, inputs: unknown) => Promise<unknown> } };
+        };
+        room.env.AI = {
+          run: (model: string, inputs: unknown) => {
+            const tokens = Number((inputs as { max_tokens?: number } | null)?.max_tokens ?? 0);
+            const call: ModelCall = {
+              model,
+              warm: tokens < 512,
+              issuedAt: Date.now(),
+              answeredAt: -1,
+            };
+            calls.push(call);
+            const wait = call.warm ? whileWarmIsLoading : Promise.resolve();
+            return wait
+              .then(() => ({ response: [{ pitch: 'C4', beatTime: 0, velocity: 90, duration: 0.25 }] }))
+              .then(answer => { call.answeredAt = Date.now(); return answer; });
+          },
+        };
+      });
+
+      try {
+        ws.send(JSON.stringify({ type: 'join_room', name: 'WarmPeer', kind: 'human' }));
+        await new Promise(r => setTimeout(r, 40));
+
+        // ONE WARM, ASKED AS THE ROOM OPENS, for the model this room's agents will spend on.
+        expect(calls.length).toBe(1);
+        expect(calls[0]?.warm).toBe(true);
+        expect(calls[0]?.model).toBe(FREE_MODEL);
+
+        // A RENDER WAITS FOR IT: the agent spawned now asks for no bar while the model loads.
+        ws.send(JSON.stringify({ type: 'spawn_agent', name: 'Warm Bot', style: 'jazz' }));
+        await new Promise(r => setTimeout(r, 60));
+        expect(calls.length).toBe(1);
+        expect(calls[0]?.answeredAt).toBe(-1);
+
+        answerTheWarm();
+        await new Promise(r => setTimeout(r, 80));
+
+        // AND THE BAR'S OWN CALL COMES AFTER THE WARM ANSWERED, never underneath it.
+        const bar = calls.find(c => !c.warm);
+        expect(bar).toBeDefined();
+        expect(bar?.issuedAt).toBeGreaterThanOrEqual(calls[0]?.answeredAt ?? 0);
+
+        // ONE PER ROOM: a second join buys no second warm, and the count stays exactly one.
+        ws.send(JSON.stringify({ type: 'join_room', name: 'SecondPeer', kind: 'human' }));
+        await new Promise(r => setTimeout(r, 40));
+        expect(calls.filter(c => c.warm).length).toBe(1);
+      } finally {
+        answerTheWarm();
+        ws.close();
+        await new Promise(r => setTimeout(r, 50));
+        await settle(stub);
+      }
     });
 
     it('refuses a tempo the grid cannot use, and keeps the room where it was', async () => {

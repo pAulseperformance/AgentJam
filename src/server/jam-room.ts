@@ -50,6 +50,25 @@ import { decideWithJev, jevConfigFromEnv, type JevState } from './jev';
 const TIER_HEADER = 'x-jam-tier';
 
 /**
+ * HOW LONG THE ROOM WILL WAIT FOR THE MODEL TO LOAD BEFORE WRITING BARS ANYWAY.
+ *
+ * The load is not a bar. Measured 2026-10-31 on a fresh room at 160 BPM, the agent's first model
+ * call died on `AI call exceeded 1359ms` while every later call of the same run took 515-1519 ms,
+ * which is the load being paid out of a bar's budget. Eight seconds outlasts a load that already
+ * beat a 1359 ms budget and is short enough that a stuck request cannot hold the room past its
+ * fallback.
+ */
+const WARM_BUDGET_MS = 8000;
+
+/**
+ * THE SMALLEST ASK THAT STILL LOADS THE MODEL. A warm call has no bar to fill, no phrase to answer
+ * and no notes to write, so it must not send a measure prompt: the point is a loaded route, and a
+ * four-token answer is the cheapest way to get one.
+ */
+const WARM_PROMPT = 'Reply with the single word OK.';
+const WARM_MAX_TOKENS = 4;
+
+/**
  * The note a partner answers with: a consonant interval above what you played, whichever of those is
  * in the key. A third or a fourth, never a copy, so an echo sounds like a reply and not a loop.
  */
@@ -197,6 +216,12 @@ export class JamRoom implements DurableObject {
   private layers: Map<'drummer' | 'bass', RoomLayer> = new Map();
   /** the last moment anyone but an agent played, which is what makes a queued bar stale */
   private lastHumanAt = 0;
+  /**
+   * THE WARM CALL, ONE PER ROOM, started when the room opens and awaited by every render before its
+   * own bar budget begins. It holds no notes and is never published: what it buys is a loaded model,
+   * not a bar. See `warmTheModel`.
+   */
+  private modelWarm: Promise<void> | null = null;
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -396,6 +421,12 @@ export class JamRoom implements DurableObject {
       lastNoteWindow: Date.now(),
     });
 
+    // WARM THE MODEL THE MOMENT THE ROOM OPENS, so the load is paid in the gap between a listener
+    // arriving and an agent being asked for a bar, not inside the first bar's budget. Once per room:
+    // a second listener buys no second call (`warmTheModel` refuses one), and a room nobody spawns
+    // in pays four tokens for nothing, which is cheaper than a first bar that cannot answer.
+    void this.warmTheModel(this.tierOf(ws));
+
     // Start intervals on first peer
     if (this.peers.size === 1 && !this.flushInterval) {
       this.flushInterval = setInterval(() => this.flushToSQLite(), FLUSH_INTERVAL_MS);
@@ -584,6 +615,56 @@ export class JamRoom implements DurableObject {
   }
 
   // ─── TAS-104: In-Process Agent Spawning ─────────────────────────────────────
+
+  /**
+   * WARM THE MODEL BEFORE THE FIRST BAR, exactly once per room.
+   *
+   * The model's first call in a fresh isolate pays that model's load, and a render that starts while
+   * the load is still in flight spends its own bar budget on it: measured 2026-10-31 at 160 BPM on a
+   * fresh room, the first model call died on `AI call exceeded 1359ms` at t=3,745 ms while every
+   * later call of the same agent took 515-1519 ms and landed. The room cannot make the load cheaper,
+   * so it pays it before anyone needs a bar and throws the answer away.
+   *
+   * One call site, one promise: the room's opening starts it, a second listener or a third agent
+   * waits on the same one, and a room whose binding is missing simply has nothing to warm.
+   */
+  private warmTheModel(tier: Tier): Promise<void> {
+    if (this.modelWarm) return this.modelWarm;
+    const ai = this.env.AI;
+    // NO BINDING IS NOT A FAILURE: the render path already falls back to the pattern generator when
+    // there is no AI binding. Resolving here keeps the promise settled for every caller.
+    this.modelWarm = ai
+      ? this.runWarmCall(ai, tier === 'signed' ? SIGNED_MODEL : FREE_MODEL)
+      : Promise.resolve();
+    return this.modelWarm;
+  }
+
+  /**
+   * The call itself, bounded and never rejecting. The timer is cleared on the way out, so a room
+   * that answered in 700 ms does not carry an eight-second timer it never used.
+   */
+  private async runWarmCall(ai: NonNullable<Env['AI']>, model: string): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    try {
+      await Promise.race([
+        ai.run(model, {
+          messages: [{ role: 'user', content: WARM_PROMPT }],
+          max_tokens: WARM_MAX_TOKENS,
+        }),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`warm call exceeded ${WARM_BUDGET_MS}ms`)),
+            WARM_BUDGET_MS,
+          );
+        }),
+      ]);
+    } catch {
+      // A ROOM THAT COULD NOT WARM STILL PLAYS. The render path's own fallback covers the bar, and
+      // the render is released either way: the wait below is never left pending.
+    } finally {
+      if (timer !== null) clearTimeout(timer);
+    }
+  }
 
   private handleSpawnAgent(ws: WebSocket, name: string, style: AgentStyle): void {
     if (this.agents.size >= MAX_AGENTS_PER_ROOM) {
@@ -1267,10 +1348,16 @@ export class JamRoom implements DurableObject {
     reuseBrief?: AiCallMeta['brief'],
   ): Promise<void> {
     if (agent.busy) return;
-    const sawUpTo = Date.now();
     agent.busy = true;
 
     try {
+      // THE MODEL'S LOAD IS NOT PAID INSIDE A BAR. A render that starts while the model is still
+      // loading spends its own budget on the load: measured 2026-10-31 at 160 BPM, a fresh room's
+      // first model call died on `AI call exceeded 1359ms` while every later call took 515-1519 ms.
+      // The room's warm call (handleJoin) is awaited HERE, before anything is measured, and
+      // `sawUpTo` moves with it: what this bar can have heard is what was played after the wait.
+      await this.modelWarm;
+      const sawUpTo = Date.now();
       // What someone else is holding RIGHT NOW may not be doubled by this bar.
       const heldPitches = this.heldByOthers(agent.peer.peerId);
 
