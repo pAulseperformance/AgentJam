@@ -18,7 +18,7 @@
  *   - the renderer turns that into notes, and a deterministic pattern covers any failure.
  */
 
-import { generateMeasure, type GeneratedNote, type AgentStyle } from '@/shared/music';
+import { generateMeasure, midiOf, snapPitchToKey, type GeneratedNote, type AgentStyle } from '@/shared/music';
 import { FREE_MODEL } from '@/shared/ai/models';
 
 export { AI_MODELS, FREE_MODEL, SIGNED_MODEL, isFreeModel, isKnownModel } from '@/shared/ai/models';
@@ -45,6 +45,18 @@ export interface MeasureContext {
   peerPlan?: string;
   /** the phrase arc this bar sits in, in plain words, so the model writes a melody and not a chord */
   melody?: string;
+  /**
+   * THE TAIL-AWARE ASK, as two numbers the room measures. `tailMs` is the worst render this agent has
+   * recently paid (the decision layer plus the model); `windowMs` is the window the ask writes for:
+   * ONE BAR. An ask produces one bar of music, so a tail longer than that bar cannot be trusted to
+   * deliver a bar-shaped answer on the bar's own grid.
+   */
+  tailMs?: number;
+  windowMs?: number;
+  /** how many bars this agent writes one bar of music: 1 while one bar holds a render, above 1 when paced */
+  stride?: number;
+  /** the beat a cell ask names, chosen by the room on the bar's eighth grid, away from the downbeat */
+  cellSlot?: number;
 }
 
 /** Who is playing: an anonymous visitor, or someone the zpe door knows. */
@@ -81,6 +93,13 @@ export interface AiCallMeta {
    * so it is not counted as either.
    */
   source: 'llm' | 'pattern' | 'fallback' | 'rest' | 'cell';
+  /**
+   * WHAT THE ROOM ASKED FOR. A `cell` ask is two notes in one named slot instead of a bar: the
+   * agent's tail did not fit the bar the ask writes for, so asking for a whole bar only produced
+   * answers that arrived after their own line. A recorded prompt carries the same word (CELL_ASK),
+   * which is how a session file proves the ask happened.
+   */
+  ask?: 'bar' | 'cell';
   tier: Tier;
   model: string;
   /** which layer judged the measure before the renderer wrote it */
@@ -149,7 +168,60 @@ const REGISTER_RULE: Record<DecisionBrief['register'], string> = {
   high: 'Play in the upper register, C5 and above.',
 };
 
-function buildUserPrompt(ctx: MeasureContext, brief: DecisionBrief | null): string {
+/** The marker a cell ask carries in the prompt, so a test, a probe and a reader find the same line. */
+export const CELL_ASK = 'CELL ASK';
+
+/** How many notes a cell ask is worth: one short gesture, not a bar. */
+export const CELL_NOTES = 2;
+
+/**
+ * WHAT TO ASK FOR, from what the room measured.
+ *
+ * An ask writes ONE bar, so its window is one bar. When the agent's tail (decision layer plus model,
+ * worst of the recent renders) is longer than that window AND the room has already paced the agent
+ * above a stride of one, a bar-shaped answer cannot be delivered on the bar's own grid: the model is
+ * asked for two notes in a named slot instead. A cell asks for 2 notes, which a small model returns
+ * in a fraction of the window (plan, 2026-10-30).
+ *
+ * A stride of one means the room has said a bar holds a render, so the ask stays a bar even when one
+ * stale tail reading is long: the tail decays ten percent a render.
+ */
+export function askShape(ctx: Pick<MeasureContext, 'stride' | 'tailMs' | 'windowMs'>): 'bar' | 'cell' {
+  if (!(ctx.stride !== undefined && ctx.stride > 1)) return 'bar';
+  if (!(ctx.windowMs !== undefined && ctx.windowMs > 0)) return 'bar';
+  if (!(ctx.tailMs !== undefined && ctx.tailMs > 0)) return 'bar';
+  return ctx.tailMs > ctx.windowMs ? 'cell' : 'bar';
+}
+
+/** The beat a cell ask names: the room's, rounded to the room's sixteenth grid and kept inside the bar. */
+function cellSlotOf(ctx: MeasureContext): number {
+  const slot = ctx.cellSlot;
+  if (typeof slot !== 'number' || !Number.isFinite(slot)) return 2;
+  return Math.max(0, Math.min(3.75, Math.round(slot * 4) / 4));
+}
+
+/**
+ * TWO NOTES IN A NAMED SLOT. The model answers a cell ask with pitches, not with addresses: the room
+ * named the beat, so every note lands on it, in the room's key, short and inside the room's range.
+ * An unreadable pitch is dropped rather than played; a cell of one note is still a cell.
+ */
+function shapeCell(notes: GeneratedNote[], ctx: MeasureContext): GeneratedNote[] {
+  const slot = cellSlotOf(ctx);
+  const out: GeneratedNote[] = [];
+  for (const note of [...notes].sort((a, b) => a.beatTime - b.beatTime)) {
+    if (out.length >= CELL_NOTES) break;
+    if (midiOf(note.pitch) === null) continue;
+    out.push({
+      pitch: snapPitchToKey(note.pitch, ctx.key),
+      beatTime: slot,
+      velocity: Math.max(50, Math.min(110, Math.round(note.velocity) || 90)),
+      duration: 0.5,
+    });
+  }
+  return out;
+}
+
+function buildUserPrompt(ctx: MeasureContext, brief: DecisionBrief | null, ask: 'bar' | 'cell'): string {
   // The old prompt was two lines and a hope: "recent notes: pitch@beat" plus "generate your measure".
   // A 3B model given that writes a plausible bar that ignores the room. This prompt names the job,
   // the phrase it is answering, the idea it is keeping, and what it must not play.
@@ -169,8 +241,10 @@ function buildUserPrompt(ctx: MeasureContext, brief: DecisionBrief | null): stri
     lines.push(
       `YOUR MOVE: ${brief.role}. ${ROLE_RULE[brief.role]}`,
       `RELATION: ${brief.relation}. ${RELATION_RULE[brief.relation]}`,
-      `AMOUNT: ${DENSITY_RULE[brief.density]} ${REGISTER_RULE[brief.register]}`,
     );
+    // A CELL ASK DOES NOT TAKE THE AMOUNT RULE: it asks for two notes, and a rule that says five to
+    // eight is the wrong answer to that question. The register still applies, below.
+    if (ask === 'bar') lines.push(`AMOUNT: ${DENSITY_RULE[brief.density]} ${REGISTER_RULE[brief.register]}`);
   }
 
   if (ctx.peerPlan) {
@@ -178,6 +252,19 @@ function buildUserPrompt(ctx: MeasureContext, brief: DecisionBrief | null): stri
   }
   if (ctx.heldNotes?.length) {
     lines.push(`DO NOT PLAY (someone is holding these): ${ctx.heldNotes.join(', ')}`);
+  }
+
+  if (ask === 'cell') {
+    // THE TAIL WILL NOT FIT: the ask is two notes in ONE named slot, not a bar. The room named the
+    // beat, so the model answers with pitches only.
+    lines.push(
+      `${CELL_ASK}: there is not time for a bar. Do not write a measure. ` +
+      `Write exactly ${CELL_NOTES} notes, BOTH at beatTime ${cellSlotOf(ctx).toFixed(2)}, ` +
+      `duration 0.5, nothing at any other beat.`,
+    );
+    if (brief) lines.push(REGISTER_RULE[brief.register]);
+    lines.push('Write the two notes now. ONLY the JSON array, no words.');
+    return lines.join('\n');
   }
 
   lines.push('Write the bar now. ONLY the JSON array, no words.');
@@ -370,16 +457,20 @@ export async function generateMeasureWithAi(
   /** overridable so a test can prove the hang path without waiting the real budget */
   budgetMs: number = AI_BUDGET_MS,
 ): Promise<MeasureResult> {
-  const prompt = buildUserPrompt(ctx, brief);
+  const ask = askShape(ctx);
+  const prompt = buildUserPrompt(ctx, brief, ask);
   const decider = brief ? 'jev' : 'none';
   const pattern = () => shrinkToDensity(generateMeasure(ctx.style, ctx.key, ctx.bpm), brief?.density ?? 'dense');
+  // A FALLBACK ANSWERS THE ASK THAT WAS MADE. A cell ask gets two notes in the named slot, not a
+  // generator bar: a failed render still sounds, and it sounds like what was asked for.
+  const fallback = () => (ask === 'cell' ? shapeCell(pattern(), ctx) : pattern());
 
   // Jev says the room is crowded: rest, and say so, rather than invent a silent-failure story.
   if (brief && !brief.play) {
     return {
       notes: [],
       meta: {
-        source: 'rest', tier, model, decider, brief, prompt,
+        source: 'rest', ask, tier, model, decider, brief, prompt,
         response: '(rest, Jev judged the room crowded)',
         noteCount: 0, latencyMs: brief.latencyMs,
       },
@@ -388,11 +479,11 @@ export async function generateMeasureWithAi(
 
   // An agent set to 'none' is a deliberate pattern agent, not a broken one.
   if (model === 'none' || !ai) {
-    const notes = pattern();
+    const notes = fallback();
     return {
       notes,
       meta: {
-        source: 'pattern', tier, model, decider, brief, prompt,
+        source: 'pattern', ask, tier, model, decider, brief, prompt,
         response: model === 'none' ? '(pattern agent, no model)' : '(no AI binding, using pattern generator)',
         noteCount: notes.length, latencyMs: 0,
       },
@@ -423,21 +514,27 @@ export async function generateMeasureWithAi(
 
     const notes = parseAiResponse(rawResponse);
     if (notes) {
-      return {
-        notes,
-        meta: {
-          source: 'llm', tier, model, decider, brief, prompt,
-          response: describeResponse(rawResponse),
-          noteCount: notes.length, latencyMs,
-        },
-      };
+      // A CELL ASK IS ANSWERED AS A CELL: the model is asked for two notes in a named slot, so the
+      // extra notes of a model that wrote a whole bar anyway are dropped and both survivors land on
+      // the slot the room named. A cell of nothing is a failed parse, not a cell.
+      const played = ask === 'cell' ? shapeCell(notes, ctx) : notes;
+      if (played.length > 0) {
+        return {
+          notes: played,
+          meta: {
+            source: 'llm', ask, tier, model, decider, brief, prompt,
+            response: describeResponse(rawResponse),
+            noteCount: played.length, latencyMs,
+          },
+        };
+      }
     }
 
-    const fallbackNotes = pattern();
+    const fallbackNotes = fallback();
     return {
       notes: fallbackNotes,
       meta: {
-        source: 'fallback', tier, model, decider, brief, prompt,
+        source: 'fallback', ask, tier, model, decider, brief, prompt,
         response: describeResponse(rawResponse) || '(empty response)',
         noteCount: fallbackNotes.length, latencyMs,
         error: 'Failed to parse AI response',
@@ -445,11 +542,11 @@ export async function generateMeasureWithAi(
     };
   } catch (err: unknown) {
     const latencyMs = Date.now() - startTime;
-    const fallbackNotes = pattern();
+    const fallbackNotes = fallback();
     return {
       notes: fallbackNotes,
       meta: {
-        source: 'fallback', tier, model, decider, brief, prompt,
+        source: 'fallback', ask, tier, model, decider, brief, prompt,
         response: '(AI call failed)',
         noteCount: fallbackNotes.length, latencyMs,
         error: err instanceof Error ? err.message : 'Unknown error',

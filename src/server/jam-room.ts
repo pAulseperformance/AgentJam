@@ -1455,6 +1455,12 @@ export class JamRoom implements DurableObject {
         : judgedOrCode;
       const brief = this.coordinateRole(agent, forBar, rested, phrase.count > 0);
 
+      // THE TAIL-AWARE ASK'S NUMBERS. The tail is the worst of this agent's recent renders, which is
+      // the stride's own reading; the window is ONE BAR, because an ask writes one bar of music. A
+      // refresh offers no tail reading: it replaces a bar the queue already holds, and shrinking that
+      // ask to a cell would swap a full line for two notes.
+      const tailMs = Math.max(agent.renderCostMs, agent.renderTailMs);
+
       const ctx = {
         key: this.roomState.key,
         bpm: this.roomState.bpm,
@@ -1467,6 +1473,10 @@ export class JamRoom implements DurableObject {
         heldNotes: [...new Set([...heldPitches, ...phrase.held])].slice(0, 8),
         peerPlan: peerPlan.slice(0, 6).join(' ') || undefined,
         melody: melody.instruction,
+        stride,
+        tailMs: targetBar === undefined ? tailMs : undefined,
+        windowMs: this.barMs(),
+        cellSlot: this.cellAskSlot(agent, forBar),
       };
 
       // THE MODEL'S BUDGET COMES FROM THE ROOM, NOT FROM A CONSTANT. 2500ms against a 1500ms bar at
@@ -1487,77 +1497,84 @@ export class JamRoom implements DurableObject {
       agent.renderCostMs = agent.renderCostMs * 0.85 + costMs * 0.15;
       agent.renderTailMs = nextRenderTail(agent.renderTailMs, costMs);
 
-      const repaired = repairMeasure(result.notes, {
-        key: this.roomState.key,
-        heldPitches,
-        maxNotes: 10,
-        // AN ANSWER THAT SHARES NOTHING IS NOT AN ANSWER: only enforced when the decision said so.
-        answerPitches: brief?.role === 'answer' ? phrase.pitches : undefined,
-        // TWO of their pitch classes, not one: measured, a one-note borrow reads as its own material.
-        answerShare: brief?.role === 'answer' ? 2 : undefined,
-        // PLAY AT THE ROOM'S LEVEL: a shout answered by a whisper is not an answer either.
-        targetMeanVelocity: phrase.count > 0 ? phrase.meanVelocity : undefined,
-        // NOT THE SAME SLOT AS THE OTHER AGENT: their bar is already queued and about to sound.
-        avoidSlots: peerPlan,
-      });
-
-      // A LEAD BAR IS A MELODY, NOT A GESTURE. The model writes what it can and this is what happens
-      // when what it writes is a triad: the line is completed in key, along the arc, on the grid.
-      let finalNotes = repaired.notes;
+      // THE ANSWER TO A CELL ASK IS ALREADY ITS BAR: two notes on the slot the room named. Repairing
+      // it, completing it along the phrase arc or contouring it would turn the cell back into the
+      // measure that was not asked for.
+      const cellAsk = result.meta.ask === 'cell';
+      let finalNotes = result.notes;
       const register = this.registerRange(brief?.register ?? 'mid');
       agent.lastRegister = brief?.register ?? 'mid';
 
-      if (brief?.role === 'lead' && melody.position === 'cadence') {
-        // THE PHRASE LANDS: two notes, the last on the tonic, approached by step, held longer
-        finalNotes = cadenceLine({
+      if (!cellAsk) {
+        const repaired = repairMeasure(result.notes, {
           key: this.roomState.key,
-          register,
-          fromMidi: finalNotes.length ? midiOf(finalNotes.at(-1)!.pitch) ?? undefined : undefined,
-        });
-      } else if (brief?.role === 'lead' && melody.position === 'restate' && agent.hook?.length) {
-        // THE HOOK COMES BACK. One change, chosen by the bar, never a new line (arXiv 2501.17759)
-        finalNotes = restateHook(agent.hook, { key: this.roomState.key, register, bar: forBar });
-      } else if (brief?.role === 'lead') {
-        const register = this.registerRange(brief.register);
-        const completed = completeMelody(finalNotes, {
-          plan: melody,
-          key: this.roomState.key,
-          motif: agent.motif,
-          register,
+          heldPitches,
           maxNotes: 10,
+          // AN ANSWER THAT SHARES NOTHING IS NOT AN ANSWER: only enforced when the decision said so.
+          answerPitches: brief?.role === 'answer' ? phrase.pitches : undefined,
+          // TWO of their pitch classes, not one: measured, a one-note borrow reads as its own material.
+          answerShare: brief?.role === 'answer' ? 2 : undefined,
+          // PLAY AT THE ROOM'S LEVEL: a shout answered by a whisper is not an answer either.
+          targetMeanVelocity: phrase.count > 0 ? phrase.meanVelocity : undefined,
+          // NOT THE SAME SLOT AS THE OTHER AGENT: their bar is already queued and about to sound.
+          avoidSlots: peerPlan,
         });
-        if (completed.completed) {
-          finalNotes = completed.notes;
-          result.meta.completed = completed.added;
+        finalNotes = repaired.notes;
+
+        // A LEAD BAR IS A MELODY, NOT A GESTURE. The model writes what it can and this is what happens
+        // when what it writes is a triad: the line is completed in key, along the arc, on the grid.
+        if (brief?.role === 'lead' && melody.position === 'cadence') {
+          // THE PHRASE LANDS: two notes, the last on the tonic, approached by step, held longer
+          finalNotes = cadenceLine({
+            key: this.roomState.key,
+            register,
+            fromMidi: finalNotes.length ? midiOf(finalNotes.at(-1)!.pitch) ?? undefined : undefined,
+          });
+        } else if (brief?.role === 'lead' && melody.position === 'restate' && agent.hook?.length) {
+          // THE HOOK COMES BACK. One change, chosen by the bar, never a new line (arXiv 2501.17759)
+          finalNotes = restateHook(agent.hook, { key: this.roomState.key, register, bar: forBar });
+        } else if (brief?.role === 'lead') {
+          const completed = completeMelody(finalNotes, {
+            plan: melody,
+            key: this.roomState.key,
+            motif: agent.motif,
+            register,
+            maxNotes: 10,
+          });
+          if (completed.completed) {
+            finalNotes = completed.notes;
+            result.meta.completed = completed.added;
+          }
         }
-      }
 
-      // THE CONTOUR RULES, from species counterpoint: mostly steps, a leap answered by a step the other
-      // way, never two leaps in the same direction, never the same pitch twice. Measured before, leaps
-      // were as likely as steps and one bar repeated C5 four times (four C5s came from clamping).
-      finalNotes = applyContourRules(finalNotes, { key: this.roomState.key, register });
+        // THE CONTOUR RULES, from species counterpoint: mostly steps, a leap answered by a step the other
+        // way, never two leaps in the same direction, never the same pitch twice. Measured before, leaps
+        // were as likely as steps and one bar repeated C5 four times (four C5s came from clamping).
+        finalNotes = applyContourRules(finalNotes, { key: this.roomState.key, register });
 
-      // AND IT BREATHES. Dynamics are code's, not the model's: a 3B model writes one velocity for the
-      // whole bar, and a flat eight-sixteenth run is heard as a typewriter, not as a player.
-      finalNotes = shapeLine(finalNotes, {
-        contour: melody.contour,
-        density: brief?.density ?? 'medium',
-        meanVelocity: phrase.count > 0 ? phrase.meanVelocity : undefined,
-      });
+        // AND IT BREATHES. Dynamics are code's, not the model's: a 3B model writes one velocity for the
+        // whole bar, and a flat eight-sixteenth run is heard as a typewriter, not as a player.
+        finalNotes = shapeLine(finalNotes, {
+          contour: melody.contour,
+          density: brief?.density ?? 'medium',
+          meanVelocity: phrase.count > 0 ? phrase.meanVelocity : undefined,
+        });
 
-      // THE FIRST BAR OF A PHRASE IS THE HOOK. Kept exactly as it will be heard, because the restate
-      // bar returns this, not a re-render of it.
-      if (brief?.role === 'lead' && melody.position === 'state' && finalNotes.length >= 3) {
-        agent.hook = finalNotes.map(n => ({ ...n }));
+        // THE FIRST BAR OF A PHRASE IS THE HOOK. Kept exactly as it will be heard, because the restate
+        // bar returns this, not a re-render of it.
+        if (brief?.role === 'lead' && melody.position === 'state' && finalNotes.length >= 3) {
+          agent.hook = finalNotes.map(n => ({ ...n }));
+        }
       }
 
       // The bar this belongs to, worked out before the decision so the decision could see it.
       const target = forBar;
 
       // A REFRESH THAT CAME BACK AS A FALLBACK DOES NOT GET TO REPLACE A MODEL BAR: the old entry is
-      // stale but it is real music, and the repairer's fallback is only a bar.
+      // stale but it is real music, and the repairer's fallback is only a bar. A CELL NEVER REPLACES A
+      // BAR EITHER: the queue already holds a full line for this slot, and two notes are less than it.
       const replacing = agent.queue.some(q => q.bar === target);
-      if (replacing && result.meta.source !== 'llm') return;
+      if (replacing && (result.meta.source !== 'llm' || cellAsk)) return;
 
       if (replacing) agent.queue = agent.queue.filter(q => q.bar !== target);
       agent.queue.push({
@@ -1612,6 +1629,17 @@ export class JamRoom implements DurableObject {
     const order = [...this.agents.keys()];
     const at = order.indexOf(agent.peer.peerId);
     return at < 0 ? 0 : at;
+  }
+
+  /**
+   * THE SLOT A CELL ASK NAMES. The bar's eighth grid, rotated by (bar, voice) so two agents paced into
+   * the same bar do not answer on the same beat. The downbeat is left to the room's own bars and to the
+   * count-in, so a cell never lands where the bar's own line begins.
+   */
+  private cellAskSlot(agent: InProcessAgent, bar: number): number {
+    const slots = [1.5, 2, 2.5, 3];
+    const at = (((bar + this.voiceOf(agent)) % slots.length) + slots.length) % slots.length;
+    return slots[at] ?? 2;
   }
 
   /** How far into bar `bar` the room's clock is, in beats. 0 when the tempo cannot describe one. */

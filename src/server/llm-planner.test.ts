@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   generateMeasureWithAi,
   parseAiResponse,
+  askShape,
+  CELL_ASK,
   type MeasureContext,
   type DecisionBrief,
 } from './llm-planner';
@@ -228,5 +230,94 @@ describe('LLM Planner', () => {
     expect(run).not.toHaveBeenCalled();
     expect(result.meta.source).toBe('pattern');
     expect(result.notes.length).toBeGreaterThan(0);
+  });
+
+  // TASK 4, THE TAIL WILL NOT FIT. At 200 BPM a bar is 1200 ms and a signed render's tail is about
+  // 1800 ms (Jev ~400 + model ~1400): asking for a bar writes an answer that arrives after its own
+  // line. The ask becomes two notes in one named slot instead.
+  describe('a paced agent whose tail will not fit the bar it writes', () => {
+    const paced: MeasureContext = {
+      ...mockCtx,
+      bpm: 200,
+      stride: 2,
+      tailMs: 1800,
+      windowMs: 1200,
+      cellSlot: 2,
+    };
+
+    it('asks for two notes in the named slot instead of a bar, and plays only those', async () => {
+      // THE MODEL OVER-ANSWERS with three notes on three beats; the room named beat 2, so the extra
+      // note is dropped, both survivors land on the slot, and the stray C# is tidied into C major.
+      const run = vi.fn().mockResolvedValue({
+        response: [
+          { pitch: 'C#4', beatTime: 0.5, velocity: 96, duration: 1 },
+          { pitch: 'G4', beatTime: 3, velocity: 88, duration: 0.25 },
+          { pitch: 'B4', beatTime: 3.5, velocity: 70, duration: 0.25 },
+        ],
+      });
+
+      const result = await generateMeasureWithAi({ run }, paced, FREE_MODEL, brief, 'signed');
+
+      // THE PROMPT IS THE ASK: the mutation this card names (always ask for a bar) fails right here.
+      expect(result.meta.prompt).toContain(CELL_ASK);
+      expect(result.meta.prompt).toContain('beatTime 2.00');
+      expect(result.meta.prompt).not.toContain('AMOUNT:');
+      expect(result.meta.prompt).toContain('below C4');
+
+      expect(result.meta.ask).toBe('cell');
+      expect(result.meta.source).toBe('llm');
+      expect(result.meta.noteCount).toBe(2);
+      expect(result.notes).toHaveLength(2);
+      expect(result.notes.map(n => n.beatTime)).toEqual([2, 2]);
+      expect(result.notes.map(n => n.pitch)).toEqual(['C4', 'G4']);
+      expect(result.notes.every(n => n.duration === 0.5)).toBe(true);
+    });
+
+    it('asks for a bar when the tail fits the bar window', async () => {
+      const run = vi.fn().mockResolvedValue({
+        response: [{ pitch: 'E4', beatTime: 0.5, velocity: 90, duration: 0.5 }],
+      });
+
+      const result = await generateMeasureWithAi(
+        { run }, { ...paced, tailMs: 900 }, FREE_MODEL, brief, 'signed',
+      );
+
+      expect(result.meta.prompt).not.toContain(CELL_ASK);
+      expect(result.meta.prompt).toContain('AMOUNT:');
+      expect(result.meta.prompt).toContain('Write the bar now');
+      expect(result.meta.ask).toBe('bar');
+      expect(result.notes[0]?.beatTime).toBe(0.5);
+    });
+
+    it('asks for a bar at a stride of one, where the room has said a bar holds a render', async () => {
+      const run = vi.fn().mockResolvedValue({
+        response: [{ pitch: 'A4', beatTime: 1, velocity: 90, duration: 0.5 }],
+      });
+
+      const result = await generateMeasureWithAi(
+        { run }, { ...paced, stride: 1 }, FREE_MODEL, brief, 'signed',
+      );
+
+      expect(result.meta.ask).toBe('bar');
+      expect(result.meta.prompt).not.toContain(CELL_ASK);
+    });
+
+    it('still answers the cell when the model fails: two notes in the slot, never silence', async () => {
+      const run = vi.fn().mockRejectedValue(new Error('timeout'));
+
+      const result = await generateMeasureWithAi({ run }, paced, FREE_MODEL, brief, 'signed');
+
+      expect(result.meta.source).toBe('fallback');
+      expect(result.meta.ask).toBe('cell');
+      expect(result.notes).toHaveLength(2);
+      expect(result.notes.map(n => n.beatTime)).toEqual([2, 2]);
+    });
+
+    it('shapes no cell ask without both numbers', () => {
+      const { stride, tailMs, windowMs } = paced;
+      expect(askShape({ stride, tailMs, windowMs })).toBe('cell');
+      expect(askShape({ stride, windowMs })).toBe('bar');
+      expect(askShape({ tailMs, windowMs })).toBe('bar');
+    });
   });
 });
