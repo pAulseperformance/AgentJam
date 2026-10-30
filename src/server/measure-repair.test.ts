@@ -84,7 +84,7 @@ describe('repairMeasure', () => {
     const { notes, dropped } = repairMeasure(clean, { key: 'C major' });
 
     expect(notes).toEqual(clean);
-    expect(dropped).toEqual({ invalid: 0, offGrid: 0, outOfKey: 0, unison: 0, duplicate: 0, overCap: 0 });
+    expect(dropped).toEqual({ rescaled: 0, invalid: 0, offGrid: 0, outOfKey: 0, unison: 0, duplicate: 0, overCap: 0 });
   });
 
   describe('when the bar is an answer', () => {
@@ -115,6 +115,47 @@ describe('repairMeasure', () => {
       );
       const moved = notes.find(n => n.pitch !== 'C4' && n.pitch !== 'D4' && n.pitch !== 'E4' && n.pitch !== 'F4');
       expect(moved?.pitch).toBe('A3');
+    });
+  });
+
+  describe('playing at the room level', () => {
+    it('lifts a soft bar to a loud room', () => {
+      const { notes, dropped } = repairMeasure(
+        [note('C4', 0, 40, 0.5), note('E4', 1, 45, 0.5)],
+        { key: 'C major', targetMeanVelocity: 110 },
+      );
+      const mean = notes.reduce((s, n) => s + n.velocity, 0) / notes.length;
+      expect(mean).toBeGreaterThan(85);
+      expect(dropped.rescaled).toBe(2);
+    });
+
+    it('brings a loud bar down for a quiet room', () => {
+      const { notes } = repairMeasure(
+        [note('C4', 0, 120, 0.5), note('G4', 2, 125, 0.5)],
+        { key: 'C major', targetMeanVelocity: 45 },
+      );
+      const mean = notes.reduce((s, n) => s + n.velocity, 0) / notes.length;
+      expect(mean).toBeLessThan(80);
+    });
+
+    it('leaves a bar that already plays at their level untouched', () => {
+      const { notes, dropped } = repairMeasure(
+        [note('C4', 0, 88, 0.5), note('E4', 1, 92, 0.5)],
+        { key: 'C major', targetMeanVelocity: 90 },
+      );
+      expect(notes.map(n => n.velocity)).toEqual([88, 92]);
+      expect(dropped.rescaled).toBe(0);
+    });
+
+    it('never scales a velocity out of the MIDI range', () => {
+      const { notes } = repairMeasure(
+        [note('C4', 0, 127, 0.5), note('E4', 1, 126, 0.5)],
+        { key: 'C major', targetMeanVelocity: 20 },
+      );
+      for (const n of notes) {
+        expect(n.velocity).toBeGreaterThanOrEqual(1);
+        expect(n.velocity).toBeLessThanOrEqual(127);
+      }
     });
   });
 

@@ -99,6 +99,23 @@ median 296ms and p90 548ms, against up to 2000ms by construction before this (th
 answer was the next bar line). Drummer and bass both sit at 0ms phase with a downbeat in 100% of bars,
 and the plan was broadcast for 16 of 16 bars.
 
+## Dynamics, and the two-bar lag they exposed
+
+The listener reads how hard the room is playing (mean and peak velocity), the prompt states the
+level, and the repairer SHIFTS the bar to it: a uniform move keeps the accents inside the bar, and a
+whisper raised by a ratio is still a whisper (40 times 2.6 is 104, and the clamp that stops distortion
+is what stopped it arriving).
+
+Wiring it exposed a defect in the pipeline rather than in the dynamics. The bar for N+1 is rendered at
+the bar line of N, so it can only hear up to N-1: measured with alternating loud and quiet phrases,
+the reply answered a phrase TWO bars old, and a loud phrase and a quiet one got the same response
+(gap 0 at mean velocity 100 either way). The fix is a one-per-bar REFRESH, chained on the previous
+render's completion rather than on a timer, which re-renders the queued bar with fresh ears and
+replaces it only if a model answer arrives before the bar line. It reuses the bar's own brief, because
+a refresh that also paid for a Jev decision measured 1.2s against a 2s bar and never landed; without
+it the refresh is about 0.7s and fits. Measured after, two runs: replies after a loud phrase mean 112
+and 119, after a quiet phrase 42 and 57, so the room hears a gap of +62 and +70 where it heard 0.
+
 The rest policy is deliberate and lives in code, not in the prompt: Jev kept answering "rest" for 7 of
 20 bars, which is a third of the room silent. The room now overrides rest to `ornament` unless five
 bars have passed since the last one, and three independent runs then rested exactly 3 bars out of 20.

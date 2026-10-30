@@ -105,7 +105,13 @@ interface InProcessAgent {
    * model bars, which is the incoherence a listener hears immediately. An entry whose bar has already
    * started is dropped, never played late.
    */
-  queue: Array<{ bar: number; notes: GeneratedNote[]; meta: AiCallMeta | null }>;
+  queue: Array<{
+    bar: number;
+    notes: GeneratedNote[];
+    meta: AiCallMeta | null;
+    /** when the render BEGAN: the moment after which nothing it heard could have been played */
+    sawUpTo: number;
+  }>;
   /** fires on the next bar boundary of the ROOM's transport, not on a timer started at spawn */
   barTimer: ReturnType<typeof setTimeout> | null;
   /** the last four bars: true where it sounded, so it can notice it is over-playing */
@@ -115,6 +121,15 @@ interface InProcessAgent {
   /** comping budget: at most two reactive echoes in a bar, and which bar they belong to */
   echoesThisBar: number;
   lastEchoBar: number;
+  /**
+   * THE MID-BAR REFRESH. The boundary render for bar N+1 happens at the START of bar N, so it can
+   * only hear up to bar N-1: measured, that made a reply answer a phrase two bars old, and a loud
+   * phrase and a quiet one got the same response. This timer re-renders the queued bar partway
+   * through the bar it belongs to, when something new has been played, and swaps the result in only
+   * if it comes back from the model in time.
+   */
+  /** one mid-bar refresh per bar, so a busy human cannot turn into a render loop */
+  refreshesThisBar: number;
   /**
    * ITS OWN LAST STATEMENT. A partner keeps an idea going; a generator starts over every bar. The
    * motif is what the decision layer may restate or vary, and what the model is told to keep.
@@ -152,6 +167,8 @@ export class JamRoom implements DurableObject {
   private noteRing: NoteRecord[] = [];
   /** The rhythm section, keyed by its role. At most one drummer and one bass player per room. */
   private layers: Map<'drummer' | 'bass', RoomLayer> = new Map();
+  /** the last moment anyone but an agent played, which is what makes a queued bar stale */
+  private lastHumanAt = 0;
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -560,6 +577,7 @@ export class JamRoom implements DurableObject {
       barsSinceRest: 99,
       echoesThisBar: 0,
       lastEchoBar: -1,
+      refreshesThisBar: 0,
       motif: null,
       activeNotes: new Set(),
       noteCount: 0,
@@ -637,6 +655,9 @@ export class JamRoom implements DurableObject {
 
   private recordEvent(event: NoteRecord): void {
     if (!event || (event.type !== 'note_on' && event.type !== 'note_off')) return;
+    if (event.type === 'note_on' && !Array.from(this.agents.values()).some(a => a.peer.peerId === event.peerId)) {
+      this.lastHumanAt = Date.now();
+    }
     this.noteRing.push({
       peerId: event.peerId,
       type: event.type,
@@ -844,6 +865,40 @@ export class JamRoom implements DurableObject {
     return this.roomState.transportStartTime + (Math.floor(elapsed / bar) + 1) * bar;
   }
 
+  /**
+   * RE-RENDER THE QUEUED BAR WITH FRESH EARS, ONCE, IF THERE IS TIME.
+   *
+   * Called after every render rather than on a fixed timer: measured, a fixed 55% timer fired while the
+   * bar-line render was still running and was skipped as busy on most bars, so the reply kept answering
+   * a phrase two bars old. Chaining it on the previous render's completion means it only runs when the
+   * agent is free and there is still room before the bar line.
+   *
+   * A refresh replaces the same bar's notes only if the model answers in time and the answer is a model
+   * bar; a fallback never displaces real music.
+   */
+  private maybeRefreshHead(agent: InProcessAgent): void {
+    if (agent.busy) return;
+    if (agent.refreshesThisBar >= 1) return;
+
+    const head = agent.queue[0];
+    if (!head) return;
+    if (head.bar !== this.barIndexOf(Date.now()) + 1) return;
+
+    // STALENESS IS WHEN THE RENDER BEGAN, not when it finished: a bar written at the bar line finished
+    // a second later and still heard nothing of the bar it plays in.
+    if (head.sawUpTo >= this.lastHumanAt) return;
+
+    // A render needs about 0.8s at 120 BPM (measured 0.6 to 1.1s); without that room, a refresh would
+    // only arrive after its own bar started.
+    if (this.nextBarStart() - Date.now() < 650) return;
+
+    agent.refreshesThisBar++;
+    // WITHOUT THE JEV CALL. A refresh that paid for a decision as well measured 1.2s against a 2s bar
+    // and never landed; reusing the brief the bar was already written with halves it to about 0.7s,
+    // which fits in the room a finished render leaves.
+    void this.renderAgentBar(agent, head.bar, head.meta?.brief ?? null);
+  }
+
   private armAgentBar(agent: InProcessAgent): void {
     const wait = Math.max(0, this.nextBarStart() - Date.now());
     agent.barTimer = setTimeout(() => this.onAgentBar(agent), wait);
@@ -878,7 +933,9 @@ export class JamRoom implements DurableObject {
     }));
 
     // REFILL. Two slots means a slow render costs freshness, not the next bar's coherence.
+    agent.refreshesThisBar = 0;
     if (agent.queue.length < 2) void this.renderAgentBar(agent);
+    else this.maybeRefreshHead(agent);
 
     this.armAgentBar(agent);
   }
@@ -947,8 +1004,14 @@ export class JamRoom implements DurableObject {
    * Render the bar after the one now playing. One call, one battery: Jev decides, the model writes,
    * the repairer puts it in key and on the grid, and the result waits in the buffer.
    */
-  private async renderAgentBar(agent: InProcessAgent): Promise<void> {
+  private async renderAgentBar(
+    agent: InProcessAgent,
+    targetBar?: number,
+    /** reuse a decided brief instead of asking Jev again, so a refresh costs ONE call, not two */
+    reuseBrief?: AiCallMeta['brief'],
+  ): Promise<void> {
     if (agent.busy) return;
+    const sawUpTo = Date.now();
     agent.busy = true;
 
     try {
@@ -967,8 +1030,10 @@ export class JamRoom implements DurableObject {
       });
       const motifText = describeMotif(agent.motif);
 
-      const jev = agent.tier === 'signed' ? jevConfigFromEnv(this.env) : null;
-      const judged = jev
+      const jev = agent.tier === 'signed' && reuseBrief === undefined ? jevConfigFromEnv(this.env) : null;
+      const judged = reuseBrief !== undefined
+        ? reuseBrief
+        : jev
         ? await decideWithJev(jev, {
             key: this.roomState.key,
             bpm: this.roomState.bpm,
@@ -1009,16 +1074,28 @@ export class JamRoom implements DurableObject {
         maxNotes: 10,
         // AN ANSWER THAT SHARES NOTHING IS NOT AN ANSWER: only enforced when the decision said so.
         answerPitches: brief?.role === 'answer' ? phrase.pitches : undefined,
+        // PLAY AT THE ROOM'S LEVEL: a shout answered by a whisper is not an answer either.
+        targetMeanVelocity: phrase.count > 0 ? phrase.meanVelocity : undefined,
       });
 
-      // The bar this belongs to: the first one that is neither playing nor already queued.
+      // The bar this belongs to: the first one that is neither playing nor already queued, unless the
+      // caller named one (a mid-bar refresh names the queued bar it is replacing).
       const queuedMax = agent.queue.reduce((max, q) => Math.max(max, q.bar), 0);
-      const target = Math.max(this.barIndexOf(Date.now()) + 1, queuedMax + 1);
+      const target = targetBar ?? Math.max(this.barIndexOf(Date.now()) + 1, queuedMax + 1);
+
+      // A REFRESH THAT CAME BACK AS A FALLBACK DOES NOT GET TO REPLACE A MODEL BAR: the old entry is
+      // stale but it is real music, and the repairer's fallback is only a bar.
+      const replacing = agent.queue.some(q => q.bar === target);
+      if (replacing && result.meta.source !== 'llm') return;
+
+      if (replacing) agent.queue = agent.queue.filter(q => q.bar !== target);
       agent.queue.push({
         bar: target,
+        sawUpTo,
         notes: repaired.notes,
         meta: {
           ...result.meta,
+          refreshed: replacing,
           noteCount: repaired.notes.length,
           plan: repaired.notes.slice(0, 6).map(n => `${n.pitch}@${n.beatTime}`).join(' ') || '(rest)',
         },
@@ -1027,6 +1104,8 @@ export class JamRoom implements DurableObject {
       agent.queue = agent.queue.slice(0, 2);
     } finally {
       agent.busy = false;
+      // CHAIN: a render that just finished is the only moment a second one can start without a clash.
+      this.maybeRefreshHead(agent);
     }
   }
 

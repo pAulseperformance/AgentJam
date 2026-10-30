@@ -37,6 +37,15 @@ export interface PhraseSummary {
   register: RegisterBand;
   /** short = stabs under half a beat, long = sustained past one beat */
   articulation: 'short' | 'long' | 'mixed' | 'none';
+  /**
+   * HOW HARD THEY ARE PLAYING. A partner answers a shouted phrase with a shout and a whispered one
+   * with a whisper; before this the room heard pitch and rhythm and nothing about touch.
+   */
+  loudness: 'soft' | 'medium' | 'loud' | 'none';
+  /** mean velocity of the phrase, 1-127, which is what the reply is matched to */
+  meanVelocity: number;
+  /** the hardest note they played */
+  peakVelocity: number;
   /** the 16 sixteenth slots of the last bar, true where a note was sounding */
   usedSlots: boolean[];
   /** the slots of the NEXT bar that nobody used in the last one: where there is room */
@@ -77,6 +86,14 @@ function contourOf(midis: number[]): PhraseSummary['contour'] {
   if (delta > 2) return 'rising';
   if (delta < -2) return 'falling';
   return spread > 5 ? 'wave' : 'flat';
+}
+
+function loudnessOf(velocities: number[]): PhraseSummary['loudness'] {
+  if (velocities.length === 0) return 'none';
+  const mean = velocities.reduce((a, b) => a + b, 0) / velocities.length;
+  if (mean <= 55) return 'soft';
+  if (mean <= 95) return 'medium';
+  return 'loud';
 }
 
 function articulationOf(durations: number[]): PhraseSummary['articulation'] {
@@ -120,9 +137,17 @@ export function summarizePhrase(
     if (slot % 4 === 0) strong.push(e.pitch);
   }
 
+  const velocities = on.map(e => e.velocity || 80);
+  const meanVelocity = velocities.length
+    ? Math.round(velocities.reduce((a, b) => a + b, 0) / velocities.length)
+    : 80;
+
   return {
     count: on.length,
     contour: contourOf(midis),
+    loudness: loudnessOf(velocities),
+    meanVelocity,
+    peakVelocity: velocities.length ? Math.max(...velocities) : 80,
     register: midis.length ? bandOf(midis.slice().sort((a, b) => a - b)[Math.floor(midis.length / 2)]!) : 'mid',
     articulation: articulationOf(on.map(e => e.duration ?? 0.5)),
     usedSlots: used,
@@ -158,7 +183,7 @@ export function describePhrase(summary: PhraseSummary): string {
   const strong = summary.strongBeatPitches.join(', ') || 'nothing on the strong beats';
   const open = summary.openSlots.length ? `open slots at ${summary.openSlots.slice(0, 6).join(', ')} (sixteenths)` : 'the bar is full';
   return [
-    `${summary.count} notes, contour ${summary.contour}, ${summary.register} register, ${summary.articulation} articulation`,
+    `${summary.count} notes, contour ${summary.contour}, ${summary.register} register, ${summary.articulation} articulation, ${summary.loudness} at mean velocity ${summary.meanVelocity}`,
     `strong beats: ${strong}; last note: ${summary.lastPitch ?? 'none'}`,
     `they are holding: ${summary.held.join(', ') || 'nothing'}`,
     open,

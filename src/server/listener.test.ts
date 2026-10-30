@@ -40,6 +40,26 @@ describe('the listener', () => {
     expect(summarizePhrase([on('C5', 0), on('G5', 1), on('E6', 2)], opts).register).toBe('high');
   });
 
+  // DYNAMICS: a partner answers a shout with a shout. Before this the listener carried pitch and
+  // rhythm and nothing about how hard anyone was playing.
+  it('reads how hard the phrase was played', () => {
+    const soft = summarizePhrase([on('C4', 0, { velocity: 40 }), on('E4', 1, { velocity: 45 })], opts);
+    const medium = summarizePhrase([on('C4', 0, { velocity: 80 }), on('E4', 1, { velocity: 90 })], opts);
+    const loud = summarizePhrase([on('C4', 0, { velocity: 110 }), on('E4', 1, { velocity: 120 })], opts);
+
+    expect(soft.loudness).toBe('soft');
+    expect(medium.loudness).toBe('medium');
+    expect(loud.loudness).toBe('loud');
+    expect(soft.meanVelocity).toBe(43);
+    expect(loud.peakVelocity).toBe(120);
+  });
+
+  it('says the level in the words the prompt gets', () => {
+    const phrase = summarizePhrase([on('C4', 0, { velocity: 115 })], opts);
+    expect(describePhrase(phrase)).toContain('loud');
+    expect(describePhrase(phrase)).toContain('mean velocity 115');
+  });
+
   it('reads articulation from how long the notes are held', () => {
     expect(summarizePhrase([on('C4', 0, { duration: 0.25 })], opts).articulation).toBe('short');
     expect(summarizePhrase([on('C4', 0, { duration: 2 })], opts).articulation).toBe('long');

@@ -50,6 +50,11 @@ reveals it, so the next reader re-measures instead of re-learning.
   Reveal: `grep -n 'major' tools/walk-paths.py` and the `how` column of `docs/PATHS.md`, which is the
   committed version of that same lesson.
 
+- **2026-10-30. A bar rendered at the bar line can only hear the bar BEFORE it, so a reply answers a
+  phrase two bars old and every level looks the same.** The fix is a mid-bar refresh that reuses the
+  bar's brief; a refresh that also calls the decision model costs 1.2s in a 2s bar and never lands.
+  Reveal: play one loud phrase and read the velocities per bar (`docs/PATHS.md` P5 lists what a walker
+  cannot see), or re-run the dynamics probe described in `README.md`.
 - **2026-10-30. `grep -c` exits 1 when it counts zero, so a gate that folds its status into `$?`
   fails on exactly the result it wants.** Print the count and take the exit status from the suite.
   Reveal: `bash check.sh` on a clean tree; the floor line prints the count beside the floor it wanted.

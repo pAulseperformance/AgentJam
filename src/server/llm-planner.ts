@@ -88,6 +88,8 @@ export interface AiCallMeta {
    * anticipate a bandmate. The queued bar is already decided, so showing it costs nothing.
    */
   plan?: string;
+  /** true when this bar replaced an older render of the SAME bar because something new was played */
+  refreshed?: boolean;
   error?: string;
 }
 

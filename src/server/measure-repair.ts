@@ -45,6 +45,12 @@ export interface RepairOptions {
    * one note (the one closest to your last pitch) moves onto that pitch class, keeping its register.
    */
   answerPitches?: string[];
+  /**
+   * PLAY AT THEIR LEVEL. The listener reads how hard the room is playing; this is the number the bar
+   * is brought to. The model is told the level in the prompt as well, but a 3B model's dynamics are
+   * not reliable, so the rule that actually holds is here, in code.
+   */
+  targetMeanVelocity?: number;
 }
 
 export interface RepairReport {
@@ -52,6 +58,8 @@ export interface RepairReport {
   /** whether the bar shares a pitch class with the phrase it was answering (true when not answering) */
   answered: boolean;
   dropped: {
+    /** notes whose velocity was moved to follow the room's level */
+    rescaled: number;
     /** not a playable note name at all, e.g. the model wrote `Am4` (a chord) instead of a pitch */
     invalid: number;
     offGrid: number;
@@ -76,7 +84,7 @@ function normalizeVelocity(velocity: number): number {
 export function repairMeasure(notes: GeneratedNote[], options: RepairOptions): RepairReport {
   const maxNotes = options.maxNotes ?? 10;
   const held = new Set((options.heldPitches ?? []).map(p => p.trim()));
-  const dropped = { invalid: 0, offGrid: 0, outOfKey: 0, unison: 0, duplicate: 0, overCap: 0 };
+  const dropped = { rescaled: 0, invalid: 0, offGrid: 0, outOfKey: 0, unison: 0, duplicate: 0, overCap: 0 };
 
   const repaired: GeneratedNote[] = [];
 
@@ -149,6 +157,26 @@ export function repairMeasure(notes: GeneratedNote[], options: RepairOptions): R
     if (seen.has(slot)) { dropped.duplicate++; continue; }
     seen.add(slot);
     unique.push(note);
+  }
+
+  // DYNAMICS. Bring the bar to the level the room is playing at.
+  //
+  // SHIFT, NOT SCALE. A shift moves every note by the same amount, so the accents inside the bar keep
+  // their shape and a quiet bar reaches a loud room in ONE step; a ratio cannot, because a whisper
+  // multiplied is still a whisper (40 * 2.6 is 104, and the clamp that keeps it from distorting is
+  // what stopped it arriving). The cost of shifting is at the ceiling: a bar boosted into 127 loses
+  // its top accents, which is the lesser of the two distortions.
+  if (options.targetMeanVelocity && unique.length > 0) {
+    const target = Math.max(1, Math.min(127, options.targetMeanVelocity));
+    const current = unique.reduce((sum, n) => sum + n.velocity, 0) / unique.length;
+    const delta = target - current;
+    if (Math.abs(delta) > 12) {
+      for (const note of unique) {
+        const next = Math.max(1, Math.min(127, Math.round(note.velocity + delta)));
+        if (next !== note.velocity) dropped.rescaled++;
+        note.velocity = next;
+      }
+    }
   }
 
   // DENSITY. Keep the earliest notes: a crowded bar should lose its tail, not its downbeat.

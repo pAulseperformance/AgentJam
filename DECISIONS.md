@@ -67,3 +67,12 @@ the redirect worth rebuilding in the right repo.
 Loser: `~/.hermes/plans/`. Reason: that directory is not version controlled, so a review there certifies
 a document no other session can see. Falsifier: a tool that only reads the machine's plan directory and
 cannot be pointed at a repo path.
+
+## 2026-10-30 Dynamics follow the room, by a shift in the repairer, and a refresh that skips Jev
+
+Loser: letting the model's own velocity follow the brief. Reason: measured with alternating loud and
+quiet phrases the reply was a flat 100 either way, and after the shift rule the same probe read 112 to
+119 against 42 to 57. Loser for the refresh: paying a Jev decision for the second render, which
+measured 1.2s against a 2s bar and never landed. Falsifier: a run where a loud phrase and a quiet one
+still get replies within 10 velocity points of each other, which would mean the refresh is missing its
+bar again.
