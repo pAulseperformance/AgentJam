@@ -1,7 +1,7 @@
 # Cards: jam band and audit
 
 Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md`
-sha16 938f032372d333da (the stamp the bodies carry and the one to verify with)
+sha16 17f5bf3e0eb41cfb (the stamp the bodies carry and the one to verify with)
 Identity `plan:94001bdcfe09a08b:<n>`: the cards were created when the plan was stamped 94001bdcfe09a08b, and a card's idempotency key cannot be edited, so the keys stay on the old stamp while every body carries the new one.
 Repo `/Users/v99/Projects/Music/agentJam`, every card in `dir:` on `main`.
 

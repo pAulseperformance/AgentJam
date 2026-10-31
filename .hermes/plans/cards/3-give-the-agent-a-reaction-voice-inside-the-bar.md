@@ -1,10 +1,10 @@
-<!-- Card body for plan:6e1d9bac9347c305:3. The spec is the plan's Task 3 section at
-     .hermes/plans/2026-10-31_011630-jam-band-and-audit.md (sha16 6e1d9bac9347c305). Do not edit the plan.
+<!-- Card body for plan:17f5bf3e0eb41cfb:3. The spec is the plan's Task 3 section at
+     .hermes/plans/2026-10-31_011630-jam-band-and-audit.md (sha16 17f5bf3e0eb41cfb). Do not edit the plan.
      Repo: /Users/v99/Projects/Music/agentJam. Work in place, commit per the task's Commit line. -->
 
 # Task 3: Give the agent a reaction voice inside the bar
 
-Repo `agentJam`  |  Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md`  |  Card key `plan:6e1d9bac9347c305:3`
+Repo `agentJam`  |  Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md`  |  Card key `plan:17f5bf3e0eb41cfb:3`
 
 
 
@@ -16,6 +16,6 @@ create `src/server/reaction.ts`
 create `src/server/reaction.test.ts`
 create `/tmp/probe200.json`, written by the probe in the Run
 
-**Mutation:** remove the cell scheduler from a scratch copy and the case asserting note-on events inside a gap bar fails with an empty list for that bar.
+**Mutation:** hand a gap bar back to the generator in a scratch copy, which is the branch this task replaced, and the bar publishes as `pattern` with the generator's notes instead of the agent's cells: the case `plays the agent's own cells, with note-on events landing inside the bar` fails on `expected 'pattern' to be 'cell'`, which is the `pattern` count the Run holds below the recorded baseline.
 
 **Run:** `npx vitest run src/server/reaction.test.ts` green, then take the baseline FIRST with `node tools/probe-session.mjs --bpm 200 --seconds 30 --agents jazz,funk,ambient --backing 1 --out /tmp/probe200.json` and record its `pattern` count on the card, then `bash deploy.sh`, then the same command, overwriting `/tmp/probe200.json`, prints a `pattern` count BELOW that recorded baseline. A run without a recorded baseline is not an acceptance.

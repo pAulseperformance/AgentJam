@@ -1,10 +1,10 @@
-<!-- Card body for plan:6e1d9bac9347c305:8. The spec is the plan's Task 8 section at
-     .hermes/plans/2026-10-31_011630-jam-band-and-audit.md (sha16 6e1d9bac9347c305). Do not edit the plan.
+<!-- Card body for plan:17f5bf3e0eb41cfb:8. The spec is the plan's Task 8 section at
+     .hermes/plans/2026-10-31_011630-jam-band-and-audit.md (sha16 17f5bf3e0eb41cfb). Do not edit the plan.
      Repo: /Users/v99/Projects/Music/agentJam. Work in place, commit per the task's Commit line. -->
 
 # Task 8: Voice-lead across the bar line
 
-Repo `agentJam`  |  Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md`  |  Card key `plan:6e1d9bac9347c305:8`
+Repo `agentJam`  |  Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md`  |  Card key `plan:17f5bf3e0eb41cfb:8`
 
 
 

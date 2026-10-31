@@ -1,10 +1,10 @@
-<!-- Card body for plan:6e1d9bac9347c305:12. The spec is the plan's Task 12 section at
-     .hermes/plans/2026-10-31_011630-jam-band-and-audit.md (sha16 6e1d9bac9347c305). Do not edit the plan.
+<!-- Card body for plan:17f5bf3e0eb41cfb:12. The spec is the plan's Task 12 section at
+     .hermes/plans/2026-10-31_011630-jam-band-and-audit.md (sha16 17f5bf3e0eb41cfb). Do not edit the plan.
      Repo: /Users/v99/Projects/Music/agentJam. Work in place, commit per the task's Commit line. -->
 
 # Task 12: Draw the session panel
 
-Repo `agentJam`  |  Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md`  |  Card key `plan:6e1d9bac9347c305:12`
+Repo `agentJam`  |  Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md`  |  Card key `plan:17f5bf3e0eb41cfb:12`
 
 
 
@@ -19,6 +19,6 @@ modify `src/client/pages/JamRoom.tsx`
 modify `src/client/features/room/lib/session-recorder.ts`
 read `.hermes/plans/artifacts/2026-10-30-jam-session-summary.html`
 
-**Mutation:** make `summarize` return the empty state unconditionally in a scratch copy; the case asserting a populated summary after two recorded bars must fail on zero model bars.
+**Mutation:** make `stateOf` return `empty` unconditionally in a scratch copy; the case `counts the two model bars and prints them against the record denominator` fails on the state the panel would draw after two model bars: `expected 'empty' to be 'one'`, and the row that should read `2 of 2 agent-bar records` is gone with it.
 
 **Run:** `npx vitest run src/client/features/room/lib/session-summary.test.ts` green, then `bash deploy.sh`, then `bash check.sh --live` prints the live shell at 200 with the new bundle name, and the panel is judged by opening the room: the five states draw, each one labelled in plain words.

@@ -1,6 +1,6 @@
 # REVIEW: jam band and audit, eighteen cards
 
-Repo `agentJam` | Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md` (sha16 6e1d9bac9347c305) | Card key `plan:6e1d9bac9347c305:review.md`
+Repo `agentJam` | Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md` (sha16 17f5bf3e0eb41cfb) | Card key `plan:17f5bf3e0eb41cfb:review.md`
 
 **Objective:** grade the eighteen implementation cards as a whole against the plan's own gates, on the tree as it stands, and report a verdict the owner can act on.
 
@@ -28,3 +28,13 @@ read `tools/probe-session.mjs`
 **Mutation:** delete one implementation card's commit from a scratch clone and the review must fail to find that task's output and say so; a review that reports PASS on a clone missing a card has graded the plan's prose rather than the tree.
 
 **Run:** the review prints the five graded sections with the command each cites, then the `VERDICT:` line, and writes nothing to the tree.
+
+## Re-stamp, after the mutation-line repair
+
+The plan was repaired on 2026-10-31 in answer to this review's findings 1 to 3, and re-stamped. This
+review read the document at `6e1d9bac9347c305`; the document now carries `17f5bf3e0eb41cfb`. The only lines that moved are
+eleven Mutation lines: Task 1 (the dry-run rewrite), Task 18 (the trim-property wording), and the nine
+this review graded Class A/C (Tasks 2, 3, 5, 6, 7, 11, 12, 13, 15). The seven left as they stood are
+Tasks 4, 8, 9, 10, 14, 16 and 17. Nothing in the tree changed, so the numbers in sections 1 to 3 and 5
+stand as measured; section 4's grades apply to the lines at the old hash, and the repair is the record
+of the fix. Every card body was re-cut after the stamp, and each of them carries `17f5bf3e0eb41cfb`.

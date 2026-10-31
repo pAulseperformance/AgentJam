@@ -77,7 +77,7 @@ A person creates nothing new: joining a room is a route the app already serves, 
 modify `check.sh`
 read `src/server/jam-room.ts`
 
-**Mutation:** replace `versions deploy` with `wrangler deploy` in a scratch copy and the script's own version read-back fails on a missing id, which is the gate this task exists to add.
+**Mutation:** in a scratch copy, replace step 6's `npx wrangler versions deploy "${id}@100%"` with `npx wrangler deploy --dry-run` and the script's own read-back fails: a dry run performs no upload and moves no traffic, so `deployments status` still names the version that served before and step 6 exits 1 on `the version serving is <before>@100, NOT the one just uploaded (<id>@100%)`. Production cannot move, because `--dry-run` builds and stops, and the copy also runs under the scratch name `agent-jam-mutation`.
 
 **Run:** `bash deploy.sh` prints `uploaded <id>`, `deployed <id>@100%` and then `bash check.sh --live` passes; the script calls `bash ~/.hermes/scripts/cf_run.sh npx wrangler versions upload` and `... versions deploy <id>@100% --yes` internally, because an unattended run has no browser login.
 
@@ -88,7 +88,7 @@ read `src/server/jam-room.ts`
 **Files:** modify `src/server/jam-room.ts`
 modify `src/server/jam-room.test.ts`
 
-**Mutation:** delete the warm call and the new case asserting exactly one warm render per room fails on a count of zero.
+**Mutation:** drop `await this.modelWarm` from `renderAgentBar` in a scratch copy, so a render starts while the model is still loading, and the case `warms the model exactly once per room, and no render starts before it answers` fails on the call that must not exist yet: `expected 2 to be 1` at `expect(calls.length).toBe(1)`. That second call is the cold start the warm removes: measured on the live room before the warm, the first model call died on `AI call exceeded 1359ms`.
 
 **Run:** `npx vitest run src/server/jam-room.test.ts` prints the new case green, then `bash deploy.sh`, then `node tools/probe-session.mjs --bpm 160 --seconds 30 --agents jazz --out /tmp/warm.json` prints no `AI call exceeded` inside the first three seconds.
 
@@ -102,7 +102,7 @@ create `src/server/reaction.ts`
 create `src/server/reaction.test.ts`
 create `/tmp/probe200.json`, written by the probe in the Run
 
-**Mutation:** remove the cell scheduler from a scratch copy and the case asserting note-on events inside a gap bar fails with an empty list for that bar.
+**Mutation:** hand a gap bar back to the generator in a scratch copy, which is the branch this task replaced, and the bar publishes as `pattern` with the generator's notes instead of the agent's cells: the case `plays the agent's own cells, with note-on events landing inside the bar` fails on `expected 'pattern' to be 'cell'`, which is the `pattern` count the Run holds below the recorded baseline.
 
 **Run:** `npx vitest run src/server/reaction.test.ts` green, then take the baseline FIRST with `node tools/probe-session.mjs --bpm 200 --seconds 30 --agents jazz,funk,ambient --backing 1 --out /tmp/probe200.json` and record its `pattern` count on the card, then `bash deploy.sh`, then the same command, overwriting `/tmp/probe200.json`, prints a `pattern` count BELOW that recorded baseline. A run without a recorded baseline is not an acceptance.
 
@@ -127,7 +127,7 @@ modify `src/server/jam-room.ts`
 modify `src/shared/protocol/types.ts`
 modify `src/server/jam-room.test.ts`
 
-**Mutation:** delete the second call in a scratch copy and the case asserting two calls per hedged bar fails on a count of one.
+**Mutation:** delete the second call in a scratch copy (pass `hedgeMs` as 0 whatever the setting) and the hedged bar's calls per bar falls from two to one: the case `spends two identical calls 200 ms apart on a hedged bar, and plays the first valid answer` fails on `expected 1 to be 2`, which is the spend the Run prints per bar. Then issue the pair 20 ms apart instead of 200 and the same case fails on the spacing: `expected 22 to be greater than or equal to 190`, because a burst is one question asked twice at no extra speed.
 
 **Run:** `npx vitest run src/server/jam-room.test.ts` green, then `bash deploy.sh`, then two probe runs at 200 BPM, one with the setting on and one off, print their worst latency and their call count per bar.
 
@@ -138,7 +138,7 @@ modify `src/server/jam-room.test.ts`
 **Files:** modify `src/server/jam-room.ts`
 create `src/server/late-patch.test.ts`
 
-**Mutation:** remove the patch path in a scratch copy and the case expecting a note after the line, attributed to the late render, fails on an empty event list.
+**Mutation:** remove the patch's lead (`LATE_GRACE` from 0.125 to 0) in a scratch copy, so the patch takes the eighth the clock is standing on, and the case `drops the slot the clock is standing on, not just the ones behind it` fails on the slots it placed: `expected [ 2, 2.5, 3, 3.5 ] to deeply equal [ 2.5, 3, 3.5 ]`. A note addressed to an eighth that has already sounded is the half of the Objective the patch exists to respect.
 
 **Run:** `npx vitest run src/server/late-patch.test.ts` green, then `bash deploy.sh`, then the probe at 160 BPM prints `late 0` BY NAME on a 90 s run, and the card records the margin arithmetic that makes zero the true answer: `renderBudget` leaves at least 100 ms (usually 500) between the render's budget and the line it writes for, and measured calls peak at 2029 ms against a 2500 ms cap, so a late answer cannot fire on this room. Accepted 2026-10-31 after ten probes and about 770 model bars printed `late 0`: the patch stays as the backstop, and `late` moving off zero is the regression signal. A card that asserts a late bar must appear is asserting something the room's own margins forbid.
 
@@ -151,7 +151,7 @@ modify `src/server/melody.ts`
 read `src/server/groove.ts`
 create `src/server/accents.test.ts`
 
-**Mutation:** drop the accent argument from the `shapeLine` call in a scratch copy and the case comparing two bars against one accent map fails on identical velocity profiles.
+**Mutation:** make `roomAccents` answer with the bar's pulse even when a drummer is playing in a scratch copy, so the band stops following the kit, and the case `follows the drummer's accents when a drummer joins, and stops following the bar's pulse there` fails on the map it read: `expected 'pulse' to be 'drummer'`. The beat-two assertion behind it, a note the jazz figure leaves empty losing at least 10 of velocity against the pulse, is what a single global volume change still cannot fake.
 
 **Run:** `npx vitest run src/server/accents.test.ts` green, then `bash deploy.sh`, then the probe at 160 BPM shows distinct velocity sets per bar in its summary.
 
@@ -202,7 +202,7 @@ modify `src/server/jam-room.test.ts`
 create `src/server/motif-bank.ts`
 create `src/server/motif-bank.test.ts`
 
-**Mutation:** stop writing the bank in a scratch copy and the case reading a stored motif in a second session fails on an empty store; separately, remove the alarm and the sweep case fails on a row older than seven days still present.
+**Mutation:** stop offering the bank's row at spawn in a scratch copy and the second session's first prompt loses the earlier statement: the case `offers a statement from the first session inside the second session prompt` fails on the prompt not carrying the marker (`expected ... to contain 'EARLIER SESSION:'`). Separately, make the sweep delete every row rather than the expired ones and the case `deletes a bank row older than seven days when the alarm fires` fails on the live row's statement being gone (`expected undefined to deeply equal { ... }`), because a sweep that takes a statement inside its seven days forgets a band the room still owes.
 
 **Run:** `npx vitest run src/server/motif-bank.test.ts` green, then `bash deploy.sh`, then the probe run twice on the same room id prints a motif from the first session inside a second-session prompt.
 
@@ -219,7 +219,7 @@ modify `src/client/pages/JamRoom.tsx`
 modify `src/client/features/room/lib/session-recorder.ts`
 read `.hermes/plans/artifacts/2026-10-30-jam-session-summary.html`
 
-**Mutation:** make `summarize` return the empty state unconditionally in a scratch copy; the case asserting a populated summary after two recorded bars must fail on zero model bars.
+**Mutation:** make `stateOf` return `empty` unconditionally in a scratch copy; the case `counts the two model bars and prints them against the record denominator` fails on the state the panel would draw after two model bars: `expected 'empty' to be 'one'`, and the row that should read `2 of 2 agent-bar records` is gone with it.
 
 **Run:** `npx vitest run src/client/features/room/lib/session-summary.test.ts` green, then `bash deploy.sh`, then `bash check.sh --live` prints the live shell at 200 with the new bundle name, and the panel is judged by opening the room: the five states draw, each one labelled in plain words.
 
@@ -233,7 +233,7 @@ modify `src/client/features/room/lib/session-summary.test.ts`
 modify `src/client/pages/JamRoom.tsx`
 modify `src/server/jam-room.ts`
 
-**Mutation:** remove the stride from the published debug meta in a scratch copy and the badge case fails on a missing field.
+**Mutation:** make the badge print `writes every bar` for every pace in a scratch copy, so a room writing every second bar tells a listener it writes every bar, and the case `carries the stride the room published from the debug meta to the badge` fails on `expected 'writes every bar' to be 'writes every 2 bars'`. Separately, drop `stride: agentMeta.stride ?? null` from the recorder's projection and the same case fails on `expected null to be 2`, since a badge with no rate is a pace the panel cannot state.
 
 **Run:** `npx vitest run src/client` green, then `bash deploy.sh`, then a 160 BPM probe prints a stride in the debug meta of every paced bar.
 
@@ -257,7 +257,7 @@ create `src/server/gap-policy.test.ts`
 **Files:** create `tools/read-session.mjs`
 read `tools/probe-session.mjs`
 
-**Mutation:** read only the note rows in a scratch copy and the file's own run prints zero model bars on `arm-tail.json`, where the probe printed 38.
+**Mutation:** count the model bars off the note rows instead of the bar records in a scratch copy, and the reader's line stops agreeing with the file it read: on `arm-tail.json` it prints `model bars 1137` against the `bar records 87` on the line above, where the restored reader prints `model bars 37`, so the four numbers no longer partition the session.
 
 **Run:** generate the input first with `node tools/probe-session.mjs --bpm 160 --seconds 30 --agents jazz --out /tmp/rs.json`, then `node tools/read-session.mjs /tmp/rs.json` prints the SAME four numbers and the same latency line the probe printed for that run. No count is hardcoded: a reader that disagrees with the probe's own summary on the same file has failed.
 
@@ -293,7 +293,7 @@ modify `check.sh`
 **Files:** create `src/server/bar-loop.property.test.ts`
 read `src/server/bar-queue.ts`
 
-**Mutation:** reintroduce the ascending sort and slice in a scratch copy and the property fails on a simulated session that stops writing model bars, which the shipped code passes.
+**Mutation:** reintroduce the ascending sort and slice in a scratch copy and the trim property fails on 2 of its 16 cases, both in the trim: `keeps the newest entries when more arrive than there are slots` fails on the bar it kept (`expected [ 95 ] to deeply equal [ 381 ]`, the lowest bar kept where the newest was due) and its own falsifier `fails the same cases under the ascending sort and slice` reports `the ascending sort and slice agreed with the shipped trim everywhere: expected 0 to be greater than 60`, because the shipped trim and the legacy trim are then the same code. No session stops writing model bars: `prunePast` covers that, which is why the line names the trim and not the session.
 
 **Run:** `npx vitest run src/server/bar-loop.property.test.ts` prints the property cases green over at least a thousand simulated bars.
 

@@ -1,10 +1,10 @@
-<!-- Card body for plan:6e1d9bac9347c305:14. The spec is the plan's Task 14 section at
-     .hermes/plans/2026-10-31_011630-jam-band-and-audit.md (sha16 6e1d9bac9347c305). Do not edit the plan.
+<!-- Card body for plan:17f5bf3e0eb41cfb:14. The spec is the plan's Task 14 section at
+     .hermes/plans/2026-10-31_011630-jam-band-and-audit.md (sha16 17f5bf3e0eb41cfb). Do not edit the plan.
      Repo: /Users/v99/Projects/Music/agentJam. Work in place, commit per the task's Commit line. -->
 
 # Task 14: Make gap bars rests when the room asks for it
 
-Repo `agentJam`  |  Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md`  |  Card key `plan:6e1d9bac9347c305:14`
+Repo `agentJam`  |  Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md`  |  Card key `plan:17f5bf3e0eb41cfb:14`
 
 
 
