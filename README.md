@@ -191,6 +191,33 @@ Measured on the live room, two agents, no human, 14 bars: **0 slot collisions**,
 with nobody at the keyboard. Before the turn rule the same probe measured 2 collisions and both agents
 answering in every bar, which is an echo, not a duet.
 
+## One centre for the room, and the bar that moves it least
+
+Three lines each in key are still not a band. Two notes a semitone apart in the same slot is the one
+interval two voices cannot share, and neither line looks wrong on its own: it is a property of the
+pair, so it shows up in a recording and not in a prompt. Measured at 160 BPM with jazz, funk and
+ambient and the backing on, 45 seconds of live room printed **17 semitone pairs between two agents in
+one slot**, across 84 agent bars.
+
+- The room keeps ONE tonal centre per SESSION (`src/server/tonal-map.ts`): every agent's recent notes
+  are counted by pitch class, each agent is normalised to its own busiest class before the votes are
+  summed, and the busiest class wins. An agent that writes eight notes a bar then has the same voice
+  as one that writes three, which is what makes it the room's centre and not the loudest agent's. A
+  fresh room has nothing to hear and the centre is the key's tonic.
+- When two candidate bars exist for one slot (a mid-bar refresh answering a bar the queue already
+  holds), the room keeps the one whose pitch classes stay closest to that centre, and never one that
+  would put two agents a semitone apart in the same slot. The same rule re-ranks nothing else: a
+  refresh that comes back as a fallback still never replaces a model bar.
+- The semitone check runs where a bar meets the other agents: before the render is queued (against
+  their plans, which are readable a bar ahead), at the bar line (against what they queued and
+  sounded) and on a late patch. A note that would land a semitone from another agent's note in the
+  same slot is dropped, not moved.
+
+Measured after the change, same command, same tempo: **0 clashes** across 87 agent bars, with
+**71 model bars against 73** before, so model bars did not fall by a fifth. `tools/probe-session.mjs`
+prints the reading as `clashes N semitone pairs between two agents in one slot`, and that line
+holding at zero is what this rule is measured by.
+
 ## The band, and why the drummer is not a model
 
 Three players can share the room: the lead agent (a model, judged by Jev), a drummer, and a bass

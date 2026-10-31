@@ -145,3 +145,18 @@ Three researched rules, each measured on a recording:
 
 Falsifier: a recording where the second bar of a phrase differs from the first by more than one note,
 or where any bar has two notes on one beat, or where no bar in sixteen is under four notes.
+
+## 2026-10-31 One tonal centre for the room, and a semitone is never preferred
+
+Loser: every agent's line judged on its own, and whichever bar reached the slot first kept its notes.
+Reason: measured at 160 BPM with jazz, funk and ambient and the backing on, the 45 second probe
+printed **17 semitone pairs between two agents in one slot across 84 agent bars**. A semitone is the
+one interval two voices cannot share, and it arrived because each render checked only for a shared
+pitch on a shared slot. The room now reads ONE centre per session from every agent's recent notes
+(`src/server/tonal-map.ts`, each agent voting once rather than each note), keeps the closer of two
+candidate bars when a refresh answers a slot the queue already holds, and drops a note that would
+land a semitone from another agent's queued or sounding note before it is queued, at the bar line and
+on a late patch. Same probe, same tempo, after the deploy: **0 clashes across 87 agent bars**, and
+**71 model bars against 73** before, so model bars did not fall by a fifth. Falsifier: a recording
+that prints a clash above zero, or one where model bars fall by more than a fifth, which would mean
+harmony bought with silence.
