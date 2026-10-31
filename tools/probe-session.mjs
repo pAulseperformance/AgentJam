@@ -18,7 +18,11 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { WebSocket } from 'ws';
 
 const MAX_MESSAGES = 5000;
-const RECORD = /note_o|ai_debug|agent_spawned|peer_|bpm_change|key_change|error/;
+// ROOM_STATE IS RECORDED, not dropped: it is the only frame that carries the room's OWN settings
+// (tempo, key, transport start, and whether gap bars rest), so a probe can read back what the room
+// accepted instead of trusting the flags it sent. The first state arrives at join and every later
+// one overwrites it, so the last one read is the room as it was when the run ended.
+const RECORD = /note_o|ai_debug|agent_spawned|peer_|room_state|bpm_change|key_change|error/;
 
 /** `C4` -> 0, `A#3` -> 10, `Bb4` -> 10: the pitch class the clash count compares. Null is not a pitch. */
 const NATURAL_PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
@@ -55,6 +59,10 @@ const backing = arg('backing', '') !== '';
 // call buys: `--hedge` turns it on before the agents spawn and the summary prints the spend per bar.
 // A bare flag, because there is nothing to tune here: one gap, one setting, off or on.
 const hedge = process.argv.includes('--hedge');
+// GAP BARS AS RESTS. Off is the room's default, so a probe that never asks cannot see what the switch
+// does: `--gap-rests` turns it on before the agents spawn, and the summary prints the rest and the
+// generator counts that follow from it. A bare flag, like --hedge, because there is nothing to tune.
+const gapRests = process.argv.includes('--gap-rests');
 
 let cookie = '';
 try { cookie = readFileSync(cookieFile, 'utf8').trim(); } catch { /* public tier */ }
@@ -63,7 +71,7 @@ const startedAt = Date.now();
 const messages = [];
 const notes = [];
 const bars = [];
-const meta = { room, bpm: null, key: null, transportStartTime: null };
+const meta = { room, bpm: null, key: null, transportStartTime: null, gapRests: null };
 let tierSeen = 'unknown';
 
 const ws = new WebSocket(`wss://${host}${mount}/api/room/${room}/ws`, {
@@ -79,6 +87,10 @@ ws.on('open', () => {
   // BEFORE ANY AGENT: the pair is a property of the room, so it must be on when the first bar is asked
   // for, or the run measures the default instead of the setting.
   if (hedge) setTimeout(() => send({ type: 'set_hedge', enabled: true }), 300);
+  // THE ROOM'S FILL IS A SETTING TOO, and it must be on before the first bar this probe hears: a gap
+  // bar published while the setting was still off is the generator's, which is the reading this run
+  // exists to compare against. The read-back is a room_state frame, printed below.
+  if (gapRests) setTimeout(() => send({ type: 'set_gap_rests', enabled: true }), 320);
   agents.forEach((style, i) => {
     const at = spawnAt[i] ?? (500 + i * 250);
     setTimeout(() => send({ type: 'spawn_agent', name: `Probe ${style}`, style }), at);
@@ -99,6 +111,9 @@ ws.on('message', (buf) => {
     meta.bpm = data.roomState.bpm ?? null;
     meta.key = data.roomState.key ?? null;
     meta.transportStartTime = data.roomState.transportStartTime ?? null;
+    // THE ROOM'S OWN ANSWER, not the flag this probe sent: a room that never accepted the switch
+    // reports nothing here, and one that did reports on. This is what the two runs compare.
+    if (typeof data.roomState.gapRests === 'boolean') meta.gapRests = data.roomState.gapRests;
   }
   if (type === 'note_on' || type === 'note_off') {
     notes.push({
@@ -151,7 +166,7 @@ function report() {
   const recordedMs = Date.now() - startedAt;
   const byAgent = new Map();
   for (const b of bars) {
-    const row = byAgent.get(b.agent) ?? { llm: 0, pattern: 0, rest: 0, fallback: 0, lastModelT: -1, lat: [] };
+    const row = byAgent.get(b.agent) ?? { llm: 0, pattern: 0, rest: 0, cell: 0, fallback: 0, lastModelT: -1, lat: [] };
     row[b.source] = (row[b.source] ?? 0) + 1;
     if (b.source === 'llm' || b.source === 'rest') row.lastModelT = Math.max(row.lastModelT, b.t);
     if (typeof b.latencyMs === 'number' && b.source === 'llm') row.lat.push(b.latencyMs);
@@ -165,10 +180,15 @@ function report() {
   for (const b of bars) perBar.set(`${b.agent}@${b.t}`, (perBar.get(`${b.agent}@${b.t}`) ?? 0) + 1);
   const dupBars = [...perBar.values()].filter(n => n > 1).length;
 
-  console.log(`room      ${room}  bpm ${meta.bpm ?? bpm}  key ${meta.key ?? '?'}  tier ${tierSeen}`);
+  console.log(`room      ${room}  bpm ${meta.bpm ?? bpm}  key ${meta.key ?? '?'}  tier ${tierSeen}` +
+    `  gap rests ${meta.gapRests === null ? 'unknown' : meta.gapRests ? 'on' : 'off'}`);
   console.log(`recorded  ${(recordedMs / 1000).toFixed(1)} s   bar ${(240000 / (meta.bpm ?? bpm)).toFixed(0)} ms`);
   console.log(`messages  ${messages.length}   notes ${notes.length}   bar records ${bars.length}   duplicate (agent,ms) ${dupBars}`);
+  // THE FOUR FILLS AND THE REST, EACH ON ITS OWN. `cell` is the agent's own short figures above a
+  // stride of one and `pattern` is the generator's line at a stride of one; a session with the gap
+  // setting ON should show both FALLING and `rest` rising, which is the card's own reading.
   console.log(`model bars ${bars.filter(b => b.source === 'llm').length}  rest ${bars.filter(b => b.source === 'rest').length}` +
+    `  cell ${bars.filter(b => b.source === 'cell').length}` +
     `  pattern ${bars.filter(b => b.source === 'pattern').length}  fallback ${bars.filter(b => b.source === 'fallback').length}` +
     `  late ${bars.filter(b => b.source === 'late').length}`);
   // THE BARS THAT MISSED THEIR LINE, NAMED ONE BY ONE. A bar patched after its own line records
@@ -335,7 +355,7 @@ function report() {
       ` (this room ${meta.bpm ?? bpm} BPM)`);
   }
   for (const [agent, row] of byAgent) {
-    console.log(`  ${String(agent).padEnd(14)} llm ${row.llm}  rest ${row.rest}  fallback ${row.fallback}` +
+    console.log(`  ${String(agent).padEnd(14)} llm ${row.llm}  rest ${row.rest}  cell ${row.cell}  fallback ${row.fallback}` +
       `  pattern ${row.pattern}  last model t=${row.lastModelT}`);
   }
   if (errors.length) for (const e of errors.slice(0, 4)) console.log(`  FAILED ${e.agent} t=${e.t} ${e.error}`);
@@ -343,6 +363,9 @@ function report() {
 
   const file = {
     room, bpm: meta.bpm ?? bpm, key: meta.key ?? 'C major', transportStartTime: meta.transportStartTime,
+    // THE SETTING THE RUN MEASURED, in the file rather than only on the summary line: a reader that
+    // opens a session years later can tell a rest the room asked for from a rest the judge chose.
+    gapRests: meta.gapRests,
     recordedMs, noteCount: notes.length, notes, bars, messages,
   };
   writeFileSync(out, JSON.stringify(file));

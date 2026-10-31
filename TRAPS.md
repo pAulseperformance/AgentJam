@@ -3,6 +3,23 @@
 One dated line per failure that cost an hour, newest first. Every line carries the command that
 reveals it, so the next reader re-measures instead of re-learning.
 
+- **2026-10-31. A gap bar has TWO fills, so a switch that removes one still covers the gap.** Above a
+  stride of one the bar is the agent's cells (`reactionFor`), at a stride of one it is the generator's
+  line (`melodyBar`). A setting named after only one of them leaves the other in place, and the listener
+  hears no change at the tempo where the other does the work. Reveal:
+  `node tools/probe-session.mjs --bpm 160 --seconds 30 --agents jazz,funk,ambient --gap-rests` prints
+  `pattern` and `cell` counts of which only one has fallen.
+- **2026-10-31. A rest writes `motif = motifFrom([])`, so a room that rests every second bar erases the
+  phrase it rests around.** `onAgentBar` overwrites the agent's motif after every bar that is not a
+  cell bar; a gap rest is such a bar and its note set is empty. Reveal: the case 'does not erase the
+  agent's idea when it rests' in `src/server/gap-policy.test.ts` (delete the `!restedGap` guard and the
+  motif reads null), or a live session whose model bars after rests quote the seed figure.
+- **2026-10-31. The join's `room_state` carries the DEFAULT tempo, so the first frame is not the room.**
+  The probe now records `room_state` — the only frame carrying the room's own settings — and the frame
+  a listener receives on joining is the room BEFORE its own `bpm_change`: measured, it says 120 for a
+  run at 160. Read the LAST frame, never the first. Reveal: a probe file whose header prints `bpm 120`
+  while its bar records are 1500 ms apart.
+
 - **2026-10-31. A client case cannot fail because the SERVER stopped publishing a field.** The card's
   mutation ("remove the stride from the published debug meta") runs in `src/server/jam-room.ts`, and
   `npx vitest run src/client` never loads that module, so a badge case fed a hand-built record passes

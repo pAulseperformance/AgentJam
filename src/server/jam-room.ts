@@ -346,13 +346,18 @@ export class JamRoom implements DurableObject {
       key: DEFAULT_KEY,
       transportStartTime: Date.now(),
       serverTime: Date.now(),
+      gapRests: false,
     };
 
     // Restore persisted room state if available
     void this.ctx.blockConcurrencyWhile(async () => {
       const stored = await this.ctx.storage.get<RoomState>('roomState');
       if (stored) {
-        this.roomState = stored;
+        // THE GAP SETTING RIDES THE ROOM'S OWN STATE, so it is stored with the tempo and survives an
+        // eviction. A row written before the setting existed carries no field, and a room that was
+        // never asked plays the fill: only an explicit `true` turns rests on, the same reading the
+        // hedge uses. `spread` first so a future field is not dropped by this restore.
+        this.roomState = { ...stored, gapRests: stored.gapRests === true };
       }
       // THE HEDGE SURVIVES AN EVICTION. Only an explicit `true` turns it on: a missing key, a
       // half-written one or any other value is the default, which is off.
@@ -398,6 +403,8 @@ export class JamRoom implements DurableObject {
         key: this.roomState.key,
         // THE SETTING, READ BACK. One call per bar by default; two when the room hedged the ask.
         hedge: this.hedge,
+        // AND WHAT A BAR WITH NO MODEL LINE DOES: the room's own fill, or a rest the room asked for.
+        gapRests: this.gapRests,
         uptimeMs: Date.now() - this.startTime,
       });
     }
@@ -477,6 +484,9 @@ export class JamRoom implements DurableObject {
         break;
       case 'set_hedge':
         this.handleSetHedge(msg.enabled);
+        break;
+      case 'set_gap_rests':
+        this.handleSetGapRests(msg.enabled);
         break;
       case 'instrument_change':
         // Broadcast to all peers so they can update per-peer synth routing
@@ -1036,6 +1046,38 @@ export class JamRoom implements DurableObject {
     void this.ctx.storage.put('hedge', enabled);
   }
 
+  /**
+   * WHAT A BAR WITH NO MODEL LINE DOES, as the room's own reading of its state. Off by default: the
+   * room's fill (the agent's cells above a stride of one, the generator's line at a stride of one)
+   * keeps it sounding while the model answers as often as it can. Only an explicit `true` rests.
+   */
+  private get gapRests(): boolean {
+    return this.roomState.gapRests === true;
+  }
+
+  /**
+   * TURN THE ROOM'S FILL OFF IN GAP BARS. On, a bar the agent did not answer with the model is
+   * SILENCE: no cells quoting its motif, no generator line, and the record says `rest` rather than
+   * `cell` or `pattern`. That is the point of the setting — an agent writing every second bar should
+   * be HEARD writing every second bar, and a fill that covers the gap makes its slower rate
+   * inaudible. Nothing else changes: a model answer that is ready still plays, so this never throws
+   * away music the room already paid for.
+   *
+   * The value rides `roomState`, so it is stored with the room's tempo, restored after an eviction,
+   * reported on `/health`, and broadcast to every listener: a setting only the client that asked can
+   * see is not the room's setting.
+   */
+  private handleSetGapRests(enabled: boolean): void {
+    this.roomState.gapRests = enabled;
+    this.roomState.serverTime = Date.now();
+    void this.ctx.storage.put('roomState', this.roomState);
+    this.broadcastAll(JSON.stringify({
+      type: 'room_state',
+      roomState: this.roomState,
+      peers: this.getAllPeers(),
+    }));
+  }
+
   private spawnLayer(role: 'drummer' | 'bass'): void {
     const color = PEER_COLORS[this.colorIndex % PEER_COLORS.length] ?? '#6366f1';
     this.colorIndex++;
@@ -1339,10 +1381,19 @@ export class JamRoom implements DurableObject {
     // generator's random walk: measured at 200 BPM, 37 of 72 bar records were music the agent had not
     // said. A gap bar now carries two to four cells quoting its own motif, in key, in its register.
     const stride = this.strideFor(agent);
-    const reaction = ready === null && stride > 1 ? this.reactionFor(agent, bar) : null;
+    // A GAP BAR RESTS WHEN THE ROOM ASKS FOR IT. `rests` is the room's own setting (set_gap_rests):
+    // on, a bar with no model answer is silence, because the fill is what hides an agent's slower
+    // rate — measured at 200 BPM, the cells and the generator covered 37 of 72 agent bars. A model
+    // answer that IS ready is never touched by the setting: it is music the room already paid for.
+    const rests = this.gapRests;
+    // THE BAR THE SETTING GOVERNS: no model answer ready, and the room has asked for space.
+    const restedGap = ready === null && rests;
+    const reaction = ready === null && stride > 1 && !rests ? this.reactionFor(agent, bar) : null;
     let notes: GeneratedNote[];
     if (ready) {
       notes = ready.notes;
+    } else if (restedGap) {
+      notes = [];
     } else if (stride > 1) {
       // A GAP BAR IS THE AGENT'S CELLS OR NOTHING. It is never the generator: handing a gap bar back
       // to the random walk is exactly what this path exists to stop, so a gap with no cell is silence,
@@ -1374,11 +1425,14 @@ export class JamRoom implements DurableObject {
     // nothing hands on no note, because a rest is a break in the phrase and not a note at the centre.
     agent.lastBarNotes = notes.length > 0 ? notes.map(n => ({ ...n })) : null;
     agent.lastBarNotesBar = bar;
-    // WHY A PATTERN BAR, SAID OUT LOUD. A bar with no queued render at a stride of one is a bar the
-    // model missed; above a stride of one that bar is the agent's cells, so the tempo note now rides
-    // on the cell record below instead of on a bar the generator played.
+    // WHY THIS BAR PLAYS WHAT IT PLAYS, SAID OUT LOUD. A bar with no queued render is a bar the model
+    // missed: at a stride of one the generator covers it, above a stride of one the agent's own cells
+    // do, and when the room asked for gap rests neither does — the record then says `rest`, because a
+    // session whose `pattern` count fell is the only evidence the setting did anything.
     const meta = this.pacedMeta(
-      ready?.meta ?? (reaction
+      ready?.meta ?? (restedGap
+        ? this.gapRestMeta(agent, stride)
+        : reaction
         ? this.cellMeta(agent, reaction, stride)
         : this.patternMeta(agent, notes, 'pattern bar, the queue was empty')),
       stride,
@@ -1386,9 +1440,11 @@ export class JamRoom implements DurableObject {
     );
 
     this.emitAgentBar(agent, notes, bar, beatMs);
-    // A CELL BAR DOES NOT REPLACE THE AGENT'S IDEA. Its cells quote the motif, so overwriting the
-    // motif with them would shrink the agent's material to its own echo, one gap bar at a time.
-    if (reaction === null) {
+    // A CELL BAR DOES NOT REPLACE THE AGENT'S IDEA, AND NEITHER DOES A REST. The cells quote the
+    // motif, so overwriting the motif with them would shrink the agent's material to its own echo,
+    // one gap bar at a time; and a gap rest must not erase the idea either — the whole point of the
+    // setting is that the agent writes LESS, not that it forgets what it was writing.
+    if (reaction === null && !restedGap) {
       agent.motif = motifFrom(notes);
       // WHAT THIS SESSION HEARD. A bar that ends in a rest leaves `motif` empty, and a session's last
       // bar is often a rest; the bank must keep the phrase the room listened to, not the silence after it.
@@ -2143,6 +2199,23 @@ export class JamRoom implements DurableObject {
       prompt: '(cell bar)',
       response: `${reaction.describe}; this agent writes every ${stride} bars at ${this.roomState.bpm} BPM`,
       noteCount: reaction.notes.length, latencyMs: 0,
+    };
+  }
+
+  /**
+   * THE RECORD FOR A GAP BAR THE ROOM ASKED TO REST. `rest` and not `pattern`: nothing played, and a
+   * session's `pattern` count is the number of bars the room's fill covered — which is exactly the
+   * number this setting exists to bring down, so recording a rest as the fill would make the two
+   * settings read the same. The response keeps the tempo line, because the reason a listener hears
+   * gaps is the agent's own rate, and a recorded session should say so without the reader guessing.
+   */
+  private gapRestMeta(agent: InProcessAgent, stride: number): AiCallMeta {
+    return {
+      source: 'rest', tier: agent.tier, model: agent.model, decider: 'none', brief: null,
+      prompt: '(gap rest)',
+      response: `(the room asked gap bars to rest; this agent writes every ${stride} ` +
+        `${stride === 1 ? 'bar' : 'bars'} at ${this.roomState.bpm} BPM)`,
+      noteCount: 0, latencyMs: 0, calls: 0,
     };
   }
 

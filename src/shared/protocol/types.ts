@@ -21,6 +21,14 @@ export const RoomStateSchema = z.object({
   key: z.string().describe('Current musical key of the room (e.g. "C major", "A minor")'),
   transportStartTime: z.number().describe('Server timestamp (ms) when transport last started, used to compute current beat position'),
   serverTime: z.number().describe('Server wall-clock time (ms) at the moment this state was broadcast'),
+  /**
+   * WHETHER A GAP BAR RESTS. On, a bar the agent did not answer with the model plays silence instead
+   * of the room's own fill (its cells above a stride of one, the generator's line at a stride of one),
+   * so an agent that writes every second bar is heard as space rather than as a denser one. Optional
+   * because a room that has never been asked sends nothing here, and nothing means off: the fill is
+   * the room's default, and rests are the listener's choice.
+   */
+  gapRests: z.boolean().optional().describe('Whether a bar the agent did not write with the model rests instead of playing the room’s own fill'),
 });
 export type RoomState = z.infer<typeof RoomStateSchema>;
 
@@ -95,6 +103,18 @@ export const SetHedgeMessageSchema = z.object({
   enabled: z.boolean().describe('Whether a bar spends two model calls, the second issued 200 ms after the first'),
 });
 export type SetHedgeMessage = z.infer<typeof SetHedgeMessageSchema>;
+
+/**
+ * GAP BARS AS RESTS. On, every bar the agent did not answer with the model is silence: no cells above
+ * a stride of one, no generator line at a stride of one. Off is the room's default, because the fill
+ * keeps the room sounding while the model answers as often as it can, and whether the slower rate
+ * reads as space or as absence is a listener's call rather than something the room can measure.
+ */
+export const SetGapRestsMessageSchema = z.object({
+  type: z.literal('set_gap_rests').describe('Message discriminator: make a gap bar a rest for this room'),
+  enabled: z.boolean().describe('Whether a bar the agent did not write with the model is silence instead of the room’s own fill'),
+});
+export type SetGapRestsMessage = z.infer<typeof SetGapRestsMessageSchema>;
 
 export const InstrumentChangeMessageSchema = z.object({
   type: z.literal('instrument_change').describe('Message discriminator'),
@@ -196,6 +216,7 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   RecordingStopMessageSchema,
   SetBackingMessageSchema,
   SetHedgeMessageSchema,
+  SetGapRestsMessageSchema,
   z.object({ type: z.literal('set_agent_model'), agentPeerId: z.string(), model: z.string() }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;

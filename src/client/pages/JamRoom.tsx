@@ -205,6 +205,15 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     sendMessage(JSON.stringify({ type: 'key_change', key }));
   }, [sendMessage]);
 
+  // THE ROOM'S FILL, AS ONE SWITCH. On, a bar the agent did not answer with the model is silence, so
+  // an agent writing every second bar is HEARD writing every second bar. Off is the room's default.
+  // The value is read from `room_state` rather than kept here: the setting belongs to the room, and a
+  // listener who joins after it was set must see the same one.
+  const gapRests = roomState?.gapRests === true;
+  const handleGapRestsChange = useCallback((enabled: boolean) => {
+    sendMessage(JSON.stringify({ type: 'set_gap_rests', enabled }));
+  }, [sendMessage]);
+
   const handleInstrumentChange = useCallback((instrument: InstrumentType) => {
     setCurrentInstrument(instrument);
     engine?.changeInstrument(instrument);
@@ -288,6 +297,32 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
           {tempoMark.label}
         </p>
       )}
+
+      {/* WHAT A BAR WITH NO MODEL LINE DOES, where the tempo is set. On, the room's own fill stops
+          covering the gap: the agent's cells above a stride of one and the generator's line at a stride
+          of one are replaced by silence, which is how a slower agent's rate becomes audible. The
+          checkbox reads `room_state`, so it shows the setting the ROOM is under, not what this tab
+          once asked for. */}
+      <div
+        className="jam-room__gap-rests"
+        style={{ margin: '8px 2px 0', fontSize: 13, color: 'var(--text-secondary)' }}
+      >
+        <label htmlFor="gap-rests" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+          <input
+            id="gap-rests"
+            type="checkbox"
+            checked={gapRests}
+            disabled={status !== 'connected'}
+            onChange={(e) => handleGapRestsChange(e.target.checked)}
+          />
+          <span>Gap bars rest</span>
+        </label>
+        <span style={{ marginLeft: 8, color: 'var(--text-muted)' }}>
+          {gapRests
+            ? 'on: the space between the bars each agent writes is silence'
+            : 'off: the room fills the bars an agent does not write'}
+        </span>
+      </div>
 
       <div className="jam-room__main">
         <aside className="jam-room__sidebar">

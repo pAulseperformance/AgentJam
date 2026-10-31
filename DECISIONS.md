@@ -225,3 +225,32 @@ control takes the SLOWEST agent's ceiling, because one tempo serves the whole ro
 Falsifier: a bar record carrying a stride but no ceiling while the room is running, a badge whose
 rate disagrees with the stride in the record it was read from, or a tempo mark naming a ceiling above
 the slowest agent's own.
+
+## 2026-10-31 The room's fill is a SETTING, and a rest is recorded as one
+
+Loser: making every gap bar a rest for everybody, and a record that says `pattern` for a bar nobody
+played. Reason: the fill is what makes a slow agent sound busy — measured at 200 BPM, the cells above
+a stride of one and the generator's line at a stride of one covered 37 of 72 agent bars — but whether
+that reads as space or as absence is the listener's call, not something the room can measure, so the
+plan's own decision table ships the fill as the default with the switch one line away. `set_gap_rests`
+turns it off, and the value rides `roomState`: stored with the room's tempo, restored after an eviction,
+broadcast to every listener, and reported on `/health`, because a setting only the tab that asked can
+see is not the room's setting (Task 5 left `hedge` exactly that way and named it a finding).
+
+THE SWITCH GOVERNS BOTH FILLS, not the generator alone. A "gap bar" is one bar with no model answer, so
+it has two possible fills and only one of them is `melodyBar`: above a stride of one it is the agent's
+own cells (`reactionFor`), at a stride of one it is the generator's line. A switch that removed only
+one would leave the other covering the same gap, and the listener would hear no difference at the tempo
+where the cells do the work. So the bar rests in both cases and the record says `rest` rather than
+`cell` or `pattern`, which is also why the probe prints all three counts: the setting is proven by
+`pattern` and `cell` FALLING while `rest` rises, never by a description.
+
+A GAP REST DOES NOT ERASE THE AGENT'S MOTIF. Every bar that is not a cell bar writes `motifFrom(notes)`,
+and with a rest that is the empty set, so a room resting every second bar would erase the phrase it was
+resting around and leave the next written bar with nothing to vary from. The write is skipped when the
+bar is the setting's own rest: the agent writes LESS, it does not forget.
+
+Falsifier: a probe with `--gap-rests` whose `pattern` or `cell` count has not fallen while `rest` has
+not risen, a bar recorded `rest` that still broadcast note-ons, a `room_state` frame omitting the
+setting the room is under, or a model bar after a rest that starts from the seed figure instead of the
+agent's own motif.
