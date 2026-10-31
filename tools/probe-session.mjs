@@ -123,6 +123,10 @@ ws.on('message', (buf) => {
       // rest or a pattern agent, 1 normally, 2 when the ask was hedged (llm-planner.ts).
       calls: typeof m.calls === 'number' ? m.calls : null,
       ask: m.ask ?? null,
+      // THE BAR THIS RECORD IS FOR, and the peer that wrote it: the reader below needs both to say
+      // which velocity profile belongs to which bar of which agent.
+      peerId: data.agentPeerId ?? null,
+      bar: typeof data.bar === 'number' ? data.bar : null,
     });
   }
 });
@@ -173,6 +177,42 @@ function report() {
     `   two-call bars ${twoCall}  one-call bars ${oneCall}` +
     `   worst latency ${lat.length ? `${lat[lat.length - 1]} ms` : 'n/a'}`);
   const prompts = bars.map(b => b.prompt).filter(Boolean);
+  // THE BAND'S DYNAMICS, BAR BY BAR. A bar's velocity profile is the weights its notes were played at.
+  // With ONE accent map for the room, two bars are two profiles; a bar where every note carries the
+  // same weight is the typewriter the map exists to stop. Notes are attributed to the bar record they
+  // were published with: the room broadcasts the record and then the bar's notes at its line, so the
+  // newest record at or before a note is the bar it belongs to.
+  const publishes = new Map();
+  for (const b of bars) {
+    if (!b.peerId) continue;
+    const rows = publishes.get(b.peerId) ?? [];
+    rows.push({ t: b.t, bar: b.bar });
+    publishes.set(b.peerId, rows);
+  }
+  const barMs = 240000 / (meta.bpm ?? bpm);
+  const profiles = new Map();
+  for (const n of notes) {
+    if (n.kind !== 'on') continue;
+    const rows = publishes.get(n.peerId);
+    if (!rows || !rows.length) continue;
+    let at = -1;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (rows[i].t <= n.t + 20) { at = i; break; } // +20 ms: the probe's receipt, not the room's clock
+    }
+    if (at === -1) continue;
+    const pub = rows[at];
+    if (n.t - pub.t > barMs) continue; // a note more than a bar after its record is not that bar's
+    const key = `${n.peerId}@${pub.bar ?? `p${at}`}`;
+    const row = profiles.get(key) ?? [];
+    row.push(n.velocity);
+    profiles.set(key, row);
+  }
+  const scored = [...profiles.values()].filter(v => v.length >= 2);
+  const distinct = new Set(scored.map(v => [...v].sort((a, b) => a - b).join(' '))).size;
+  const flat = scored.filter(v => new Set(v).size === 1).length;
+  const examples = scored.slice(0, 3).map(v => v.join(' ')).join('   |   ') || 'none';
+  console.log(`dynamics  agent bars ${scored.length}  distinct velocity sets ${distinct}  flat bars ${flat}` +
+    `  e.g. ${examples}`);
   if (prompts.length) {
     const drumHits = prompts.filter(p => /strong beats:.*\b(C2|D3|A5)\b/.test(p)).length;
     // THE TAIL-AWARE ASK, COUNTED. A prompt carries `CELL ASK` when the room asked for two notes in a
