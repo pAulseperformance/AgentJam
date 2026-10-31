@@ -300,3 +300,27 @@ the AI panel still shows `source: llm` bars arriving, which would put the floor 
 low-water mark; a drum pitch leaking through a line the gate does not read (`they are holding: ...`),
 or through a prompt field that is not a string; or a `DRUM` export renamed so the gate reads a
 partial list without failing.
+
+## 2026-10-31 The browser half is read from Playwright's socket view, not from the panel
+
+Loser: asserting the session panel's `Model bars` row from the smoke. Reason: a signed-out listener
+gets the panel's `signed out` state and no rows at all — `stateOf` puts the tier first by design
+(session-summary.ts), and the smoke carries no door cookie — so the row the plan reads on a signed-in
+listener's page does not exist for the page this run opens. Playwright's own `websocket` events count
+every WebSocket the page CONSTRUCTS and parse the frames it sends and receives from outside the page,
+so a page that replaces `window.WebSocket` cannot hide a second socket from the count, and the model
+bar is read on the same socket the listener's page opened. The panel is still printed — its state is
+the guest state — but it gates nothing.
+
+TWELVE SECONDS FROM NAVIGATION, NOT FROM LAUNCH. The first version waited for DOMContentLoaded and
+spent 8 s there: the estate bar's deferred script (zpe-bar.js in the shell's head) holds that event
+while the app draws the form at about 1.3 s. The smoke now waits for `commit` and then for the form,
+so five runs on the shipped shape reached their first model bar at 3.8 to 5.9 s, and the twelve-second
+budget covers load, join, spawn and the bar with margin. `npm i -D playwright` and
+`npx playwright install chromium` are the one-time cost; a machine without them exits 3 and check.sh
+prints the reading as NOT ASSERTED, never as a pass.
+
+Falsifier: a run where the page constructs two sockets and `tools/browser-smoke.mjs` exits 0; a
+healthy page whose first model bar arrives after the twelve-second budget, which would make the
+deadline a flake rather than a reading; or a public-tier page that starts drawing the panel's rows,
+which would make the row readable and the socket view unnecessary.

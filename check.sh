@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # THE REPO'S OWN GATE, in one command.
 #
-# check.sh wraps the gate this repo already declares (`npm test` -> `vitest run`, package.json:17)
+# check.sh wraps the gate this repo already declares (`npm test` -> `vitest run`, package.json:18)
 # and adds the readings a suite cannot make: the live surface, the shell's own asset, the room
 # socket's refusal on the app's own host, the tier endpoint, and - with --live - a short session the
-# probe gate reads for model bars and drum codes (scripts/probe-gate.mjs).
+# probe gate reads for model bars and drum codes (scripts/probe-gate.mjs), a headless page load that
+# reads the page's own socket (tools/browser-smoke.mjs), and the page walk.
 #
 # Why a FLOOR and not just "tests pass": a suite that silently stops collecting tests also exits 0,
 # so the pass COUNT is asserted against a number. Raise FLOOR in the same commit as any test that
@@ -14,7 +15,8 @@
 #
 #   bash check.sh                          suite + five live readings: four probes and the version serving
 #   bash check.sh --live                   the above, then a 45 s session the probe gate passes or refuses,
-#                                          and the page walk from docs/PATHS.md
+#                                          the page walk from docs/PATHS.md, and a headless page load
+#                                          (tools/browser-smoke.mjs: one socket, one model bar in 12 s)
 #   bash check.sh --live --version <id>    the above, and fails unless <id> is the version carrying 100%
 #
 #   PARITY=loose bash check.sh             the same, but the live bundle is only proven to RESOLVE (200),
@@ -241,6 +243,25 @@ if [ "$WALK" -eq 1 ]; then
   esac
 fi
 
+# ── Optional, --live: the browser half ───────────────────────────────────────
+# WHY A PAGE AND NOT ANOTHER PROBE: tools/probe-session.mjs joins with `ws`, so it can say what the
+# room PUBLISHES; only a page can say the page opens ONE socket and hears the model's bar on it. The
+# page is the half that once opened a second socket per tab. Playwright is a dev dependency and its
+# chromium is a one-time download; a machine without them has a reading it cannot make, so exit 3 is
+# printed as not asserted and never as a pass.
+if [ "$WALK" -eq 1 ]; then
+  step "[browser] live: one page, one socket, one model bar"
+  node tools/browser-smoke.mjs --url "${BASE}/jam/"
+  browser_rc=$?
+  case "$browser_rc" in
+    0) green "      ok (one socket, and the model wrote a bar inside 12 s)" ;;
+    1) note_failure "the browser smoke failed: the readings above name which one did not hold" ;;
+    3) unverified=$((unverified + 1))
+       step "      not asserted: playwright or its chromium is not installed (npm i -D playwright && npx playwright install chromium)" ;;
+    *) note_failure "the browser smoke exited ${browser_rc}" ;;
+  esac
+fi
+
 # ── Verdict ─────────────────────────────────────────────────────────────────
 if [ "$failures" -ne 0 ]; then
   red "check.sh: ${failures} check(s) failed, first was: ${failed_on}"
@@ -255,5 +276,5 @@ if [ "$unverified" -ne 0 ]; then
 else
   green "check.sh: every check passed"
 fi
-[ "$WALK" -eq 1 ] && step "          the probe and the walk ran with --live"
+[ "$WALK" -eq 1 ] && step "          the probe, the browser smoke and the walk ran with --live"
 exit 0
