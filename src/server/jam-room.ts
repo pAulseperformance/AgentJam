@@ -45,7 +45,7 @@ import {
   prunePast, keepNewest, takeForBar, renderBudget, renderStride, renderCeilingBpm, RENDER_COST_ASSUMED_MS,
   RENDER_TAIL_ASSUMED_MS, cellsForBar,
   barDelayMs, barMsFor, barElapsedEnough, firstReachableBar, nextRenderTail, DEFAULT_BAR_MS,
-  MIN_BPM, MAX_BPM, slotStamp,
+  MIN_BPM, MAX_BPM,
 } from './bar-queue';
 import { reactionCells, type ReactionBar } from './reaction';
 import { decideWithJev, jevConfigFromEnv, type JevState } from './jev';
@@ -1492,10 +1492,15 @@ export class JamRoom implements DurableObject {
     for (const note of notes) {
       const onDelay = barStart + note.beatTime * beatMs - Date.now();
       if (onDelay < latestUseful) continue;
-      // THE SLOT, not the arrival. The client schedules on `at`, so socket jitter and a busy main
-      // thread cannot move a note off the grid, and a slot already past is dropped instead of shoved in.
-      const onStamp = slotStamp(barStart, note.beatTime, beatMs, Date.now());
-      const offStamp = slotStamp(barStart, note.beatTime + note.duration, beatMs, Date.now());
+      // THE SLOT, not the arrival. The client schedules on the delay this message carries, so socket
+      // jitter and a busy main thread cannot move a note off the grid.
+      //
+      // THE DELAY IS COMPUTED AT SEND, NOT AT ARM. Measured on the 2026-10-31T16-40-33 session: the first
+      // version stamped `in` when the bar was armed, then sent the note inside a timer at its slot, so a
+      // beat-3 note carried a 1440 ms delay AND arrived at its slot, and the client waited again. Every
+      // note played late by its own lead time and the drummer sounded like it could not hold a beat.
+      const onAt = Math.round(barStart + note.beatTime * beatMs);
+      const offAt = Math.round(barStart + (note.beatTime + note.duration) * beatMs);
 
       setTimeout(() => {
         const noteOn = JSON.stringify({
@@ -1505,8 +1510,8 @@ export class JamRoom implements DurableObject {
           beatTime: note.beatTime,
           velocity: note.velocity,
           timestamp: Date.now(),
-          at: onStamp.at,
-          in: onStamp.in,
+          at: onAt,
+          in: onAt - Date.now(),
         });
         state.activeNotes.add(note.pitch);
         state.addNoteCount();
@@ -1524,8 +1529,8 @@ export class JamRoom implements DurableObject {
           beatTime: note.beatTime + note.duration,
           velocity: 0,
           timestamp: Date.now(),
-          at: offStamp.at,
-          in: offStamp.in,
+          at: offAt,
+          in: offAt - Date.now(),
         });
         state.activeNotes.delete(note.pitch);
         this.broadcastAll(noteOff);
