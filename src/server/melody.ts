@@ -76,13 +76,85 @@ export function melodyPlan(bar: number, style: string, hasMotif: boolean): Melod
   return { position, contour, wantNotes, instruction };
 }
 
+// ─── The room's accent map ────────────────────────────────────────────────────
+//
+// ONE MAP, EVERY AGENT. Measured in the recorded room: an agent's line swells by its own arc and
+// ignores the drummer underneath it, so three agents and a rhythm section read as four players in
+// four rooms. The drummer is the one part of the room that never guesses, and its velocities ARE the
+// accents: a kick is the bar's loudest hit, a hat is a sixteenth of it. Reduced to the bar's sixteen
+// slots, that figure is a map any agent can be shaped against, and the same map for all of them.
+
+/** The bar's sixteenth grid: the slots an accent map is read on. */
+export const ACCENT_SLOTS = 16;
+
+export interface AccentMap {
+  /** what the map was read from: the drummer's own bar, or the bar's pulse when nobody drummed */
+  from: 'drummer' | 'pulse';
+  /** the bar this map describes, so a reader can tell one map from another */
+  bar: number;
+  /** sixteen sixteenth slots: 0 = nothing under it, 1 = the bar's loudest hit */
+  slots: number[];
+}
+
+/** Where a beat time sits on the bar's sixteenth grid, or null when it is off the bar. */
+export function accentSlotOf(beatTime: number): number | null {
+  if (!Number.isFinite(beatTime)) return null;
+  const slot = Math.round(beatTime * 4);
+  return slot < 0 || slot > ACCENT_SLOTS - 1 ? null : slot;
+}
+
 /**
- * COMPLETE THE LINE. Given what the model wrote, return a bar that is a melody: at least `wantNotes`
- * notes, mostly stepwise, inside the register, in key, on the sixteenth grid.
- *
- * It is deliberately additive: a bar that is already a line is returned untouched (a caller comparing
- * lengths sees the same array), because the model's own contours are worth keeping when they exist.
+ * The bar's own pulse, for a room with no drummer to read: beat one, then beat three, then the two
+ * inner beats, then the off-eighths, then the sixteenths. It is the same map for every bar, which is
+ * what makes it one map rather than a per-bar guess.
  */
+const PULSE_ACCENTS = [1, 0.3, 0.5, 0.3, 0.7, 0.3, 0.5, 0.3, 0.85, 0.3, 0.5, 0.3, 0.7, 0.3, 0.5, 0.3];
+
+export function pulseAccentMap(bar: number): AccentMap {
+  return { from: 'pulse', bar, slots: [...PULSE_ACCENTS] };
+}
+
+/**
+ * THE DRUMMER'S OWN FIGURE, as a map. `drumBar` is deterministic in (style, bar), so this is exactly
+ * the accent pattern the room will hear under the bar it is shaping, not an average of it.
+ */
+export function accentMapFromDrums(drums: readonly GeneratedNote[], bar: number): AccentMap {
+  const slots = new Array<number>(ACCENT_SLOTS).fill(0);
+  for (const drum of drums) {
+    const slot = accentSlotOf(drum.beatTime);
+    if (slot === null) continue;
+    slots[slot] = Math.max(slots[slot]!, Number(drum.velocity) || 0);
+  }
+  const peak = Math.max(...slots);
+  // A drummer that played nothing says nothing: the bar keeps its pulse instead of going flat.
+  if (!(peak > 0)) return pulseAccentMap(bar);
+  return { from: 'drummer', bar, slots: slots.map(velocity => velocity / peak) };
+}
+
+/**
+ * HOW MUCH THE MAP MOVES ONE NOTE: held back to 0.80 in a hole, lifted to 1.12 on the bar's loudest
+ * hit. A 40% span is about 3 dB at the synth, which a listener hears as the band breathing together
+ * rather than as a compressor.
+ */
+export const ACCENT_FLOOR = 0.8;
+export const ACCENT_SPAN = 0.32;
+
+export function accentGain(beatTime: number, accents: AccentMap): number {
+  const slot = accentSlotOf(beatTime);
+  return ACCENT_FLOOR + ACCENT_SPAN * (slot === null ? 0 : (accents.slots[slot] ?? 0));
+}
+
+/**
+ * The room's accents on notes that already carry a shape of their own: a gap bar's cells, a patched
+ * tail. Only the weight moves; the notes, the slots and the line stay exactly as they were.
+ */
+export function applyAccents(notes: GeneratedNote[], accents: AccentMap): GeneratedNote[] {
+  return notes.map(note => {
+    const lifted = note.velocity * accentGain(note.beatTime, accents);
+    return { ...note, velocity: Math.round(Math.max(1, Math.min(127, lifted))) };
+  });
+}
+
 /**
  * SHAPE THE LINE. Measured in a recorded public session: eight sixteenths per bar at a flat velocity
  * 100, every one the same weight, which is a typewriter and not a player. A phrase breathes: it starts
@@ -90,10 +162,14 @@ export function melodyPlan(bar: number, style: string, hasMotif: boolean): Melod
  *
  * This runs on every bar, after the model and after the completion, because the model has no dynamics
  * worth keeping (a 3B model writes one velocity for the whole bar).
+ *
+ * WITH `accents`, the room's map multiplies the line's own arc: the note that lands where the drums
+ * are loud is played louder, so every agent in the bar is shaped by the same hands. Without it the
+ * line breathes alone, which is the behaviour every case written before this map expects.
  */
 export function shapeLine(
   notes: GeneratedNote[],
-  options: { contour: Contour; density: DecisionDensity; meanVelocity?: number },
+  options: { contour: Contour; density: DecisionDensity; meanVelocity?: number; accents?: AccentMap },
 ): GeneratedNote[] {
   if (notes.length === 0) return notes;
   const ordered = notes.slice().sort((a, b) => a.beatTime - b.beatTime);
@@ -131,7 +207,11 @@ export function shapeLine(
     // distance from the peak, as a share of the line: the swell, then the taper
     const reach = Math.abs(i - peakIndex) / Math.max(1, kept.length - 1);
     const weight = 1 - 0.45 * reach;
-    const velocity = Math.round(Math.max(38, Math.min(112, ceiling * weight)));
+    // THE ROOM'S ACCENT MULTIPLIES THE LINE'S OWN ARC. The swell says where the phrase is reaching;
+    // the map says where the drums are loud. Multiplying keeps both: a phrase note over a kick is the
+    // bar's loud note, and the same phrase one sixteenth into a hole is the bar's quiet one.
+    const accent = options.accents ? accentGain(note.beatTime, options.accents) : 1;
+    const velocity = Math.round(Math.max(38, Math.min(112, ceiling * weight * accent)));
     // a note on a strong beat is held; the last note of the phrase is held longer, which is what a
     // landing sounds like
     const strongBeat = Math.abs(note.beatTime - Math.round(note.beatTime)) < 0.01;
@@ -317,6 +397,13 @@ function nearestInKeyBelow(allowed: number[], target: number, register: { low: n
   return Math.max(register.low, target - 2);
 }
 
+/**
+ * COMPLETE THE LINE. Given what the model wrote, return a bar that is a melody: at least `wantNotes`
+ * notes, mostly stepwise, inside the register, in key, on the sixteenth grid.
+ *
+ * It is deliberately additive: a bar that is already a line is returned untouched (a caller comparing
+ * lengths sees the same array), because the model's own contours are worth keeping when they exist.
+ */
 export function completeMelody(
   notes: GeneratedNote[],
   options: {

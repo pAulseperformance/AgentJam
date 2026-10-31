@@ -26,7 +26,7 @@ import {
 } from '@/shared/music';
 import { repairMeasure } from './measure-repair';
 import { summarizePhrase, motifFrom, describePhrase, describeMotif, type Motif, type NoteRecord } from './listener';
-import { melodyPlan, completeMelody, shapeLine, restateHook, applyContourRules, cadenceLine } from './melody';
+import { melodyPlan, completeMelody, shapeLine, restateHook, applyContourRules, cadenceLine, accentMapFromDrums, pulseAccentMap, applyAccents, type AccentMap } from './melody';
 import { drumBar, bassBar, countInBar } from './groove';
 import {
   generateMeasureWithAi,
@@ -1198,8 +1198,9 @@ export class JamRoom implements DurableObject {
     } else if (stride > 1) {
       // A GAP BAR IS THE AGENT'S CELLS OR NOTHING. It is never the generator: handing a gap bar back
       // to the random walk is exactly what this path exists to stop, so a gap with no cell is silence,
-      // not a different bar of music played in the agent's name.
-      notes = reaction?.notes ?? [];
+      // not a different bar of music played in the agent's name. The cells carry the room's accents
+      // too: an agent whose statements follow the drummer and whose gap bars do not is two players.
+      notes = reaction ? applyAccents(reaction.notes, this.roomAccents(bar)) : [];
     } else {
       // At a stride of one an empty bar is a bar the model missed, and the line builder covers it.
       notes = this.melodyBar(agent, bar);
@@ -1374,6 +1375,18 @@ export class JamRoom implements DurableObject {
   }
 
   /**
+   * ONE ACCENT MAP FOR THE ROOM, per bar. Every agent's line is shaped against this same map, so the
+   * band breathes with one pair of hands instead of three. With a drummer on, the map IS the drummer's
+   * own figure for that bar (deterministic in style and bar), which is exactly what will sound under
+   * the bar being shaped. With nobody drumming, the bar's own pulse is the map: still one map for the
+   * whole room, and still the same for every agent in it.
+   */
+  private roomAccents(bar: number): AccentMap {
+    const drummer = this.layers.get('drummer');
+    return drummer ? accentMapFromDrums(drumBar(drummer.style, bar), bar) : pulseAccentMap(bar);
+  }
+
+  /**
    * A BAR WITH NO MODEL ANSWER IS STILL MUSIC, NOT NOISE. The old fallback was `generateMeasure`, which
    * picks pitches at random across three octaves: measured live it produced `G3 B3 G5 C4 A4 D3 E5 C5 B5`
    * and it is what a listener hears when a render misses its bar. The line builder writes a stepwise
@@ -1398,7 +1411,7 @@ export class JamRoom implements DurableObject {
       maxNotes: 10,
     });
     const conformed = applyContourRules(repaired.notes, { key: this.roomState.key, register });
-    return shapeLine(conformed, { contour: plan.contour, density: 'medium' });
+    return shapeLine(conformed, { contour: plan.contour, density: 'medium', accents: this.roomAccents(bar) });
   }
 
   /**
@@ -1633,11 +1646,14 @@ export class JamRoom implements DurableObject {
         finalNotes = applyContourRules(finalNotes, { key: this.roomState.key, register });
 
         // AND IT BREATHES. Dynamics are code's, not the model's: a 3B model writes one velocity for the
-        // whole bar, and a flat eight-sixteenth run is heard as a typewriter, not as a player.
+        // whole bar, and a flat eight-sixteenth run is heard as a typewriter, not as a player. The
+        // room's accent map is the drummer's figure for THIS bar, so the agent lands hard where the
+        // drums are loud and soft where they are not — one map, every agent, the same hands.
         finalNotes = shapeLine(finalNotes, {
           contour: melody.contour,
           density: brief?.density ?? 'medium',
           meanVelocity: phrase.count > 0 ? phrase.meanVelocity : undefined,
+          accents: this.roomAccents(forBar),
         });
 
         // THE FIRST BAR OF A PHRASE IS THE HOOK. Kept exactly as it will be heard, because the restate
