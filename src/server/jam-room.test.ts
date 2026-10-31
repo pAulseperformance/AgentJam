@@ -4,7 +4,7 @@ import { JamRoom } from './jam-room';
 import { DEFAULT_BPM } from '@/shared/protocol/constants';
 import { FREE_MODEL } from '@/shared/ai/models';
 import { EARLIER_SESSION } from './llm-planner';
-import { motifKey, motifsFor } from './motif-bank';
+import { motifKey, motifsFor, MOTIF_TTL_MS } from './motif-bank';
 
 
 describe('JamRoom Durable Object', () => {
@@ -552,6 +552,10 @@ describe('JamRoom Durable Object', () => {
           const rows = await motifsFor(state.storage, room.roomId, 'Bank Bot', Date.now());
           expect(rows).toHaveLength(1);
           expect(rows[0]?.motif).toEqual({ pitches: ['F4', 'A4'], slots: [2, 6] });
+          // THE WRITE ARMS THE ALARM on the REAL storage: the row's seven-day clock is what the
+          // object will wake for, not a timer this test has to keep alive.
+          const alarm = await state.storage.getAlarm();
+          expect(alarm).toBe((rows[0]?.at ?? 0) + MOTIF_TTL_MS);
         });
 
         await settle(stub);
