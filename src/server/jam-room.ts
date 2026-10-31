@@ -1154,8 +1154,12 @@ export class JamRoom implements DurableObject {
     const beatMs = (60 / this.roomState.bpm) * 1000;
 
     // A DRUMMER COUNTS THE ROOM IN before it accompanies: four quarters, so the tempo is heard and
-    // not just assumed.
-    const notes = layer.role === 'drummer' && layer.bars === 0
+    // not just assumed. It does that ONCE, at the start of an empty room, never on a respawn: measured
+    // in the 2026-10-31T16-40-33 session, a tempo change respawned the rhythm section three times and
+    // each respawn replayed the count-in over a room that was already playing, which is the sound of a
+    // drummer who cannot hold a beat.
+    const roomAlreadyPlaying = this.noteRing.length > 0 || [...this.layers.values()].some(l => l !== layer && l.bars > 0);
+    const notes = layer.role === 'drummer' && layer.bars === 0 && !roomAlreadyPlaying
       ? countInBar(layer.style)
       : layer.role === 'drummer'
         ? drumBar(layer.style, bar)
