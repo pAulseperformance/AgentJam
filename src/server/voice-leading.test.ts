@@ -264,14 +264,15 @@ describe('the room leads across the bar line', () => {
         quiet(outgoing);
         quiet(incoming);
 
-        // THE LEAD ROTATES BY BAR over the agents in spawn order, so the outgoing agent's bar is an
-        // EVEN bar (order[0]) and the incoming agent's bar is the one after it (order[1]). The outgoing
-        // bar sits in the phrase at position 0 or 1 depending on where its own phrase began, and at
-        // either position the seven stepwise notes below are already a line, so the model's last note
-        // is the note the room will play.
+        // THE LEAD ROTATES IN TWO-BAR TURNS over the agents in spawn order: the outgoing agent holds
+        // the bars whose slot is even (0..1, 4..5, ...), the incoming agent the next pair. So the
+        // outgoing bar here is the SECOND bar of its turn (a bar ≡ 1 mod 4) and the bar after it is
+        // the FIRST bar of the incoming agent's turn. The outgoing bar sits in its own four-bar
+        // phrase at whichever position, and the seven stepwise notes below are already a line there,
+        // so the model's last note is the note the room will play.
         const start = outgoing.phraseStartBar;
-        const outgoingTarget = (start % 2 === 0 ? start : start + 1) + 4 * 2;
-        expect(outgoingTarget % 2).toBe(0);
+        const outgoingTarget = start + ((1 - (start % 4) + 4) % 4) + 4 * 2;
+        expect(outgoingTarget % 4).toBe(1);
         const line = [
           note('C4', 0), note('D4', 0.5), note('E4', 1), note('F4', 1.5),
           note('G4', 2), note('A4', 2.5), note('C5', 3),

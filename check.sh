@@ -18,7 +18,7 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
-FLOOR="${FLOOR:-216}"
+FLOOR="${FLOOR:-220}"
 BASE="${BASE:-https://zpe.vc}"
 APP_HOST="${APP_HOST:-jam.zpe.vc}"
 APP_NAME="${APP_NAME:-agent-jam}"

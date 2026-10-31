@@ -57,6 +57,20 @@ export interface MeasureContext {
   stride?: number;
   /** the beat a cell ask names, chosen by the room on the bar's eighth grid, away from the downbeat */
   cellSlot?: number;
+  /**
+   * WHICH HALF OF THE ROOM'S TRADE THIS BAR IS. The lead rotates in two-bar turns, so an agent's
+   * bars come in pairs: one opens the statement, the next closes it and hands the turn over. A
+   * prompt that does not say which half it is in writes two one-bar starts where a two-bar call
+   * belongs. Absent when there is nobody to trade with.
+   */
+  trade?: TradeHalf;
+}
+
+/** 1 = the bar that opens a two-bar turn, 2 = the bar that closes it. */
+export interface TradeHalf {
+  half: 1 | 2;
+  /** how many bars the turn is: the period the lead rotates on */
+  of: number;
 }
 
 /** Who is playing: an anonymous visitor, or someone the zpe door knows. */
@@ -183,6 +197,36 @@ export const CELL_ASK = 'CELL ASK';
 export const CELL_NOTES = 2;
 
 /**
+ * THE MARKER A TRADE PROMPT CARRIES, so a test, a probe and a reader find the same word.
+ */
+export const TRADE_MARK = 'TRADE:';
+
+/**
+ * HOW MANY BARS ONE AGENT HOLDS THE TURN.
+ *
+ * A one-bar rotation is a call and an answer inside the same measure, which is turnover, not a
+ * trade: measured at 160 BPM the room's two agents swapped the lead every bar, so neither phrase
+ * lasted long enough to be answered. Two bars let the call be a statement (two bars open and close
+ * it) and the next turn be a real response. The room's own clock reads this constant, and the
+ * prompt words below are written against it, so the rotation and the instruction cannot drift apart.
+ *
+ * TWO is the only period the words in TRADE_HALF_RULE are written for: a turn of three or more bars
+ * would need a rule for its middle bars, which do not exist at two.
+ */
+export const TRADE_BARS = 2;
+
+/**
+ * WHAT THE HALF MEANS TO THE MODEL WRITING THAT BAR. The turn is ONE statement across the pair: the
+ * first bar states it, the second bar finishes it and hands it on. Said plainly because a model
+ * told only "lead" writes a complete one-bar idea twice.
+ */
+const TRADE_HALF_RULE: Record<1 | 2, (of: number) => string> = {
+  1: of => `half 1 of ${of} — this bar OPENS the turn, which is one statement across ${of} bars. Start the idea and leave it unfinished; the next bar closes it.`,
+  2: of => `half ${of} of ${of} — this bar CLOSES the turn. Carry the statement the bar before opened, finish it here, and hand the turn over at the bar line; do not start a new idea.`,
+};
+
+
+/**
  * HOW FAR APART A HEDGED BAR'S TWO CALLS ARE ISSUED, in ms.
  *
  * The tail that misses a bar is one slow call, not a slow provider: measured at 200 BPM (Task 4's
@@ -265,6 +309,11 @@ function buildUserPrompt(ctx: MeasureContext, brief: DecisionBrief | null, ask: 
     // eight is the wrong answer to that question. The register still applies, below.
     if (ask === 'bar') lines.push(`AMOUNT: ${DENSITY_RULE[brief.density]} ${REGISTER_RULE[brief.register]}`);
   }
+
+  // WHICH HALF OF THE TRADE THIS BAR IS. Not a brief: the turn is the room's clock, and it applies
+  // whether or not a judge spoke. A bar that is not told it is half of a longer statement writes a
+  // whole one, so two bars that were meant to be one call arrive as two.
+  if (ctx.trade) lines.push(`${TRADE_MARK} ${TRADE_HALF_RULE[ctx.trade.half](ctx.trade.of)}`);
 
   if (ctx.peerPlan) {
     lines.push(`ANOTHER AGENT IS ABOUT TO PLAY THIS BAR: ${ctx.peerPlan}. Answer it or leave room for it, never copy it.`);

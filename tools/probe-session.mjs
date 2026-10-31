@@ -222,8 +222,36 @@ function report() {
     // named slot instead of a bar because the agent's tail did not fit the bar (llm-planner.ts,
     // CELL_ASK). Task 4's acceptance is this number being at least one at 200 BPM.
     const cellAsks = prompts.filter(p => p.includes('CELL ASK')).length;
+    // THE TRADE HALF, COUNTED. A prompt carries `TRADE: half n of m` when the room is trading in
+    // turns (llm-planner.ts, TRADE_MARK): the bar knows which half of a two-bar statement it is.
+    const tradeHalves = prompts.filter(p => p.includes('TRADE: half')).length;
     console.log(`prompts   ${prompts.length}  naming a drum code as a strong beat: ${drumHits}` +
-      `  carrying a cell request: ${cellAsks}`);
+      `  carrying a cell request: ${cellAsks}  carrying a trade half: ${tradeHalves}`);
+  }
+  // THE TRADE, AS THE PROBE HEARD IT. Every bar record carries the role the room gave its agent and
+  // the bar it was written for, so a two-bar trade reads as PAIRS per agent (lead 0..1, answer 2..3)
+  // and a one-bar rotation reads bar by bar (lead 0, answer 1, lead 2, answer 3). Bars are collapsed
+  // into runs of one role on consecutive bars; the last record for a bar wins over a refresh.
+  const rolesSeen = new Map();
+  for (const b of bars) {
+    if (!b.agent || !b.role || typeof b.bar !== 'number') continue;
+    rolesSeen.set(`${b.agent}@${b.bar}`, { agent: b.agent, bar: b.bar, role: b.role });
+  }
+  const rolesByAgent = new Map();
+  for (const r of [...rolesSeen.values()].sort((a, b) => a.bar - b.bar)) {
+    const rows = rolesByAgent.get(r.agent) ?? [];
+    rows.push(r);
+    rolesByAgent.set(r.agent, rows);
+  }
+  for (const [agent, rows] of rolesByAgent) {
+    const runs = [];
+    for (const r of rows) {
+      const last = runs[runs.length - 1];
+      if (last && last.role === r.role && r.bar === last.to + 1) last.to = r.bar;
+      else runs.push({ role: r.role, from: r.bar, to: r.bar });
+    }
+    const words = runs.map(x => `${x.role} ${x.from === x.to ? x.from : `${x.from}..${x.to}`}`).join('  ');
+    console.log(`roles     ${String(agent).padEnd(14)} ${words}`);
   }
   if (paced.length) console.log(`paced     ${paced.length} bars paced by the tempo rule, e.g. "${paced[0].response}"`);
   for (const [agent, row] of byAgent) {

@@ -36,8 +36,10 @@ import {
   isFreeModel,
   isKnownModel,
   HEDGE_GAP_MS,
+  TRADE_BARS,
   type AiCallMeta,
   type Tier,
+  type TradeHalf,
 } from './llm-planner';
 import {
   prunePast, keepNewest, takeForBar, renderBudget, renderStride, RENDER_COST_ASSUMED_MS,
@@ -1343,9 +1345,10 @@ export class JamRoom implements DurableObject {
   }
 
   /**
-   * ONE AGENT LEADS A BAR. Two agents both deciding to lead is two solos played over each other, which
-   * is exactly what "they are not collaborating" sounds like. The turn rotates by bar over the agents
-   * in spawn order, so a room of two agents has a call and an answer with nobody at the keyboard.
+   * ONE AGENT LEADS A TURN. Two agents both deciding to lead is two solos played over each other,
+   * which is exactly what "they are not collaborating" sounds like. The turn rotates over the agents
+   * in spawn order in TWO-BAR turns: one agent states a call, then the next answers it with two bars
+   * of its own, so a room of two agents trades fours with nobody at the keyboard.
    */
   private coordinateRole(
     agent: InProcessAgent,
@@ -1365,8 +1368,7 @@ export class JamRoom implements DurableObject {
       return brief;
     }
 
-    const order = [...this.agents.keys()];
-    const myTurn = order[bar % order.length] === agent.peer.peerId;
+    const myTurn = this.turnHolder(bar) === agent.peer.peerId;
     // A HUMAN WHO JUST PLAYED IS THE LEAD. An agent that leads over them is not answering, it is talking
     // over the person the room is built for.
     const humanLeading = hasHumanPhrase
@@ -1375,7 +1377,7 @@ export class JamRoom implements DurableObject {
 
     if (brief.role === 'lead' && humanLeading) return { ...brief, role: 'answer' };
 
-    // NOBODY BUT AGENTS ARE PLAYING: the turn holder takes the line. Alternating by bar means the room
+    // NOBODY BUT AGENTS ARE PLAYING: the turn holder takes the line. Alternating by TURN means the room
     // keeps a conversation going with no one at the keyboard, which is the point of independent agents.
     if (myTurn) {
       if (brief.role === 'rest') return { ...brief, role: 'lead', play: true, density: 'sparse' };
@@ -1388,17 +1390,44 @@ export class JamRoom implements DurableObject {
   }
 
   /**
-   * THE NOTE THE BAR BEFORE THIS ONE LEFT RINGING. The bar before this one belongs to whoever led it:
-   * this agent when the turn stayed, the OTHER agent when it moved. That agent's note is read from
-   * the queue the room will play when it has not reached the line yet, and from what it published
-   * when it has — the agents' bar timers fire in either order, so both places can hold the answer
-   * and neither alone is reliable. A silent bar hands on nothing.
+   * WHO HOLDS THE TURN FOR THIS BAR. The lead rotates in two-bar turns, so the same agent states the
+   * call for both bars of its turn and the other answers under it for both of its own. A one-bar
+   * rotation is a call and a response inside a single measure, which reads as turnover on the bar
+   * line; the period lives beside the words the prompt says (`TRADE_BARS` in llm-planner.ts) so the
+   * room's clock and the model's instruction cannot drift apart.
+   *
+   * Wrapped for a bar behind the transport: bar 1's previous bar is -1, and the speaker of -1 is the
+   * last agent in the order.
    */
-  private voiceFrom(bar: number): number | null {
+  private turnHolder(bar: number): string | null {
     const order = [...this.agents.keys()];
     if (order.length === 0) return null;
+    const slot = Math.floor(bar / TRADE_BARS);
+    return order[((slot % order.length) + order.length) % order.length]!;
+  }
+
+  /**
+   * WHICH HALF OF THE TWO-BAR TRADE THIS BAR IS, for the prompt that writes it. Absent with nobody to
+   * trade with: a lone agent is not taking turns with anybody, and a prompt that said so would be
+   * describing a partner the room does not have.
+   */
+  private tradeOf(bar: number): TradeHalf | undefined {
+    if (this.agents.size < 2) return undefined;
+    const at = ((bar % TRADE_BARS) + TRADE_BARS) % TRADE_BARS;
+    return { half: (at + 1) as 1 | 2, of: TRADE_BARS };
+  }
+
+  /**
+   * THE NOTE THE BAR BEFORE THIS ONE LEFT RINGING. The bar before this one belongs to whoever held
+   * the turn — this agent when the turn stayed, the OTHER agent when it moved. That agent's note is
+   * read from the queue the room will play when it has not reached the line yet, and from what it
+   * published when it has — the agents' bar timers fire in either order, so both places can hold the
+   * answer and neither alone is reliable. A silent bar hands on nothing.
+   */
+  private voiceFrom(bar: number): number | null {
     const previous = bar - 1;
-    const speakerId = order[(((previous % order.length) + order.length) % order.length)]!;
+    const speakerId = this.turnHolder(previous);
+    if (!speakerId) return null;
     const speaker = this.agents.get(speakerId);
     if (!speaker) return null;
     const queued = speaker.queue.find(q => q.bar === previous);
@@ -1579,6 +1608,9 @@ export class JamRoom implements DurableObject {
         ? { ...judgedOrCode, role: 'ornament' as const, play: true, density: 'sparse' as const }
         : judgedOrCode;
       const brief = this.coordinateRole(agent, forBar, rested, phrase.count > 0);
+      // WHICH HALF OF THE TURN THIS BAR IS. The room's clock, not the judge's: the brief says what
+      // the bar is for, the trade says where it sits in the two-bar statement that for is part of.
+      const trade = this.tradeOf(forBar);
 
       // THE TAIL-AWARE ASK'S NUMBERS. The tail is the worst of this agent's recent renders, which is
       // the stride's own reading; the window is ONE BAR, because an ask writes one bar of music. A
@@ -1602,6 +1634,7 @@ export class JamRoom implements DurableObject {
         tailMs: targetBar === undefined ? tailMs : undefined,
         windowMs: this.barMs(),
         cellSlot: this.cellAskSlot(agent, forBar),
+        trade,
       };
 
       // THE MODEL'S BUDGET COMES FROM THE ROOM, NOT FROM A CONSTANT. 2500ms against a 1500ms bar at
