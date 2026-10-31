@@ -210,3 +210,18 @@ export function nextRenderTail(previous: number, cost: number, decay = 0.9): num
  * call took 1,312 ms of budget and overran it.
  */
 export const RENDER_TAIL_ASSUMED_MS = 1800;
+
+/**
+ * The wall-clock address of one note's slot, carried in the message so the CLIENT can put it on the grid.
+ *
+ * MEASURED (session 2026-10-31T15-44-31, 125 BPM, 83 s, 721 notes): the server's own emissions hold the
+ * phrase's internal rhythm to the millisecond (gaps of 240 ms for a half beat at 125 BPM), while the
+ * client plays every note on ARRIVAL plus a fixed 40 ms, so socket and main-thread jitter land straight in
+ * the audio. Against the drummer's kick, 73% of notes sat within 40 ms of their slot and the rest were
+ * off by 100 to 300 ms. `at` is the slot on the room's clock; `in` is the same slot as a delay from the
+ * moment the message leaves, which needs no clock agreement between browser and server.
+ */
+export function slotStamp(barStart: number, beatTime: number, beatMs: number, now: number): { at: number; in: number } {
+  const at = Math.round(barStart + beatTime * beatMs);
+  return { at, in: at - now };
+}

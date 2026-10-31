@@ -3,7 +3,7 @@ import {
   keepNewest, prunePast, renderBudget, renderStride, renderCeilingBpm, takeForBar,
   RENDER_COST_ASSUMED_MS, RENDER_TAIL_ASSUMED_MS,
   barDelayMs, barMsFor, barElapsedEnough, firstReachableBar, nextRenderTail, DEFAULT_BAR_MS, MAX_BPM,
-  MIN_BPM, MIN_BAR_MS,
+  MIN_BPM, MIN_BAR_MS, slotStamp,
 } from './bar-queue';
 
 type Entry = { bar: number };
@@ -329,5 +329,23 @@ describe('nextRenderTail', () => {
     const barMs = 240_000 / 160;                       // 1500 ms
     expect(renderStride(1300, barMs)).toBe(1);          // the mean says "one bar per bar"
     expect(renderStride(Math.max(1300, 1800), barMs)).toBe(2);  // the tail says it will miss
+  });
+});
+
+describe('slotStamp', () => {
+  it('addresses a note on the room clock, and as a delay from send', () => {
+    const stamp = slotStamp(1_000_000, 0.75, 480, 1_000_100);
+    expect(stamp.at).toBe(1_000_360);
+    expect(stamp.in).toBe(260);
+  });
+
+  it('reports a slot already behind the send time as a negative delay, so the client can drop it', () => {
+    expect(slotStamp(1_000_000, 0.25, 480, 1_000_240).in).toBe(-120);
+  });
+
+  it('rounds to the millisecond rather than shipping a float to the client', () => {
+    const stamp = slotStamp(1_000_000, 0.25, 333.3, 1_000_000);
+    expect(Number.isInteger(stamp.at)).toBe(true);
+    expect(stamp.at).toBe(1_000_083);
   });
 });

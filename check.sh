@@ -30,7 +30,7 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
-FLOOR="${FLOOR:-303}"
+FLOOR="${FLOOR:-311}"
 # THE PROBE'S FLOOR, separate from the suite's: 45 s at 160 BPM with three agents wrote 66 to 74
 # model bars across the five runs taken on 2026-10-31, and the plan's review measured 37 and 41 for
 # the same command a day earlier. The floor of 20 sits under the lowest of those (37), so a healthy

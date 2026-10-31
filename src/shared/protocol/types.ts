@@ -49,6 +49,8 @@ export const NoteEventSchema = z.object({
   beatTime: z.number().describe('Absolute beat position at which this note should sound (anchored to transport start)'),
   velocity: z.number().min(0).max(127).describe('MIDI velocity (0–127); controls amplitude of the synthesized note'),
   timestamp: z.number().describe('Client performance.now() at the moment of the event, used for latency measurement'),
+  at: z.number().optional().describe('Epoch ms of the slot this note belongs to on the room clock, so a client can schedule it instead of playing on arrival'),
+  in: z.number().optional().describe('The same slot as a delay in ms from the moment the message left the server, which needs no clock agreement between browser and server'),
 });
 export type NoteEvent = z.infer<typeof NoteEventSchema>;
 

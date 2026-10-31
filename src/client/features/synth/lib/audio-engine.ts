@@ -364,7 +364,7 @@ export class AudioEngine {
    * Play a note with per-peer volume routing.
    * peerId is used to route through the peer's Gain node.
    */
-  playNote(pitch: string, velocity: number, isRemote: boolean, peerId?: string): void {
+  playNote(pitch: string, velocity: number, isRemote: boolean, peerId?: string, delayMs?: number): void {
     // A kit has no melodic synth, so this guard cannot be a synth check alone
     if (!this.synth && !this.localKit && this.peerKits.size === 0) return;
 
@@ -376,7 +376,9 @@ export class AudioEngine {
     const normalizedVelocity = velocity / 127;
     const key = peerId ? `${peerId}:${pitch}` : pitch;
 
-    const delay = isRemote ? PLAYOUT_DELAY_MS / 1000 : 0;
+    // A caller that knows the note's slot passes it; anything else keeps the old playout delay. A
+    // remote note played on arrival puts socket jitter and main-thread load straight into the audio.
+    const delay = isRemote ? (delayMs ?? PLAYOUT_DELAY_MS) / 1000 : 0;
     const when = Tone.now() + delay;
 
     // Route to correct voice

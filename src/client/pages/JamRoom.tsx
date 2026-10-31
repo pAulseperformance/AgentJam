@@ -3,6 +3,7 @@ import { useRoomSocket, PeerList, TransportBar, AgentPanel, MetricsPanel, AiDebu
 import { useSynthEngine, Keyboard, useMidi, type InstrumentType } from '@/client/features/synth';
 import { Visualizer } from '@/client/features/visualizer';
 import type { NoteEvent, Peer } from '@/shared/protocol';
+import { slotDelayMs } from '@/client/features/room/lib/note-clock';
 
 interface JamRoomProps {
   roomId: string;
@@ -72,9 +73,18 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
   const handleRemoteNoteEvent = useCallback((event: NoteEvent) => {
     if (!engine) return;
 
-    // Route to AudioEngine with peerId for per-peer volume
+    // Route to AudioEngine on the note's own SLOT, not on arrival. The server stamps `in` as a delay
+    // from the moment the message left, so the browser needs no clock agreement with it, and a busy
+    // main thread no longer moves the note: it plays at the time the bar clock named.
+    const delay = slotDelayMs(event.in);
+    if (delay === null) {
+      // Its slot has gone. A dropped note leaves a hole in a bar; a shoved one plays off the grid.
+      return;
+    }
     if (event.type === 'note_on') {
-      engine.playNote(event.pitch, event.velocity, true, event.peerId);
+      engine.playNote(event.pitch, event.velocity, true, event.peerId, delay);
+    } else if (delay > 0) {
+      setTimeout(() => engine.releaseNote(event.pitch, event.peerId), delay);
     } else {
       engine.releaseNote(event.pitch, event.peerId);
     }

@@ -45,7 +45,7 @@ import {
   prunePast, keepNewest, takeForBar, renderBudget, renderStride, renderCeilingBpm, RENDER_COST_ASSUMED_MS,
   RENDER_TAIL_ASSUMED_MS, cellsForBar,
   barDelayMs, barMsFor, barElapsedEnough, firstReachableBar, nextRenderTail, DEFAULT_BAR_MS,
-  MIN_BPM, MAX_BPM,
+  MIN_BPM, MAX_BPM, slotStamp,
 } from './bar-queue';
 import { reactionCells, type ReactionBar } from './reaction';
 import { decideWithJev, jevConfigFromEnv, type JevState } from './jev';
@@ -1492,6 +1492,10 @@ export class JamRoom implements DurableObject {
     for (const note of notes) {
       const onDelay = barStart + note.beatTime * beatMs - Date.now();
       if (onDelay < latestUseful) continue;
+      // THE SLOT, not the arrival. The client schedules on `at`, so socket jitter and a busy main
+      // thread cannot move a note off the grid, and a slot already past is dropped instead of shoved in.
+      const onStamp = slotStamp(barStart, note.beatTime, beatMs, Date.now());
+      const offStamp = slotStamp(barStart, note.beatTime + note.duration, beatMs, Date.now());
 
       setTimeout(() => {
         const noteOn = JSON.stringify({
@@ -1501,6 +1505,8 @@ export class JamRoom implements DurableObject {
           beatTime: note.beatTime,
           velocity: note.velocity,
           timestamp: Date.now(),
+          at: onStamp.at,
+          in: onStamp.in,
         });
         state.activeNotes.add(note.pitch);
         state.addNoteCount();
@@ -1518,6 +1524,8 @@ export class JamRoom implements DurableObject {
           beatTime: note.beatTime + note.duration,
           velocity: 0,
           timestamp: Date.now(),
+          at: offStamp.at,
+          in: offStamp.in,
         });
         state.activeNotes.delete(note.pitch);
         this.broadcastAll(noteOff);
