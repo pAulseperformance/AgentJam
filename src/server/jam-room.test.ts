@@ -3,13 +3,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { JamRoom } from './jam-room';
 import { DEFAULT_BPM } from '@/shared/protocol/constants';
 import { FREE_MODEL } from '@/shared/ai/models';
+import { EARLIER_SESSION } from './llm-planner';
+import { motifKey, motifsFor } from './motif-bank';
 
 
 describe('JamRoom Durable Object', () => {
-  const getRoomStub = () => {
+  const getRoomStub = (name?: string) => {
     // Cast to any to bypass the strict Env typing for tests
     const typedEnv = env as any;
-    const id = typedEnv.JAM_ROOM.idFromName(`test-room-${crypto.randomUUID()}`);
+    const id = typedEnv.JAM_ROOM.idFromName(name ?? `test-room-${crypto.randomUUID()}`);
     return typedEnv.JAM_ROOM.get(id);
   };
 
@@ -493,6 +495,166 @@ describe('JamRoom Durable Object', () => {
 
         ws.close();
         await new Promise(r => setTimeout(r, 50));
+        await settle(stub);
+      });
+    });
+
+    describe('the motif bank', () => {
+      const DAY = 24 * 60 * 60 * 1000;
+      const tick = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+      /** The room's own cleanup, so the test does not leave an isolated storage frame open. */
+      const settle = async (stub: ReturnType<typeof getRoomStub>) => {
+        await runInDurableObject(stub, async (instance: JamRoom) => {
+          // @ts-expect-error - private method, called so the isolated storage frame can be popped
+          instance.cleanupIntervals();
+        });
+      };
+
+      /** A socket on THIS room. */
+      const open = async (stub: ReturnType<typeof getRoomStub>) => {
+        const res = await stub.fetch(new Request('http://localhost/api/room/test-1/ws', {
+          headers: { Upgrade: 'websocket' },
+        }));
+        expect(res.status).toBe(101);
+        const ws = res.webSocket;
+        if (!ws) throw new Error('no websocket');
+        ws.accept();
+        return ws;
+      };
+
+      it('banks what each agent said when the last listener leaves', async () => {
+        const stub = getRoomStub(`bank-${crypto.randomUUID()}`);
+        const ws = await open(stub);
+        ws.send(JSON.stringify({ type: 'join_room', name: 'BankPeer', kind: 'human' }));
+        await tick(40);
+        ws.send(JSON.stringify({ type: 'spawn_agent', name: 'Bank Bot', style: 'jazz' }));
+        await tick(80);
+
+        await runInDurableObject(stub, async (instance: JamRoom) => {
+          const room = instance as unknown as {
+            agents: Map<string, { sessionMotif: { pitches: string[]; slots: number[] } | null }>;
+            renderAgentBar: (agent: unknown) => Promise<void>;
+          };
+          // The model is not what this case measures: the statement is planted as the session's own.
+          room.renderAgentBar = async () => {};
+          const agent = [...room.agents.values()][0];
+          if (!agent) throw new Error('agent did not spawn');
+          agent.sessionMotif = { pitches: ['F4', 'A4'], slots: [2, 6] };
+        });
+
+        // THE LAST LISTENER LEAVES. That is the session's end, and the write is held by waitUntil.
+        ws.close();
+        await tick(120);
+
+        await runInDurableObject(stub, async (instance: JamRoom, state: DurableObjectState) => {
+          const room = instance as unknown as { roomId: string };
+          const rows = await motifsFor(state.storage, room.roomId, 'Bank Bot', Date.now());
+          expect(rows).toHaveLength(1);
+          expect(rows[0]?.motif).toEqual({ pitches: ['F4', 'A4'], slots: [2, 6] });
+        });
+
+        await settle(stub);
+      });
+
+      it('offers a statement from the first session inside the second session prompt', async () => {
+        const stub = getRoomStub(`bank-${crypto.randomUUID()}`);
+
+        // ── SESSION ONE: an agent states E4/G4, the listener leaves, the room banks it.
+        // THE ROOM'S WARM CALL IS ANSWERED AT ONCE. In this test env the AI binding is a real remote
+        // one, and a render waits on the warm: a fake that answers 'OK' is what makes this case about
+        // the bank instead of about a load.
+        await runInDurableObject(stub, async (instance: JamRoom) => {
+          const room = instance as unknown as {
+            env: { AI?: { run(model: string, inputs: unknown): Promise<unknown> } };
+          };
+          room.env.AI = { run: () => Promise.resolve({ response: 'OK' }) };
+        });
+        const first = await open(stub);
+        first.send(JSON.stringify({ type: 'join_room', name: 'FirstPeer', kind: 'human' }));
+        await tick(40);
+        first.send(JSON.stringify({ type: 'spawn_agent', name: 'Bank Bot', style: 'jazz' }));
+        await tick(80);
+        await runInDurableObject(stub, async (instance: JamRoom) => {
+          const room = instance as unknown as {
+            agents: Map<string, { sessionMotif: { pitches: string[]; slots: number[] } | null }>;
+            renderAgentBar: (agent: unknown) => Promise<void>;
+          };
+          room.renderAgentBar = async () => {};
+          const agent = [...room.agents.values()][0];
+          if (!agent) throw new Error('agent did not spawn');
+          agent.sessionMotif = { pitches: ['E4', 'G4'], slots: [0, 4] };
+        });
+        first.close();
+        await tick(120);
+
+        // THE STORE IS NOT EMPTY: this is the reading the write exists for, and the one that fails
+        // when the bank is not written at all.
+        await runInDurableObject(stub, async (instance: JamRoom, state: DurableObjectState) => {
+          const room = instance as unknown as { roomId: string };
+          expect(await motifsFor(state.storage, room.roomId, 'Bank Bot', Date.now())).toHaveLength(1);
+        });
+
+        // ── SESSION TWO: the same room, the same agent name. The first bar's prompt is the offer.
+        const prompts: string[] = [];
+        await runInDurableObject(stub, async (instance: JamRoom) => {
+          const room = instance as unknown as {
+            env: { AI?: { run(model: string, inputs: unknown): Promise<unknown> } };
+            agents: Map<string, { barTimer: ReturnType<typeof setTimeout> | null }>;
+            handleSpawnAgent: (ws: unknown, name: string, style: string) => void;
+            renderAgentBar?: unknown;
+          };
+          // SESSION ONE REPLACED THE RENDER ON THIS INSTANCE to keep the model out of its frame. Put
+          // the room's own method back, or the spawn below never renders and the prompt never exists.
+          delete room.renderAgentBar;
+          room.env.AI = {
+            run: (_model, inputs) => {
+              const content = ((inputs as { messages?: Array<{ content: string }> }).messages?.at(-1)?.content) ?? '';
+              prompts.push(content);
+              return Promise.resolve({
+                response: JSON.stringify([{ pitch: 'C4', beatTime: 0, velocity: 90, duration: 0.5 }]),
+              });
+            },
+          };
+          // A socket is only needed for the tier: this room's own spawn path is what the case drives.
+          room.handleSpawnAgent({ deserializeAttachment: () => undefined }, 'Bank Bot', 'jazz');
+          for (let i = 0; i < 50 && prompts.length === 0; i++) await tick(10);
+          await tick(30); // let the render settle before the frame closes
+          const agent = [...room.agents.values()][0];
+          if (agent?.barTimer) clearTimeout(agent.barTimer);
+        });
+
+        expect(prompts.length).toBeGreaterThan(0);
+        const prompt = prompts[0] ?? '';
+        expect(prompt).toContain(EARLIER_SESSION);
+        // THE FIRST SESSION'S OWN PITCHES AND SLOTS, not a phrase the second session invented.
+        expect(prompt).toContain('E4@0.00');
+        expect(prompt).toContain('G4@1.00');
+
+        await settle(stub);
+      });
+
+      it('deletes a bank row older than seven days when the alarm fires', async () => {
+        const stub = getRoomStub(`bank-${crypto.randomUUID()}`);
+        const now = Date.now();
+        const oldRow = { room: '', agent: 'Old Bot', session: now - 9 * DAY, motif: { pitches: ['C3'], slots: [0] }, at: now - 8 * DAY };
+        const youngRow = { room: '', agent: 'Young Bot', session: now - 2 * DAY, motif: { pitches: ['D4'], slots: [4] }, at: now - DAY };
+
+        await runInDurableObject(stub, async (instance: JamRoom, state: DurableObjectState) => {
+          const room = instance as unknown as { roomId: string; alarm: () => Promise<void> };
+          oldRow.room = room.roomId;
+          youngRow.room = room.roomId;
+          // PLANTED RAW, not through the bank's writer: saveMotif prunes the old row by itself, and
+          // this case is about the ALARM being the thing that deletes it.
+          await state.storage.put(motifKey(oldRow), oldRow);
+          await state.storage.put(motifKey(youngRow), youngRow);
+
+          await room.alarm();
+
+          expect(await state.storage.get(motifKey(oldRow))).toBeUndefined();
+          expect(await state.storage.get(motifKey(youngRow))).toEqual(youngRow);
+        });
+
         await settle(stub);
       });
     });

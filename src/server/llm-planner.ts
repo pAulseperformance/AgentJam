@@ -39,6 +39,12 @@ export interface MeasureContext {
   phrase?: string;
   /** the agent's own last statement, so it can restate or vary it instead of starting over */
   motif?: string;
+  /**
+   * WHAT THIS ROOM HEARD THIS AGENT PLAY IN AN EARLIER SESSION, already in words. The room's motif
+   * bank offers it on the first bar of a returning agent; it is a memory of the same room, never a
+   * claim about the last bar.
+   */
+  earlierMotif?: string;
   /** pitches still held by someone else, so the bar does not double them */
   heldNotes?: string[];
   /** what ANOTHER AGENT has already queued for this bar, so two agents do not play the same line */
@@ -193,6 +199,12 @@ const REGISTER_RULE: Record<DecisionBrief['register'], string> = {
 /** The marker a cell ask carries in the prompt, so a test, a probe and a reader find the same line. */
 export const CELL_ASK = 'CELL ASK';
 
+/**
+ * The marker a statement from an earlier session carries, so the probe can count the offer and a
+ * test can hold the room to it. Uppercase like CELL_ASK and TRADE: the prompt is the record.
+ */
+export const EARLIER_SESSION = 'EARLIER SESSION:';
+
 /** How many notes a cell ask is worth: one short gesture, not a bar. */
 export const CELL_NOTES = 2;
 
@@ -297,6 +309,13 @@ function buildUserPrompt(ctx: MeasureContext, brief: DecisionBrief | null, ask: 
     `They are playing: ${ctx.phrase ?? recentSummary}`,
     `Your motif from last bar: ${ctx.motif ?? 'none yet'}`,
   ];
+
+  // A STATEMENT FROM AN EARLIER SESSION IN THIS ROOM. It is not a claim about the last bar, so it
+  // has its own line: the model that has been away for a week is told what it played, and the brief
+  // above says whether to keep it.
+  if (ctx.earlierMotif) {
+    lines.push(`${EARLIER_SESSION} this room heard you play ${ctx.earlierMotif}.`);
+  }
 
   if (ctx.melody) lines.push(ctx.melody);
 

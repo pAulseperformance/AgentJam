@@ -56,6 +56,7 @@ import {
   roomCentre,
   type PitchPoint,
 } from './tonal-map';
+import { offeredMotif, recordSessionMotifs, sweepMotifs } from './motif-bank';
 
 /** Set by the Worker entry on the upgrade request, computed from the door's answer. */
 const TIER_HEADER = 'x-jam-tier';
@@ -185,6 +186,19 @@ interface InProcessAgent {
    * motif is what the decision layer may restate or vary, and what the model is told to keep.
    */
   motif: Motif | null;
+  /**
+   * WHAT THIS AGENT LEFT IN THIS ROOM ON AN EARLIER SESSION, offered on the first bar of this one.
+   * Read once at spawn (by the agent's name, the only identity that survives a session); a read that
+   * fails is an empty memory, never a failed bar.
+   */
+  earlierMotif: Motif | null;
+  /** the read that finds the earlier statement; the first render waits on it like the warm call */
+  earlierWarm: Promise<void> | null;
+  /**
+   * WHAT THIS SESSION HEARD THIS AGENT SAY: the last published bar that had notes. `motif` follows
+   * every bar, so a session that ends on a rest would otherwise be remembered as silence.
+   */
+  sessionMotif: Motif | null;
   /** the bar this agent's phrase began at, so the arc is measured from ITS start, not the room's bar 0 */
   phraseStartBar: number;
   /** the phrase's hook, kept so the restate bar can bring it back with one change (Yin-Yang's "vary") */
@@ -295,12 +309,24 @@ export class JamRoom implements DurableObject {
    * that dies with every Durable Object eviction is a setting the room merely borrowed.
    */
   private hedge = false;
+  /**
+   * THE ROOM THIS OBJECT SERVES, as the bank keys its rows: the id the Worker resolved from the URL
+   * (`idFromName(room)`), so a row says which room it belongs to even when a reader only has the value.
+   */
+  private readonly roomId: string;
+  /**
+   * WHEN THIS SESSION'S FIRST LISTENER ARRIVED. A session is one occupancy of the room: it opens when
+   * the first listener joins an empty room and closes when the last one leaves. The bank keys a
+   * statement by the session, so four occupancies are four memories and one occupancy is one row.
+   */
+  private sessionStartedAt = 0;
 
   constructor(
     private readonly ctx: DurableObjectState,
     env: Env,
   ) {
     this.env = env;
+    this.roomId = ctx.id.name ?? ctx.id.toString();
     this.roomState = {
       bpm: DEFAULT_BPM,
       key: DEFAULT_KEY,
@@ -363,6 +389,22 @@ export class JamRoom implements DurableObject {
     }
 
     return new Response('Not found', { status: 404 });
+  }
+
+  /**
+   * THE BANK'S ALARM.
+   *
+   * Cloudflare calls this at the earliest expiry the bank armed, whether or not anybody is in the
+   * room: the rows are this object's own storage, so the object that holds them is what deletes them.
+   * It re-arms itself for the next row due (motif-bank.ts, armSweep), so one alarm per object is
+   * enough for a bank that keeps changing.
+   */
+  async alarm(): Promise<void> {
+    try {
+      await sweepMotifs(this.ctx.storage, Date.now());
+    } catch (err) {
+      console.error('[JamRoom] motif bank sweep failed:', err);
+    }
   }
 
   // ─── Hibernation API Callbacks ──────────────────────────────────────────────
@@ -484,6 +526,10 @@ export class JamRoom implements DurableObject {
   // ─── Message Handlers ───────────────────────────────────────────────────────
 
   private handleJoin(ws: WebSocket, name: string, kind: 'human' | 'agent', instrument?: string): void {
+    // A SESSION OPENS WHEN THE FIRST LISTENER ARRIVES IN AN EMPTY ROOM. It is the key the motif bank
+    // writes a statement under, so returning tomorrow is a different session and not a fifth bar.
+    if (this.peers.size === 0) this.sessionStartedAt = Date.now();
+
     const color = PEER_COLORS[this.colorIndex % PEER_COLORS.length] ?? '#6366f1';
     this.colorIndex++;
 
@@ -568,6 +614,10 @@ export class JamRoom implements DurableObject {
     }
 
     if (this.peers.size === 0 && this.agents.size > 0) {
+      // THE SESSION IS OVER, SO THE ROOM WRITES DOWN WHAT IT HEARD. Called before the agents are
+      // cleared, and held by waitUntil: the listener whose departure ended the session is already
+      // gone, so without it the object could be evicted mid-write and the memory lost.
+      this.ctx.waitUntil(this.finishSession());
       for (const agent of this.agents.values()) {
         if (agent.barTimer) clearTimeout(agent.barTimer);
       }
@@ -786,6 +836,9 @@ export class JamRoom implements DurableObject {
       lastEchoBar: -1,
       refreshesThisBar: 0,
       motif: null,
+      earlierMotif: null,
+      earlierWarm: null,
+      sessionMotif: null,
       // THE PHRASE STARTS WHEN THE AGENT DOES. Measured: the arc used the ROOM's bar number, so the
       // cadence rotated with the room instead of landing at the end of the agent's own phrase.
       phraseStartBar: this.barIndexOf(Date.now()) + 1,
@@ -800,6 +853,10 @@ export class JamRoom implements DurableObject {
 
     this.armAgentBar(agent);
     this.agents.set(peer.peerId, agent);
+    // WHAT THIS AGENT LEFT HERE LAST TIME, looked up by the name it is spawned under: a session's
+    // peerId dies with the session, the name does not. The first render waits on this read, so the
+    // first bar it writes is written after the room has looked.
+    agent.earlierWarm = this.offerEarlier(agent);
     // START THE FIRST RENDER NOW, not on the first boundary: the queue is empty at spawn, and waiting
     // for the bar line would cost the room a pattern bar before the first model bar.
     void this.renderAgentBar(agent);
@@ -844,6 +901,47 @@ export class JamRoom implements DurableObject {
     // Clean up if room is empty
     if (this.peers.size === 0 && this.agents.size === 0) {
       this.cleanupIntervals();
+    }
+  }
+
+  // ─── The room's memory ──────────────────────────────────────────────────────
+
+  /**
+   * A STATEMENT LEFT IN THIS ROOM ON AN EARLIER SESSION, looked up by the agent's name.
+   *
+   * Read once at spawn and awaited by the first render, the same way the model's warm call is: a
+   * memory that arrives after the bar it was meant for is not a memory. A failed read is an empty
+   * one — the bank is a courtesy, never a gate on the next bar.
+   */
+  private async offerEarlier(agent: InProcessAgent): Promise<void> {
+    try {
+      const row = await offeredMotif(this.ctx.storage, this.roomId, agent.peer.name);
+      if (row && agent.motif === null) agent.earlierMotif = row.motif;
+    } catch (err) {
+      console.error('[JamRoom] motif bank read failed:', err);
+    }
+  }
+
+  /**
+   * WRITE ONE ROW PER AGENT FOR THE SESSION THAT JUST ENDED.
+   *
+   * The snapshot is taken SYNCHRONOUSLY, before the first await, so the caller can clear the agents
+   * straight after handing this to waitUntil: what is written is what the room heard, not what is
+   * left of the room when the storage answers.
+   */
+  private async finishSession(): Promise<void> {
+    const at = Date.now();
+    const session = this.sessionStartedAt || at;
+    const statements = [...this.agents.values()]
+      .filter(agent => agent.sessionMotif !== null)
+      .map(agent => ({ agent: agent.peer.name, motif: agent.sessionMotif as Motif }));
+    this.sessionStartedAt = 0;
+    if (statements.length === 0) return;
+    try {
+      await recordSessionMotifs(this.ctx.storage, this.roomId, session, statements, at);
+    } catch (err) {
+      // A ROOM THAT CANNOT REMEMBER STILL PLAYS. Losing a session's memory must not fail a socket.
+      console.error('[JamRoom] motif bank write failed:', err);
     }
   }
 
@@ -1254,7 +1352,12 @@ export class JamRoom implements DurableObject {
     this.emitAgentBar(agent, notes, bar, beatMs);
     // A CELL BAR DOES NOT REPLACE THE AGENT'S IDEA. Its cells quote the motif, so overwriting the
     // motif with them would shrink the agent's material to its own echo, one gap bar at a time.
-    if (reaction === null) agent.motif = motifFrom(notes);
+    if (reaction === null) {
+      agent.motif = motifFrom(notes);
+      // WHAT THIS SESSION HEARD. A bar that ends in a rest leaves `motif` empty, and a session's last
+      // bar is often a rest; the bank must keep the phrase the room listened to, not the silence after it.
+      if (agent.motif) agent.sessionMotif = agent.motif;
+    }
     agent.barsSinceRest = notes.length === 0 ? 0 : agent.barsSinceRest + 1;
     agent.recentBars.push(notes.length > 0);
     agent.recentBars = agent.recentBars.slice(-4);
@@ -1623,6 +1726,10 @@ export class JamRoom implements DurableObject {
       // The room's warm call (handleJoin) is awaited HERE, before anything is measured, and
       // `sawUpTo` moves with it: what this bar can have heard is what was played after the wait.
       await this.modelWarm;
+      // THE BANK'S READ IS AWAITED HERE TOO. It is started at spawn and answered long before a bar
+      // could be written; waiting is what makes the offer part of the first bar rather than of the
+      // prompt after it.
+      if (agent.earlierWarm) await agent.earlierWarm;
       const sawUpTo = Date.now();
       // What someone else is holding RIGHT NOW may not be doubled by this bar.
       const heldPitches = this.heldByOthers(agent.peer.peerId);
@@ -1638,6 +1745,11 @@ export class JamRoom implements DurableObject {
         beatMs,
       });
       const motifText = describeMotif(agent.motif);
+      // A STATEMENT THIS AGENT LEFT HERE ON AN EARLIER SESSION, offered only while this session has
+      // none of its own. Once the agent publishes a bar, its own motif is the one the prompt carries.
+      const earlierText = agent.motif === null && agent.earlierMotif
+        ? describeMotif(agent.earlierMotif)
+        : undefined;
 
       // THE BAR THIS RENDER IS FOR, and what the other agents have queued for it. Both are needed
       // BEFORE the decision, because a second agent has to decide against the first agent's plan.
@@ -1673,7 +1785,9 @@ export class JamRoom implements DurableObject {
             bpm: this.roomState.bpm,
             style: agent.style,
             phrase: describePhrase(phrase),
-            motif: motifText,
+            // THE JUDGE HEARS THE MEMORY TOO. An agent with a statement from an earlier session is
+            // not an agent with no idea at all, and judging it as 'new' would throw the memory away.
+            motif: describeMotif(agent.motif ?? agent.earlierMotif),
             activity: agent.recentBars.length
               ? `played ${agent.recentBars.filter(Boolean).length} of the last ${agent.recentBars.length} bars`
               : 'has not played yet',
@@ -1691,7 +1805,8 @@ export class JamRoom implements DurableObject {
       // when the judge is absent.
       const judgedOrCode: typeof judged = judged ?? {
         role: 'lead',
-        relation: agent.motif ? 'vary' : 'new',
+        // AN EARLIER STATEMENT IS STILL AN IDEA: the room offered it, so the code's own brief keeps it.
+        relation: agent.motif || agent.earlierMotif ? 'vary' : 'new',
         density: 'medium',
         register: 'mid',
         play: true,
@@ -1721,6 +1836,7 @@ export class JamRoom implements DurableObject {
         currentBeat: 0,
         phrase: describePhrase(phrase),
         motif: motifText,
+        earlierMotif: earlierText,
         heldNotes: [...new Set([...heldPitches, ...phrase.held])].slice(0, 8),
         peerPlan: peerPlan.slice(0, 6).join(' ') || undefined,
         melody: melody.instruction,

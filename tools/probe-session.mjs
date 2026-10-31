@@ -278,6 +278,16 @@ function report() {
     const tradeHalves = prompts.filter(p => p.includes('TRADE: half')).length;
     console.log(`prompts   ${prompts.length}  naming a drum code as a strong beat: ${drumHits}` +
       `  carrying a cell request: ${cellAsks}  carrying a trade half: ${tradeHalves}`);
+    // THE ROOM'S MEMORY, COUNTED. A prompt carries `EARLIER SESSION:` when the room's motif bank
+    // offered this agent a statement it left here on an earlier session (motif-bank.ts, Task 11).
+    // Run twice on the same room id and the second run prints the first run's line here; a room
+    // that never writes the bank prints zero both times.
+    const earlier = prompts.filter(p => p.includes('EARLIER SESSION:'));
+    const sample = earlier.length
+      ? String(earlier[0].split('EARLIER SESSION:')[1] ?? '').split('\n')[0].trim()
+      : '';
+    console.log(`bank      ${earlier.length} prompts carry a motif from an earlier session` +
+      (sample ? `, e.g. ${sample}` : ''));
   }
   // THE TRADE, AS THE PROBE HEARD IT. Every bar record carries the role the room gave its agent and
   // the bar it was written for, so a two-bar trade reads as PAIRS per agent (lead 0..1, answer 2..3)
