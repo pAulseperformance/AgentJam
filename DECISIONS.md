@@ -276,3 +276,27 @@ line — which need only `messages`, `notes` and `bars` — print in full from a
 Falsifier: a summary line that changes in `tools/probe-session.mjs` and not in `tools/read-session.mjs`,
 seen as the two outputs differing on one file; or a reader printing a numeric reading for a field the
 file does not carry.
+
+## 2026-10-31 The probe gate holds a floor, and reads its drum codes from the room's own source
+
+Loser: a gate asserting the exact counts a probe printed when the plan was written. Reason: five runs
+of the identical command (`node tools/probe-session.mjs --bpm 160 --seconds 45 --agents
+jazz,funk,ambient --backing 1`) wrote 66 to 74 model bars on 2026-10-31, and the plan's review
+measured 37 and 41 for it a day earlier; an exact count fails on the second run, while a floor of 20 —
+under the lowest of those seven (37) — fails only when the model path stops writing. The floor lives
+in `check.sh` as `PROBE_FLOOR`, and `scripts/probe-gate.mjs` counts `source: 'llm'` bars exactly as the
+probe's own `model bars` line does, so the gate and the probe cannot disagree about which bars are the
+model's.
+
+THE DRUM CODES ARE PARSED FROM `src/server/groove.ts`, not copied into the gate. `DRUM` is the
+room's export of the kick, snare, hat and tom pitches, so a fifth voice reaches the gate with no
+second edit, and an export that cannot be read fails the gate (exit 2) instead of checking an empty
+set. The gate reads the `strong beats:` line of each prompt, which is the line `describePhrase`
+writes from the notes of a peer that is neither an agent nor a layer (`isPlayerPeer`,
+jam-room.ts:1286) — the reading the plan's Claims table already used.
+
+Falsifier: a run at the gate's length and shape that writes fewer than `PROBE_FLOOR` model bars while
+the AI panel still shows `source: llm` bars arriving, which would put the floor above the room's
+low-water mark; a drum pitch leaking through a line the gate does not read (`they are holding: ...`),
+or through a prompt field that is not a string; or a `DRUM` export renamed so the gate reads a
+partial list without failing.

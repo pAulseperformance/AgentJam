@@ -3,14 +3,18 @@
 #
 # check.sh wraps the gate this repo already declares (`npm test` -> `vitest run`, package.json:17)
 # and adds the readings a suite cannot make: the live surface, the shell's own asset, the room
-# socket's refusal on the app's own host, and the tier endpoint.
+# socket's refusal on the app's own host, the tier endpoint, and - with --live - a short session the
+# probe gate reads for model bars and drum codes (scripts/probe-gate.mjs).
 #
 # Why a FLOOR and not just "tests pass": a suite that silently stops collecting tests also exits 0,
 # so the pass COUNT is asserted against a number. Raise FLOOR in the same commit as any test that
-# lands, or the floor stops meaning anything.
+# lands, or the floor stops meaning anything. The probe gate has a floor of its own (PROBE_FLOOR) for
+# the same reason: a live session's model-bar count drifts run to run, so only a floor under the
+# low-water mark can be held after a deploy.
 #
 #   bash check.sh                          suite + five live readings: four probes and the version serving
-#   bash check.sh --live                   the above, then the page walk from docs/PATHS.md
+#   bash check.sh --live                   the above, then a 45 s session the probe gate passes or refuses,
+#                                          and the page walk from docs/PATHS.md
 #   bash check.sh --live --version <id>    the above, and fails unless <id> is the version carrying 100%
 #
 #   PARITY=loose bash check.sh             the same, but the live bundle is only proven to RESOLVE (200),
@@ -25,6 +29,12 @@ set -uo pipefail
 cd "$(dirname "$0")"
 
 FLOOR="${FLOOR:-287}"
+# THE PROBE'S FLOOR, separate from the suite's: 45 s at 160 BPM with three agents wrote 66 to 74
+# model bars across the five runs taken on 2026-10-31, and the plan's review measured 37 and 41 for
+# the same command a day earlier. The floor of 20 sits under the lowest of those (37), so a healthy
+# room clears it and only a room filling its own bars does not. Raise it in the same commit as the
+# evidence that the room's low-water mark rose; a floor nobody raises stops meaning anything.
+PROBE_FLOOR="${PROBE_FLOOR:-20}"
 PARITY="${PARITY:-strict}"
 BASE="${BASE:-https://zpe.vc}"
 APP_HOST="${APP_HOST:-jam.zpe.vc}"
@@ -188,6 +198,36 @@ else
   fi
 fi
 
+# ── Optional, --live: a short session, read by the probe gate ─────────────────
+# WHY A LIVE SESSION AND NOT A FILE IN THE REPO: the two readings the gate holds the room to are the
+# room's own - model bars written, and no drum code named in a prompt - and only a run against the
+# live Worker can take them. scripts/probe-all-pattern.json is what a room with a dead model path
+# looks like; the gate refuses that file, which is the defect this step is here to catch.
+if [ "$WALK" -eq 1 ]; then
+  step "[probe] live: a 45 s session, and the floor on its model bars"
+  probe_file="$(mktemp -t jam-probe.XXXXXX)"
+  probe_log="$(mktemp -t jam-probe-log.XXXXXX)"
+  # 45 s at 160 BPM is 30 bars per agent, and --backing puts the drummer and bass on BEFORE the first
+  # bar, which is the only state in which a drum code can reach a prompt: a gate that never switches
+  # them on cannot see the reading it exists to take.
+  node tools/probe-session.mjs --bpm 160 --seconds 45 --agents jazz,funk,ambient --backing 1 --out "$probe_file" >"$probe_log" 2>&1
+  probe_rc=$?
+  if [ "$probe_rc" -ne 0 ]; then
+    tail -20 "$probe_log"
+    note_failure "the probe exited ${probe_rc}, so there was no session file to gate"
+  else
+    node scripts/probe-gate.mjs "$probe_file" --floor "$PROBE_FLOOR"
+    gate_rc=$?
+    case "$gate_rc" in
+      0) green "      ok (the floor held and no prompt names a drum code)" ;;
+      1) note_failure "the probe gate refused this session: the readings above name what failed" ;;
+      3) unverified=$((unverified + 1))
+         step "      not asserted: the gate made no drum reading, because this session recorded no prompt" ;;
+      *) note_failure "the probe gate exited ${gate_rc}: exit 2 is a session file it could not read" ;;
+    esac
+  fi
+fi
+
 # ── Optional: the page walk ──────────────────────────────────────────────────
 if [ "$WALK" -eq 1 ]; then
   step "[walk] docs/PATHS.md, machine rows"
@@ -215,5 +255,5 @@ if [ "$unverified" -ne 0 ]; then
 else
   green "check.sh: every check passed"
 fi
-[ "$WALK" -eq 1 ] && step "          the walk ran with --live"
+[ "$WALK" -eq 1 ] && step "          the probe and the walk ran with --live"
 exit 0

@@ -61,7 +61,7 @@ npm run build                          # the build the upload ships
 bash check.sh                          # suite + five live readings against what is live NOW
 npx wrangler versions upload           # prints the Version ID, does not move traffic
 npx wrangler versions deploy <id>@100% --yes
-bash check.sh --live --version <id>    # the same readings on the new version, plus the page walk
+bash check.sh --live --version <id>    # the same readings on the new version, plus the 45 s session probe and the page walk
 ```
 
 A deploy is a version, traffic moves only at `versions deploy`, and every step is reversible by
@@ -76,7 +76,10 @@ repo can hold the system to.
 
 ## When it is slow or the agent goes quiet
 
-1. `bash check.sh --live`: the five probes and the page walk say whether the surface is up.
+1. `bash check.sh --live`: the five probes, the page walk and the probe gate say whether the surface
+   is up. The gate's own line is the one that settles whether the MODEL is writing: e.g. `model bars 66
+   (floor 20)` means the room published 66 bars from the model and the floor held; a number under the
+   floor means the room is filling its own bars and looks alive while the model is not.
 2. Open a room and read the AI panel: `source: llm` means the model answered, `fallback` means the
    model's answer could not be parsed, `pattern` means a bar was covered deterministically because
    the queue ran dry.
