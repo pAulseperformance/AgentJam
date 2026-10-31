@@ -270,8 +270,8 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
           className="jam-room__tempo-ceiling"
           style={{
             margin: '8px 2px 0',
-            fontSize: 12,
-            color: tempoMark.over ? 'var(--accent-amber)' : 'var(--text-muted)',
+            color: tempoMark.over ? 'var(--accent-amber)' : 'var(--text-secondary)',
+            fontSize: 13,
           }}
         >
           <span
@@ -282,7 +282,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
               height: 10,
               marginRight: 6,
               verticalAlign: '-1px',
-              background: tempoMark.over ? 'var(--accent-amber)' : 'var(--text-muted)',
+              background: tempoMark.over ? 'var(--accent-amber)' : 'var(--text-secondary)',
             }}
           />
           {tempoMark.label}

@@ -143,6 +143,14 @@ export interface SessionSummaryInput {
 /** How many records the strip draws before it stops and says so. */
 export const MAX_CHIPS = 160;
 
+/**
+ * THE PROTOCOL'S TEMPO CAP, in the one place in this module that needs it. `RoomStateSchema` refuses
+ * a bpm above 300, the server's `MAX_BPM` enforces it again, and the tempo control's `+` clamps to
+ * it; a measured ceiling ABOVE the cap is not a limit this room can reach, so the words below say
+ * "at every tempo this room allows" instead of naming a number nobody can set.
+ */
+export const MAX_ROOM_BPM = 300;
+
 const SOURCE_LABELS: Record<string, string> = {
   llm: 'model',
   rest: 'rest',
@@ -204,7 +212,16 @@ function rateOf(stride: number | null): string | null {
 
 /** The ceiling in words, or null when the room published none for this agent. */
 function ceilingOf(ceilingBpm: number | null): string | null {
-  return ceilingBpm === null ? null : `one bar per bar up to ${ceilingBpm} BPM`;
+  if (ceilingBpm === null) return null;
+  if (ceilingBpm >= MAX_ROOM_BPM) return 'one bar per bar at every tempo this room allows';
+  return `one bar per bar up to ${ceilingBpm} BPM`;
+}
+
+/** The same words for the whole-room mark: a ceiling above the cap is not a reachable limit. */
+function ceilingWords(ceilingBpm: number): string {
+  return ceilingBpm >= MAX_ROOM_BPM
+    ? 'one bar per bar at every tempo this room allows'
+    : `one bar per bar up to ${ceilingBpm} BPM`;
 }
 
 /**
@@ -244,7 +261,7 @@ function tempoLabelOf(
   over: boolean,
 ): string | null {
   if (ceilingBpm === null) return null;
-  if (!over || bpm === null) return `one bar per bar up to ${ceilingBpm} BPM`;
+  if (!over || bpm === null) return ceilingWords(ceilingBpm);
   // The rule is what the mark states; the stride is only added when it agrees with the rule (a
   // record written before the last tempo change can still carry a 1), so the line never claims a
   // rate the room is not playing.

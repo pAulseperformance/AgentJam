@@ -375,6 +375,17 @@ describe('the stride badge', () => {
     expect(summarize(EMPTY).badges).toEqual([]);
     expect(summarize({ ...EMPTY, signedIn: false }).badges).toEqual([]);
   });
+
+  it('does not name a ceiling the tempo control cannot reach', () => {
+    // a fast agent measured 436 BPM at 300 BPM; the control stops at 300, so the badge says what is
+    // true instead of a number nobody can set. 299 is still a tempo the control can reach.
+    expect(badgesOf([bar('llm', { agent: 'Fast Bot', stride: 1, ceilingBpm: 436 })])[0]?.ceiling)
+      .toBe('one bar per bar at every tempo this room allows');
+    expect(badgesOf([bar('llm', { agent: 'Fast Bot', stride: 1, ceilingBpm: 300 })])[0]?.ceiling)
+      .toBe('one bar per bar at every tempo this room allows');
+    expect(badgesOf([bar('llm', { agent: 'Fast Bot', stride: 1, ceilingBpm: 299 })])[0]?.ceiling)
+      .toBe('one bar per bar up to 299 BPM');
+  });
 });
 
 describe('the tempo ceiling', () => {
@@ -417,5 +428,11 @@ describe('the tempo ceiling', () => {
     const unknownTempo = tempoMarkOf([bar('cell', { agent: 'Jazz Bot', stride: 2, ceilingBpm: 126 })], null);
     expect(unknownTempo.over).toBe(false);
     expect(unknownTempo.label).toBe('one bar per bar up to 126 BPM');
+  });
+
+  it('says the ceiling is no limit at all when it sits above the top of the tempo control', () => {
+    const mark = tempoMarkOf([bar('llm', { agent: 'Fast Bot', stride: 1, ceilingBpm: 436 })], 300);
+    expect(mark.over).toBe(false);
+    expect(mark.label).toBe('one bar per bar at every tempo this room allows');
   });
 });
