@@ -89,6 +89,44 @@ function rows(summary: SessionSummary) {
   );
 }
 
+const badge: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 1,
+  padding: '6px 9px',
+  border: '1px solid var(--border)',
+  borderRadius: 'var(--radius-sm)',
+  minWidth: 0,
+};
+
+/**
+ * ONE BADGE PER AGENT: the name, how often it writes, and the tempo that rate holds to. The rate and
+ * the ceiling come from the room's own published meta (session-summary.ts, `badgesOf`), never from a
+ * note count; a record that carried no pace prints `rate not recorded` rather than a guess.
+ */
+function badges(summary: SessionSummary) {
+  if (summary.badges.length === 0) return null;
+  return (
+    <div
+      role="list"
+      aria-label="How often each agent writes"
+      style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}
+    >
+      {summary.badges.map((agent) => (
+        <div key={agent.agent} role="listitem" style={badge} title={`${agent.agent}: ${agent.rate ?? 'rate not recorded'}`}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{agent.agent}</span>
+          <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+            {agent.rate ?? 'rate not recorded'}
+          </span>
+          {agent.ceiling && (
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{agent.ceiling}</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /**
  * THE SESSION PANEL. What the last session actually sounded like: how many bars the model wrote, how
  * many it sat out, how many the generator filled, how slow the renders were and what fell back.
@@ -128,6 +166,8 @@ export function SessionPanel({ signedIn, entries }: SessionPanelProps) {
       <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '6px 0 0' }}>
         state: {summary.stateLabel}
       </p>
+
+      {badges(summary)}
 
       {rows(summary)}
 

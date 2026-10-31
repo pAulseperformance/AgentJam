@@ -80,6 +80,24 @@ export function renderStride(renderCostMs: number, barMs: number, marginMs = 100
 }
 
 /**
+ * THE TEMPO CEILING: the fastest tempo at which a render of `renderCostMs` still fits inside ONE
+ * bar, so the agent still writes one bar of music per bar. It is `renderStride` inverted: stride
+ * stays 1 while `barMs >= cost + margin`, and `barMs = 240000 / bpm`, so the last tempo that holds
+ * is `240000 / (cost + margin)` BPM. Floored, not rounded: the control moves in whole BPM, and a
+ * ceiling rounded UP would name a tempo the stride cannot hold.
+ *
+ * This is the number the surface marks under the tempo control (Task 13). It is derived here, beside
+ * the function it inverts, because two copies of the inversion would drift the day one margin moves.
+ */
+export function renderCeilingBpm(renderCostMs: number, marginMs = 100): number | null {
+  const totalMs = renderCostMs + marginMs;
+  if (!(totalMs > 0) || !Number.isFinite(totalMs)) return null;
+  const bpm = 240_000 / totalMs;
+  if (!Number.isFinite(bpm) || bpm <= 0) return null;
+  return Math.floor(bpm);
+}
+
+/**
  * HOW MANY SHORT CELLS FIT IN A GAP BAR.
  *
  * A cell is a statement, not a bar: at 200 BPM a bar is 1200 ms and three cells of about 380 ms each

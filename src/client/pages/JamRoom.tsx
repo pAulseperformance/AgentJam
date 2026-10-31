@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, useMemo, useEffect } from 'react';
-import { useRoomSocket, PeerList, TransportBar, AgentPanel, MetricsPanel, AiDebugPanel, SessionPanel } from '@/client/features/room';
+import { useRoomSocket, PeerList, TransportBar, AgentPanel, MetricsPanel, AiDebugPanel, SessionPanel, tempoMarkOf, sessionSnapshot } from '@/client/features/room';
 import { useSynthEngine, Keyboard, useMidi, type InstrumentType } from '@/client/features/synth';
 import { Visualizer } from '@/client/features/visualizer';
 import type { NoteEvent, Peer } from '@/shared/protocol';
@@ -123,6 +123,15 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
   const handleModelChange = useCallback((agentPeerId: string, model: string) => {
     sendMessage(JSON.stringify({ type: 'set_agent_model', agentPeerId, model }));
   }, [sendMessage]);
+
+  // WHERE ONE BAR PER BAR STOPS BEING POSSIBLE. Every bar the room publishes carries the ceiling its
+  // pacing came from (the slowest agent's is the room's), and the recorder holds those records; the
+  // socket's `aiDebugEntries` is the change trigger, the same one the session panel takes, because the
+  // recorder has no event of its own. Nothing is drawn until an agent has published a paced bar.
+  const tempoMark = useMemo(
+    () => tempoMarkOf(sessionSnapshot().bars, roomState?.bpm ?? null),
+    [aiDebugEntries, roomState?.bpm],
+  );
 
   // Keep color map in sync with peer list
   useMemo(() => updateColorMap(peers), [peers, updateColorMap]);
@@ -252,6 +261,33 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
         isRecording={isRecording}
         onToggleRecording={handleToggleRecording}
       />
+
+      {/* THE CEILING, MARKED WHERE THE TEMPO IS SET. One line, the number in words: above it the room
+          spreads one bar of music over more than one bar, and the line says what the slowest agent
+          does there. Amber, not rose: it is a limit being crossed, not a failure. */}
+      {tempoMark.label && (
+        <p
+          className="jam-room__tempo-ceiling"
+          style={{
+            margin: '8px 2px 0',
+            fontSize: 12,
+            color: tempoMark.over ? 'var(--accent-amber)' : 'var(--text-muted)',
+          }}
+        >
+          <span
+            aria-hidden="true"
+            style={{
+              display: 'inline-block',
+              width: 2,
+              height: 10,
+              marginRight: 6,
+              verticalAlign: '-1px',
+              background: tempoMark.over ? 'var(--accent-amber)' : 'var(--text-muted)',
+            }}
+          />
+          {tempoMark.label}
+        </p>
+      )}
 
       <div className="jam-room__main">
         <aside className="jam-room__sidebar">

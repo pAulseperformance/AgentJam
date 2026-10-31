@@ -42,7 +42,7 @@ import {
   type TradeHalf,
 } from './llm-planner';
 import {
-  prunePast, keepNewest, takeForBar, renderBudget, renderStride, RENDER_COST_ASSUMED_MS,
+  prunePast, keepNewest, takeForBar, renderBudget, renderStride, renderCeilingBpm, RENDER_COST_ASSUMED_MS,
   RENDER_TAIL_ASSUMED_MS, cellsForBar,
   barDelayMs, barMsFor, barElapsedEnough, firstReachableBar, nextRenderTail, DEFAULT_BAR_MS,
   MIN_BPM, MAX_BPM,
@@ -126,6 +126,20 @@ interface RoomLayer {
   bars: number;
   activeNotes: Set<string>;
   noteCount: number;
+}
+
+/**
+ * THE TWO NUMBERS EVERY BAR PUBLISHES ABOUT ITS OWN PACE.
+ *
+ * The bar's record already said *why* it was played in words; a surface that wants to draw a badge
+ * needs the numbers, and a reader of the export needs them without parsing prose. `stride` is the
+ * stride the bar was written under (1 = one bar per bar), `ceilingBpm` is the fastest tempo this
+ * agent still writes every bar at. Both ride on the `ai_debug` meta (jam-room publishes; the
+ * recorder's whitelist carries them to the panel).
+ */
+interface PacedMeta extends AiCallMeta {
+  stride?: number;
+  ceilingBpm?: number;
 }
 
 interface InProcessAgent {
@@ -1205,6 +1219,24 @@ export class JamRoom implements DurableObject {
   }
 
   /**
+   * STAMP THE PACE ON THE BAR'S OWN RECORD, whichever source wrote it. Called at both publish sites
+   * (the bar line and a late patch), because a listener's badge and a reader's export must be able to
+   * say how often this agent writes without reading the response prose, and a bar that omitted it
+   * would leave a hole in a strip that is supposed to be one reading per bar.
+   *
+   * The ceiling is derived from the SAME cost the stride is derived from, in `renderCeilingBpm`
+   * beside `renderStride`, so the badge and the pace cannot disagree about where one bar per bar
+   * stops being possible.
+   */
+  private pacedMeta(meta: AiCallMeta, stride: number, agent: InProcessAgent): PacedMeta {
+    return {
+      ...meta,
+      stride,
+      ceilingBpm: renderCeilingBpm(Math.max(agent.renderCostMs, agent.renderTailMs)) ?? undefined,
+    };
+  }
+
+  /**
    * Whether a peer is a PLAYER: a human at a keyboard or another model agent. The room's drummer and
    * bass are not: they count and they accompany, so their notes must not enter the phrase an agent
    * listens to, and a drum hit must not read as a person at the keyboard.
@@ -1345,9 +1377,13 @@ export class JamRoom implements DurableObject {
     // WHY A PATTERN BAR, SAID OUT LOUD. A bar with no queued render at a stride of one is a bar the
     // model missed; above a stride of one that bar is the agent's cells, so the tempo note now rides
     // on the cell record below instead of on a bar the generator played.
-    const meta = ready?.meta ?? (reaction
-      ? this.cellMeta(agent, reaction, stride)
-      : this.patternMeta(agent, notes, 'pattern bar, the queue was empty'));
+    const meta = this.pacedMeta(
+      ready?.meta ?? (reaction
+        ? this.cellMeta(agent, reaction, stride)
+        : this.patternMeta(agent, notes, 'pattern bar, the queue was empty')),
+      stride,
+      agent,
+    );
 
     this.emitAgentBar(agent, notes, bar, beatMs);
     // A CELL BAR DOES NOT REPLACE THE AGENT'S IDEA. Its cells quote the motif, so overwriting the
@@ -1997,7 +2033,7 @@ export class JamRoom implements DurableObject {
             agentPeerId: agent.peer.peerId,
             agentName: agent.peer.name,
             bar: target,
-            meta: this.lateMeta(result.meta, patch, fromBeat),
+            meta: this.pacedMeta(this.lateMeta(result.meta, patch, fromBeat), stride, agent),
           }));
         }
         // AND NEVER QUEUED: an entry for a bar that has begun can only be pruned at the next line, and

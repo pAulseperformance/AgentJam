@@ -135,6 +135,10 @@ ws.on('message', (buf) => {
       // rest or a pattern agent, 1 normally, 2 when the ask was hedged (llm-planner.ts).
       calls: typeof m.calls === 'number' ? m.calls : null,
       ask: m.ask ?? null,
+      // THE PACE THE BAR WAS WRITTEN AT, straight from the meta (jam-room.ts, `pacedMeta`). Task 13's
+      // reading is this field on every record, so the summary counts it rather than parsing prose.
+      stride: typeof m.stride === 'number' ? m.stride : null,
+      ceilingBpm: typeof m.ceilingBpm === 'number' ? m.ceilingBpm : null,
       // THE BAR THIS RECORD IS FOR, and the peer that wrote it: the reader below needs both to say
       // which velocity profile belongs to which bar of which agent.
       peerId: data.agentPeerId ?? null,
@@ -315,6 +319,21 @@ function report() {
     console.log(`roles     ${String(agent).padEnd(14)} ${words}`);
   }
   if (paced.length) console.log(`paced     ${paced.length} bars paced by the tempo rule, e.g. "${paced[0].response}"`);
+  // THE PACE ON EVERY BAR, FROM THE META. The room publishes `stride` and `ceilingBpm` with every
+  // record it writes, so a run proves the field reached the wire instead of inferring it from the
+  // response prose. `bars without a stride 0` is the reading Task 13 ships on.
+  const strideCounts = new Map();
+  for (const b of bars) {
+    if (typeof b.stride === 'number') strideCounts.set(b.stride, (strideCounts.get(b.stride) ?? 0) + 1);
+  }
+  const noStride = bars.filter(b => typeof b.stride !== 'number').length;
+  const paces = [...strideCounts].sort((a, b) => a[0] - b[0]).map(([s, n]) => `x${s} on ${n} bars`).join('  ');
+  console.log(`stride    ${paces || 'none published'}   bars without a stride ${noStride}`);
+  const ceilings = bars.map(b => b.ceilingBpm).filter(n => typeof n === 'number');
+  if (ceilings.length) {
+    console.log(`ceiling   ${Math.min(...ceilings)} BPM, the slowest agent's one-bar-per-bar tempo` +
+      ` (this room ${meta.bpm ?? bpm} BPM)`);
+  }
   for (const [agent, row] of byAgent) {
     console.log(`  ${String(agent).padEnd(14)} llm ${row.llm}  rest ${row.rest}  fallback ${row.fallback}` +
       `  pattern ${row.pattern}  last model t=${row.lastModelT}`);

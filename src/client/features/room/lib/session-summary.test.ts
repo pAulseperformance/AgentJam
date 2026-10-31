@@ -2,12 +2,15 @@ import { describe, it, expect } from 'vitest';
 import {
   MAX_CHIPS,
   barMsFor,
+  badgesOf,
   median,
   roomBarsFor,
   stateOf,
   summarize,
+  tempoMarkOf,
   type SessionSummaryInput,
 } from './session-summary';
+import { beginSession, recordMessage, sessionSnapshot } from './session-recorder';
 
 /** A bar record shaped like the one `sessionSnapshot()` builds (session-recorder.ts:111-126). */
 function bar(source: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
@@ -298,5 +301,121 @@ describe('the unit of the denominator', () => {
     expect(summary.tag).toBe('2 s');
     expect(summary.numbers.roomBars).toBeNull();
     expect(summary.unit).toBe('A bar carries one record per agent.');
+  });
+});
+
+describe('the stride badge', () => {
+  it('carries the stride the room published from the debug meta to the badge', () => {
+    // THE CARD'S MUTATION, IN ONE CASE. This record arrives through the real socket path — a raw
+    // `ai_debug` message into `recordMessage`, projected by `sessionSnapshot` — so deleting
+    // `stride: agentMeta.stride ?? null` from the recorder's whitelist leaves the badge with null,
+    // because nothing here invents a stride. A hand-built fixture would pass either way.
+    beginSession('stride-badge-case');
+    recordMessage(JSON.stringify({
+      type: 'ai_debug',
+      agentName: 'Jazz Bot',
+      bar: 1,
+      meta: { source: 'cell', stride: 2, ceilingBpm: 126, latencyMs: 0, noteCount: 2 },
+    }));
+    const summary = summarize({
+      bars: sessionSnapshot().bars,
+      recordedMs: 3000,
+      bpm: 160,
+      signedIn: true,
+    });
+
+    expect(summary.badges).toHaveLength(1);
+    expect(summary.badges[0]?.agent).toBe('Jazz Bot');
+    expect(summary.badges[0]?.stride).toBe(2);
+    expect(summary.badges[0]?.rate).toBe('writes every 2 bars');
+    expect(summary.badges[0]?.ceilingBpm).toBe(126);
+    expect(summary.badges[0]?.ceiling).toBe('one bar per bar up to 126 BPM');
+  });
+
+  it('says nothing it does not know when the room published no pace', () => {
+    // A session recorded before this field existed: the agent wrote bars, so it gets a badge, and
+    // the badge has no rate rather than a guessed one.
+    beginSession('unpaced-badge-case');
+    recordMessage(JSON.stringify({
+      type: 'ai_debug',
+      agentName: 'Old Bot',
+      bar: 1,
+      meta: { source: 'llm', latencyMs: 500, noteCount: 5 },
+    }));
+    const summary = summarize({
+      bars: sessionSnapshot().bars,
+      recordedMs: 1500,
+      bpm: 160,
+      signedIn: true,
+    });
+
+    expect(summary.badges).toHaveLength(1);
+    expect(summary.badges[0]?.stride).toBeNull();
+    expect(summary.badges[0]?.rate).toBeNull();
+    expect(summary.badges[0]?.ceilingBpm).toBeNull();
+    expect(summary.badges[0]?.ceiling).toBeNull();
+  });
+
+  it('takes the LAST reading per agent, and a thin record does not blank the one before it', () => {
+    const bars = [
+      bar('llm', { agent: 'Jazz Bot', stride: 1, ceilingBpm: 200 }),
+      bar('cell', { agent: 'Jazz Bot', stride: 2, ceilingBpm: 126 }),
+      bar('cell', { agent: 'Funk Bot', stride: 1, ceilingBpm: 171 }),
+      bar('rest', { agent: 'Funk Bot' }), // no reading on this record: the badge keeps 171
+    ];
+    const badges = badgesOf(bars);
+    expect(badges.map((badge) => [badge.agent, badge.stride, badge.rate])).toEqual([
+      ['Jazz Bot', 2, 'writes every 2 bars'],
+      ['Funk Bot', 1, 'writes every bar'],
+    ]);
+    expect(badges[1]?.ceiling).toBe('one bar per bar up to 171 BPM');
+  });
+
+  it('draws no badge in the empty or signed-out states', () => {
+    expect(summarize(EMPTY).badges).toEqual([]);
+    expect(summarize({ ...EMPTY, signedIn: false }).badges).toEqual([]);
+  });
+});
+
+describe('the tempo ceiling', () => {
+  it('marks the ceiling of the slowest agent, and says what the room is doing above it', () => {
+    const bars = [
+      bar('cell', { agent: 'Jazz Bot', stride: 2, ceilingBpm: 126 }),
+      bar('cell', { agent: 'Funk Bot', stride: 1, ceilingBpm: 171 }),
+    ];
+    const mark = tempoMarkOf(bars, 160);
+    expect(mark.ceilingBpm).toBe(126); // the slower agent sets the room's limit
+    expect(mark.stride).toBe(2);
+    expect(mark.bpm).toBe(160);
+    expect(mark.over).toBe(true);
+    expect(mark.label).toBe(
+      'one bar per bar stops above 126 BPM — the room is at 160 BPM, so the slowest agent writes every 2 bars',
+    );
+  });
+
+  it('states the ceiling in words when the room is under it', () => {
+    const mark = tempoMarkOf([bar('cell', { agent: 'Jazz Bot', stride: 1, ceilingBpm: 171 })], 120);
+    expect(mark.over).toBe(false);
+    expect(mark.label).toBe('one bar per bar up to 171 BPM');
+  });
+
+  it('does not claim a rate the room is not playing when the published stride is still one', () => {
+    // the tempo changed a bar ago: the ceiling says the room is over it, the last record still says 1
+    const mark = tempoMarkOf([bar('llm', { agent: 'Jazz Bot', stride: 1, ceilingBpm: 126 })], 160);
+    expect(mark.over).toBe(true);
+    expect(mark.label).toBe('one bar per bar stops above 126 BPM — the room is at 160 BPM');
+    expect(mark.label).not.toContain('writes every');
+  });
+
+  it('marks nothing when no record carried a ceiling, and never treats an unknown tempo as over', () => {
+    const mark = tempoMarkOf(measuredNight(), 160);
+    expect(mark.ceilingBpm).toBeNull();
+    expect(mark.stride).toBeNull();
+    expect(mark.over).toBe(false);
+    expect(mark.label).toBeNull();
+
+    const unknownTempo = tempoMarkOf([bar('cell', { agent: 'Jazz Bot', stride: 2, ceilingBpm: 126 })], null);
+    expect(unknownTempo.over).toBe(false);
+    expect(unknownTempo.label).toBe('one bar per bar up to 126 BPM');
   });
 });

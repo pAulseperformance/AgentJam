@@ -209,3 +209,19 @@ rule that joins them, and the case is held by a test.
 Falsifier: a session whose drawn rows do not add up to its record denominator, a panel showing a
 number no recorder field carries, or a chip strip whose chip count disagrees with the count it is
 drawn beside.
+
+## 2026-10-31 The stride and the ceiling are PUBLISHED with every bar, not derived on the surface
+
+Loser: a badge computed from note counts, and a ceiling the client guesses from the stride. Reason:
+the room already knows what a render costs it, and therefore knows the stride it paced a bar at; a
+surface that re-derived either would drift the day the margin or the tail rule moved, and a session
+export would carry no number to read. So `jam-room.ts` stamps `stride` and `ceilingBpm` on every
+`ai_debug` meta it publishes (`pacedMeta`), the recorder's whitelist carries both, and
+`renderCeilingBpm` sits beside `renderStride` in `bar-queue.ts` as the inversion of the function it
+belongs to — floored, because the tempo control moves in whole BPM and a ceiling rounded UP names a
+tempo the stride cannot hold. Each agent's badge keeps its own last reading; the tempo mark under the
+control takes the SLOWEST agent's ceiling, because one tempo serves the whole room.
+
+Falsifier: a bar record carrying a stride but no ceiling while the room is running, a badge whose
+rate disagrees with the stride in the record it was read from, or a tempo mark naming a ceiling above
+the slowest agent's own.

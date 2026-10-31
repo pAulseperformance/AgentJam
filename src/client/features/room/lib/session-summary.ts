@@ -24,6 +24,13 @@
  * `late` is therefore kept OUT of the denominator (see `latePatches`), and `cell` gets its own row so
  * the rows always add up to the denominator. The artifact this panel copies printed `50 of 87` beside
  * `12 + 35` and added to 97; a set of rows that cannot reconcile is the defect, not the detail.
+ *
+ * THE PACE IS READ, NEVER INFERRED. Every bar record carries the stride the room paced it at and the
+ * ceiling tempo that stride came from (jam-room.ts, `pacedMeta`), so the per-agent badge is the LAST
+ * published reading for that agent, not a guess from a note count. `tempoMarkOf` takes the slowest
+ * agent's ceiling as the room's own limit: one tempo serves the whole room, so the first agent to
+ * need two bars per phrase is the room's ceiling. A session recorded before this field existed has
+ * no badge rate and no mark, and says so by drawing neither — it never invents one.
  */
 
 /** The five states the artifact draws, and no sixth. */
@@ -46,6 +53,40 @@ export interface SummaryChip {
   failed: boolean;
   /** every chip says what it is in words, because colour alone carries no information */
   title: string;
+}
+
+/**
+ * ONE AGENT'S BADGE: how often it writes, and the tempo that rate holds to. Both numbers are the
+ * room's own, published with every bar it wrote (see the header); the words are this module's.
+ */
+export interface AgentBadge {
+  agent: string;
+  /** the last stride the room published for this agent; null when no bar record carried one */
+  stride: number | null;
+  /** `writes every bar` / `writes every 2 bars`; null when no stride was published */
+  rate: string | null;
+  /** the last one-bar-per-bar tempo the room published for this agent; null when unknown */
+  ceilingBpm: number | null;
+  /** `one bar per bar up to 126 BPM`; null when no ceiling was published */
+  ceiling: string | null;
+}
+
+/**
+ * WHERE ONE BAR PER BAR STOPS BEING POSSIBLE, for the room as a whole. Each agent has its own ceiling
+ * (its own render cost), and the room moves at one tempo, so the room's limit is the SLOWEST agent's:
+ * the tempo above which even it must spread one bar of music over two.
+ */
+export interface TempoMark {
+  /** the slowest agent's one-bar-per-bar tempo; null when no bar record carried one */
+  ceilingBpm: number | null;
+  /** the largest stride any agent published; null when no bar record carried one */
+  stride: number | null;
+  /** the tempo the caller says the room is at, or null when it is not known */
+  bpm: number | null;
+  /** true when the room's tempo is above the ceiling */
+  over: boolean;
+  /** the mark in plain words; null when there is nothing to mark */
+  label: string | null;
 }
 
 export interface SummaryNumbers {
@@ -75,6 +116,8 @@ export interface SessionSummary {
   tag: string;
   rows: SummaryRow[];
   chips: SummaryChip[];
+  /** one badge per agent that wrote: how often it writes, and the tempo that rate holds to */
+  badges: AgentBadge[];
   /** one sentence saying what this state means, in words a player who never read the code can use */
   sentence: string;
   /** what the strip's marks and colours mean; null when no strip is drawn */
@@ -151,6 +194,88 @@ export function agentsOf(bars: ReadonlyArray<Record<string, unknown>>): string[]
     if (name) seen.add(name);
   }
   return Array.from(seen);
+}
+
+/** How often an agent writes, in words. `every bar` at a stride of one, `every 2 bars` above it. */
+function rateOf(stride: number | null): string | null {
+  if (stride === null) return null;
+  return stride === 1 ? 'writes every bar' : `writes every ${stride} bars`;
+}
+
+/** The ceiling in words, or null when the room published none for this agent. */
+function ceilingOf(ceilingBpm: number | null): string | null {
+  return ceilingBpm === null ? null : `one bar per bar up to ${ceilingBpm} BPM`;
+}
+
+/**
+ * ONE BADGE PER AGENT, from the pace the room published with each bar. The LAST reading wins, because
+ * the badge says what the agent is doing now rather than what it did when it joined; a bar that
+ * carried no reading leaves the previous one in place, so one thin record cannot blank a badge.
+ * `late` patches are skipped for the same reason the denominator skips them: they are a second
+ * record for a bar that already had one.
+ */
+export function badgesOf(bars: ReadonlyArray<Record<string, unknown>>): AgentBadge[] {
+  const pace = new Map<string, { stride: number | null; ceilingBpm: number | null }>();
+  for (const row of bars) {
+    if (sourceOf(row) === 'late') continue;
+    const agent = readString(row.agent);
+    if (agent === null) continue;
+    const current = pace.get(agent) ?? { stride: null, ceilingBpm: null };
+    const stride = readNumber(row.stride);
+    const ceiling = readNumber(row.ceilingBpm);
+    if (stride !== null && stride >= 1) current.stride = Math.round(stride);
+    if (ceiling !== null && ceiling > 0) current.ceilingBpm = Math.round(ceiling);
+    pace.set(agent, current);
+  }
+
+  return Array.from(pace, ([agent, reading]) => ({
+    agent,
+    stride: reading.stride,
+    rate: rateOf(reading.stride),
+    ceilingBpm: reading.ceilingBpm,
+    ceiling: ceilingOf(reading.ceilingBpm),
+  }));
+}
+
+function tempoLabelOf(
+  ceilingBpm: number | null,
+  bpm: number | null,
+  stride: number | null,
+  over: boolean,
+): string | null {
+  if (ceilingBpm === null) return null;
+  if (!over || bpm === null) return `one bar per bar up to ${ceilingBpm} BPM`;
+  // The rule is what the mark states; the stride is only added when it agrees with the rule (a
+  // record written before the last tempo change can still carry a 1), so the line never claims a
+  // rate the room is not playing.
+  const rate = stride !== null && stride > 1 ? `, so the slowest agent writes every ${stride} bars` : '';
+  return `one bar per bar stops above ${ceilingBpm} BPM — the room is at ${bpm} BPM${rate}`;
+}
+
+/**
+ * THE TEMPO CONTROL'S MARK. The room's ceiling is the slowest agent's, and the mark states it even
+ * when the room is under it, because "one bar per bar up to 126 BPM" is the answer to where the
+ * ceiling is. Nothing is returned when no bar carried a ceiling: an unmeasured room gets no line
+ * rather than a guessed one.
+ */
+export function tempoMarkOf(
+  bars: ReadonlyArray<Record<string, unknown>>,
+  bpm: number | null,
+): TempoMark {
+  const badges = badgesOf(bars);
+  const ceilings = badges.map((badge) => badge.ceilingBpm).filter((value): value is number => value !== null);
+  const strides = badges.map((badge) => badge.stride).filter((value): value is number => value !== null);
+  const ceilingBpm = ceilings.length > 0 ? Math.min(...ceilings) : null;
+  const stride = strides.length > 0 ? Math.max(...strides) : null;
+  const playedAt = bpm !== null && bpm > 0 ? bpm : null;
+  const over = ceilingBpm !== null && playedAt !== null && playedAt > ceilingBpm;
+  return {
+    ceilingBpm,
+    stride,
+    bpm: playedAt,
+    over,
+    label: tempoLabelOf(ceilingBpm, playedAt, stride, over),
+  };
 }
 
 /**
@@ -384,6 +509,7 @@ export function summarize(input: SessionSummaryInput): SessionSummary {
     tag: tagOf(state, input.recordedMs, input.bpm),
     rows: populated ? rowsOf(numbers, reason) : [],
     chips,
+    badges: populated ? badgesOf(input.bars) : [],
     sentence: sentenceOf(state, numbers, agents),
     legend: chips.length > 0
       ? `${legendOf(chips)}${numbers.records > MAX_CHIPS ? ` Showing the last ${MAX_CHIPS} of ${numbers.records} records.` : ''}`

@@ -169,7 +169,7 @@ describe('a gap bar in a real room', () => {
     const gap: {
       bar: number;
       notes: Array<{ at: number; peerId: string; pitch: string }>;
-      meta: { source?: string; noteCount?: number } | null;
+      meta: { source?: string; noteCount?: number; stride?: number; ceilingBpm?: number } | null;
     } = { bar: -1, notes: [], meta: null };
     let agentPeerId = '';
 
@@ -186,10 +186,10 @@ describe('a gap bar in a real room', () => {
         agentPeerId = agent.peer.peerId;
 
         // The bar this room just published, captured where the room broadcasts it.
-        let published: { bar?: number; meta?: { source?: string; noteCount?: number } } | null = null;
+        let published: { bar?: number; meta?: { source?: string; noteCount?: number; stride?: number; ceilingBpm?: number } } | null = null;
 
         room.broadcastAll = (message: string) => {
-          let data: { type?: string; peerId?: string; pitch?: string; bar?: number; meta?: { source?: string; noteCount?: number } };
+          let data: { type?: string; peerId?: string; pitch?: string; bar?: number; meta?: { source?: string; noteCount?: number; stride?: number; ceilingBpm?: number } };
           try { data = JSON.parse(message); } catch { return; }
           if (data.type === 'note_on') {
             heard.push({ at: Date.now(), peerId: String(data.peerId ?? ''), pitch: String(data.pitch ?? '') });
@@ -220,7 +220,7 @@ describe('a gap bar in a real room', () => {
 
         if (agent.barTimer !== null) { clearTimeout(agent.barTimer as unknown as number); agent.barTimer = null; }
 
-        const record = published as { bar?: number; meta?: { source?: string; noteCount?: number } } | null;
+        const record = published as { bar?: number; meta?: { source?: string; noteCount?: number; stride?: number; ceilingBpm?: number } } | null;
         gap.bar = record?.bar ?? -1;
         gap.meta = record?.meta ?? null;
         const barMs = room.barMs();
@@ -246,6 +246,13 @@ describe('a gap bar in a real room', () => {
     expect(gap.meta?.source).toBe('cell');
     expect(gap.meta?.noteCount).toBe(6);
     expect(gap.notes.length).toBe(gap.meta?.noteCount);
+
+    // THE PACE IS ON THE RECORD, NOT ONLY IN THE PROSE. This bar was written at a stride of two (200
+    // BPM is above this agent's ceiling), and the record carries the number and the ceiling it came
+    // from, which is what the surface's badge reads. Task 13's mutation removes `stride` here.
+    expect(gap.meta?.stride).toBe(2);
+    expect(gap.meta?.ceilingBpm).toBeGreaterThan(0);
+    expect(gap.meta?.ceilingBpm).toBeLessThan(200);
 
     // ITS OWN MATERIAL: every cell pitch is one of the three the agent last played, an octave away at
     // most. A generator bar in the room's key would not hold that.

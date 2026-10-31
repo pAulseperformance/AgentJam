@@ -111,6 +111,8 @@ export function sessionSnapshot(): SessionFile {
       // THIS IS A WHITELIST, and a field left out of it never reaches a reader: the row below is built
       // key by key, so `stride` (Task 13's badge) arrives as `undefined` unless it is named here, and a
       // test that only asserts "a badge exists" still passes on it. Name every field a panel reads.
+      // `stride` and `ceilingBpm` are the pace the room published with the bar (jam-room.ts,
+      // `pacedMeta`); the badge reads them and nothing here infers a tempo.
       bars.push({
         t: m.t,
         agent: m.data.agentName ?? null,
@@ -126,6 +128,7 @@ export function sessionSnapshot(): SessionFile {
         register: brief.register ?? null,
         relation: brief.relation ?? null,
         stride: agentMeta.stride ?? null,
+        ceilingBpm: agentMeta.ceilingBpm ?? null,
         error: agentMeta.error ?? null,
       });
     }

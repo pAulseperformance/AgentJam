@@ -3,6 +3,18 @@
 One dated line per failure that cost an hour, newest first. Every line carries the command that
 reveals it, so the next reader re-measures instead of re-learning.
 
+- **2026-10-31. A client case cannot fail because the SERVER stopped publishing a field.** The card's
+  mutation ("remove the stride from the published debug meta") runs in `src/server/jam-room.ts`, and
+  `npx vitest run src/client` never loads that module, so a badge case fed a hand-built record passes
+  either way. TWO gates hold this field: the badge case goes through `recordMessage` →
+  `sessionSnapshot` (delete `stride: agentMeta.stride ?? null` from the recorder whitelist and it
+  fails `expected null to be 2`), and the real-room case in `reaction.test.ts` reads the record the
+  room broadcasts (delete the stamp in `pacedMeta` and it fails `expected undefined to be 2`). When a
+  card's mutation names a server file and its Run names a client suite, the client gate has to travel
+  the recorder, and the server gate has to read its own broadcast.
+  Reveal: `npx vitest run src/client/features/room/lib/session-summary.test.ts` and
+  `npx vitest run src/server/reaction.test.ts`, each with its mutation applied in a scratch copy.
+
 - **2026-10-31. A gate that asserts PARITY before the ship refuses every client change.** deploy.sh ran
   `bash check.sh` before uploading, and check.sh's step 3 compares the live shell's asset name to
   `dist/jam/index.html`. A client edit mints a new asset name, so the parity reading is false by

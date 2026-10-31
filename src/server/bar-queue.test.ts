@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  keepNewest, prunePast, renderBudget, renderStride, takeForBar, RENDER_COST_ASSUMED_MS,
+  keepNewest, prunePast, renderBudget, renderStride, renderCeilingBpm, takeForBar,
+  RENDER_COST_ASSUMED_MS, RENDER_TAIL_ASSUMED_MS,
   barDelayMs, barMsFor, barElapsedEnough, firstReachableBar, nextRenderTail, DEFAULT_BAR_MS, MAX_BPM,
   MIN_BPM, MIN_BAR_MS,
 } from './bar-queue';
@@ -154,6 +155,43 @@ describe('renderStride', () => {
   it('degenerates safely on a nonsense tempo', () => {
     expect(renderStride(cost, 0)).toBe(1);
     expect(renderStride(0, barMs(200))).toBe(1);
+  });
+});
+
+describe('renderCeilingBpm', () => {
+  const barMs = (bpm: number) => 240_000 / bpm;
+
+  it('names the last tempo where one bar per bar still holds, and the next one where it does not', () => {
+    // 1300+100 = 1400 ms of work; 240000/1400 = 171.43, so 171 is the last whole tempo that fits
+    expect(renderCeilingBpm(RENDER_COST_ASSUMED_MS)).toBe(171);
+    expect(renderStride(RENDER_COST_ASSUMED_MS, barMs(171))).toBe(1);
+    expect(renderStride(RENDER_COST_ASSUMED_MS, barMs(172))).toBe(2);
+    // the tail the room starts a new agent on (1800+100 = 1900 ms): 126 BPM, not 127
+    expect(renderCeilingBpm(RENDER_TAIL_ASSUMED_MS)).toBe(126);
+    expect(renderStride(RENDER_TAIL_ASSUMED_MS, barMs(126))).toBe(1);
+    expect(renderStride(RENDER_TAIL_ASSUMED_MS, barMs(127))).toBe(2);
+  });
+
+  it('floors a fractional tempo rather than naming one the stride cannot hold', () => {
+    // 838 ms is the measured median at 160 BPM; 240000/938 = 255.86
+    expect(renderCeilingBpm(838)).toBe(255);
+    expect(renderStride(838, barMs(255))).toBe(1);
+    expect(renderStride(838, barMs(256))).toBe(2);
+  });
+
+  it('is the inverse for every cost the room can assume, not an approximation', () => {
+    for (const cost of [300, 650, 838, 1300, 1800, 2067, 2262]) {
+      const ceiling = renderCeilingBpm(cost);
+      expect(ceiling).not.toBeNull();
+      expect(renderStride(cost, barMs(ceiling as number))).toBe(1);
+      expect(renderStride(cost, barMs((ceiling as number) + 1))).toBe(2);
+    }
+  });
+
+  it('has no answer when the cost cannot describe a tempo', () => {
+    expect(renderCeilingBpm(Number.NaN)).toBeNull();
+    expect(renderCeilingBpm(-100)).toBeNull(); // 0 ms of work: no tempo to name
+    expect(renderCeilingBpm(-100, 0)).toBeNull();
   });
 });
 
