@@ -254,3 +254,25 @@ Falsifier: a probe with `--gap-rests` whose `pattern` or `cell` count has not fa
 not risen, a bar recorded `rest` that still broadcast note-ons, a `room_state` frame omitting the
 setting the room is under, or a model bar after a rest that starts from the seed figure instead of the
 agent's own motif.
+
+## 2026-10-31 The session reader is a SECOND COPY of the probe's report, and agreement on one file is the gate
+
+Loser: lifting `report()` into a module both tools import. Reason: `probe-session.mjs` opens its
+WebSocket at module scope, so importing it from a reader would join a live room to print a saved file;
+making it importable means wrapping the whole live path in a `main()` and re-testing the one tool every
+probe run depends on, for a reader whose counts are arithmetic over rows the file already carries. So
+`tools/read-session.mjs` repeats the computation and the formatting, and the rule that keeps the two
+copies honest is the acceptance itself: run the probe to a file, read that file, and every summary
+line must be identical. `sed '$d'` of both outputs (the last line names the file each one touched)
+compares equal, which is how the card was measured on `/tmp/rs.json`.
+
+THE READER REFUSES TO INVENT A ZERO. A browser export's bar rows are the recorder's whitelist
+(`session-recorder.ts`) and carry no `peerId` or `calls`, and files written before those fields
+existed carry neither; printing `dynamics 0 agent bars`, `clashes 0` or `calls 0.00 per bar` there
+would report a room that played nothing instead of a file that cannot answer. Those lines say
+`not measurable` or `not recorded` and name what is missing, while the four counts and the latency
+line — which need only `messages`, `notes` and `bars` — print in full from any such file.
+
+Falsifier: a summary line that changes in `tools/probe-session.mjs` and not in `tools/read-session.mjs`,
+seen as the two outputs differing on one file; or a reader printing a numeric reading for a field the
+file does not carry.
