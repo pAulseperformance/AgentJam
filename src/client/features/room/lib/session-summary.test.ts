@@ -163,7 +163,7 @@ describe('the measured night', () => {
     expect(summary.chips.every((chip) => chip.title.startsWith('bar '))).toBe(true);
     expect(summary.legend).toContain('model, rest, generator, fallback');
     expect(summary.legend).toContain('outline');
-    expect(summary.unit).toBe('A bar carries one record per agent: 87 records is 30 room bars.');
+    expect(summary.unit).toBe('The session ran 30 room bars and made 87 agent-bar records: one record per agent per bar.');
   });
 
   it('is signed out for a guest, with no rows and a sentence on what still plays', () => {
@@ -278,6 +278,19 @@ describe('the unit of the denominator', () => {
     expect(roomBarsFor(38_000, 160)).toBe(25); // the artifact's `one` state says 25, and it is right
     expect(roomBarsFor(45_000, null)).toBeNull();
     expect(roomBarsFor(0, 160)).toBeNull();
+  });
+
+  it('states both figures instead of claiming they are equal when an agent joined late', () => {
+    // THE LIVE JUDGE'S CASE: 38 s at 120 BPM is 19 room bars, and one agent that arrived after the
+    // audio started left 13 records. The first wording said "13 records is 19 room bars", which is
+    // false; the line now states both figures and the rule that joins them.
+    const bars: Record<string, unknown>[] = [];
+    for (let i = 0; i < 13; i++) bars.push(bar('llm', { agent: 'Jazz Bot', latencyMs: 973 }));
+    const summary = summarize({ bars, recordedMs: 38_000, bpm: 120, signedIn: true });
+    expect(summary.numbers.records).toBe(13);
+    expect(summary.numbers.roomBars).toBe(19);
+    expect(summary.unit).toBe('The session ran 19 room bars and made 13 agent-bar records: one record per agent per bar.');
+    expect(summary.unit).not.toContain('is 19 room bars');
   });
 
   it('keeps the room-bar figure out of the tag when the tempo is not known', () => {

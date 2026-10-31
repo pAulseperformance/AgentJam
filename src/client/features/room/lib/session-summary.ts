@@ -345,9 +345,13 @@ function sentenceOf(state: SessionState, numbers: SummaryNumbers, agents: Readon
 function unitOf(numbers: SummaryNumbers): string | null {
   if (numbers.records === 0) return null;
   const parts = [
+    // NOT AN EQUALITY. A session where an agent joined late has fewer records than room bars (the
+    // live judge drew 13 records across 19 bars), and a session with a `late` patch has more records
+    // than slots. The relation is "one record per agent per bar", never "records equal bars", so both
+    // figures are stated and the rule joining them is said in words.
     numbers.roomBars === null
       ? 'A bar carries one record per agent.'
-      : `A bar carries one record per agent: ${numbers.records} records is ${numbers.roomBars} room bars.`,
+      : `The session ran ${numbers.roomBars} room bars and made ${numbers.records} agent-bar records: one record per agent per bar.`,
   ];
   if (numbers.latePatches > 0) {
     parts.push(

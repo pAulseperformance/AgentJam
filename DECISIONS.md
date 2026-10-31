@@ -201,6 +201,11 @@ and the failed chips take `--accent-rose`, the same token `AiDebugPanel` paints 
 reuse its four-source map, `cell` and an unknown source take `--text-muted`, and a failed chip carries
 an outline as well as a colour because colour alone carries no information.
 
+The first wording of the unit line said "13 records is 19 room bars" when the live judge drew its
+`one` state on 2026-10-31 (38 s at 120 BPM, one agent that arrived after the audio started). Records
+equal room bars only when every agent played every bar, so the line now states both figures and the
+rule that joins them, and the case is held by a test.
+
 Falsifier: a session whose drawn rows do not add up to its record denominator, a panel showing a
 number no recorder field carries, or a chip strip whose chip count disagrees with the count it is
 drawn beside.
