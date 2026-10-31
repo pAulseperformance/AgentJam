@@ -3,6 +3,16 @@
 One dated line per failure that cost an hour, newest first. Every line carries the command that
 reveals it, so the next reader re-measures instead of re-learning.
 
+- **2026-10-31. A gate that asserts PARITY before the ship refuses every client change.** deploy.sh ran
+  `bash check.sh` before uploading, and check.sh's step 3 compares the live shell's asset name to
+  `dist/jam/index.html`. A client edit mints a new asset name, so the parity reading is false by
+  construction until traffic moves: the first client change after the gate was written was refused
+  with "what is serving is not this tree", which is the gate doing its job at the wrong moment. The
+  pre-upload gate now runs `PARITY=loose` (the bundle must RESOLVE, parity is printed as not asserted)
+  and the strict reading runs in deploy.sh's [7/7], after the upload.
+  Reveal: `PARITY=loose bash check.sh` prints "parity is read after the upload"; plain `bash check.sh`
+  prints "ok (... 200, the bundle this tree builds)".
+
 - **2026-10-31. The recorder's bar projection is a WHITELIST, so a field it does not name arrives as
   `undefined` and a test that only asserts "a badge exists" still passes.** `sessionSnapshot()` builds
   each bar row key by key, so a field the planner publishes but the projection forgets (`stride`, for

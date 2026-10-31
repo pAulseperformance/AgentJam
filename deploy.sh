@@ -129,7 +129,11 @@ green "      ok (${bundle})"
 
 # ── 4. The gate, against what is live NOW, before traffic moves ─────────────
 step "[4/7] gate (bash check.sh: the suite and the four live probes, on the version serving now)"
-bash check.sh
+# PARITY=loose: the bundle-parity reading ("what is serving is this tree") can only be true AFTER the
+# upload, and a client change always mints a new asset name, so asserting it here would refuse every
+# client change the moment it was written. The strict reading still runs in [7/7], on the version
+# that traffic has just moved to.
+PARITY=loose bash check.sh
 gate_rc=$?
 if [ "$gate_rc" -ne 0 ]; then
   note_failure "bash check.sh exited ${gate_rc}: refusing to move traffic onto a tree the repo's gate refuses"

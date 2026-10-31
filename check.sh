@@ -13,12 +13,19 @@
 #   bash check.sh --live                   the above, then the page walk from docs/PATHS.md
 #   bash check.sh --live --version <id>    the above, and fails unless <id> is the version carrying 100%
 #
+#   PARITY=loose bash check.sh             the same, but the live bundle is only proven to RESOLVE (200),
+#                                          not to be the one this tree builds. That reading - "what is
+#                                          serving is this tree" - can only be true AFTER a ship, so
+#                                          deploy.sh uses loose for its pre-upload gate and strict for
+#                                          the gate it runs once traffic has moved.
+#
 # Exit: 0 everything answered, 1 a check failed, 2 bad usage. On failure it prints the way back.
 
 set -uo pipefail
 cd "$(dirname "$0")"
 
 FLOOR="${FLOOR:-265}"
+PARITY="${PARITY:-strict}"
 BASE="${BASE:-https://zpe.vc}"
 APP_HOST="${APP_HOST:-jam.zpe.vc}"
 APP_NAME="${APP_NAME:-agent-jam}"
@@ -113,6 +120,10 @@ else
     unverified=$((unverified + 1))
     green "      ok (${asset} 200)"
     step "      not asserted: no build in dist/ (bash deploy.sh builds it), so the live bundle is not compared to this tree"
+  elif [ "$built" != "$asset" ] && [ "$PARITY" = loose ]; then
+    green "      ok (${asset} 200)"
+    unverified=$((unverified + 1))
+    step "      not asserted: this tree builds ${built} and the live shell serves ${asset}; parity is read after the upload"
   elif [ "$built" != "$asset" ]; then
     note_failure "the live shell serves ${asset} and this tree builds ${built}: what is serving is not this tree (bash deploy.sh ships it)"
   else
