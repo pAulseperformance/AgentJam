@@ -49,6 +49,13 @@ import {
 } from './bar-queue';
 import { reactionCells, type ReactionBar } from './reaction';
 import { decideWithJev, jevConfigFromEnv, type JevState } from './jev';
+import {
+  CENTRE_WINDOW_BARS,
+  clashesWith,
+  preferredBar,
+  roomCentre,
+  type PitchPoint,
+} from './tonal-map';
 
 /** Set by the Worker entry on the upgrade request, computed from the door's answer. */
 const TIER_HEADER = 'x-jam-tier';
@@ -1224,6 +1231,14 @@ export class JamRoom implements DurableObject {
     if (sounded.size > 0) {
       notes = notes.filter(n => !sounded.has(`${n.pitch}@${n.beatTime}`.toLowerCase()));
     }
+    // AND NOT A SEMITONE FROM ANOTHER AGENT IN THE SAME SLOT. The exact filter above catches a shared
+    // pitch; the one interval no voice leading can put in two voices at once is E under F or B under
+    // C, and a bar that would put them there is not the one the room keeps (tonal-map.ts).
+    const held = this.otherNotesFor(agent.peer.peerId, bar);
+    if (held.length > 0) {
+      const clashing = new Set(clashesWith(notes, held).map(c => c.note));
+      if (clashing.size > 0) notes = notes.filter(n => !clashing.has(n));
+    }
     this.markSoundedSlots(agent.peer.peerId, bar, notes);
     // WHAT THIS BAR LEAVES RINGING. The next bar starts a step out of it; a bar that sounded
     // nothing hands on no note, because a rest is a break in the phrase and not a note at the centre.
@@ -1513,6 +1528,85 @@ export class JamRoom implements DurableObject {
   /** per agent, the slots it actually sounded per bar, so two agents cannot double a note on a beat */
   private playedByBar = new Map<string, Map<number, Set<string>>>();
 
+  /**
+   * EVERY AGENT'S RECENT NOTES, one list per agent. The centre votes per AGENT, not per note, so the
+   * lists are kept apart: an agent that writes eight notes a bar must not outvote two that write
+   * three, and the room's centre belongs to the band rather than to its busiest member.
+   */
+  private recentAgentNotes(atBar: number): string[][] {
+    const recent: string[][] = [];
+    for (const agent of this.agents.values()) {
+      const pitches: string[] = [];
+      const published = this.playedByBar.get(agent.peer.peerId);
+      if (published) {
+        for (const [bar, slots] of published) {
+          if (bar < atBar - CENTRE_WINDOW_BARS || bar > atBar) continue;
+          for (const slot of slots) {
+            const pitch = slot.split('@')[0];
+            if (pitch) pitches.push(pitch);
+          }
+        }
+      }
+      // A BAR QUEUED BUT NOT YET PUBLISHED is music the room has already decided to play.
+      for (const entry of agent.queue) {
+        if (entry.bar < atBar - CENTRE_WINDOW_BARS || entry.bar > atBar) continue;
+        for (const note of entry.notes) pitches.push(note.pitch);
+      }
+      recent.push(pitches);
+    }
+    return recent;
+  }
+
+  /**
+   * THE SESSION'S ONE TONAL CENTRE, computed from every agent's recent notes (tonal-map.ts). A fresh
+   * room has nothing to hear and the key's tonic is the centre; after a few bars it is what the band
+   * actually leans on, which is not the same thing as what key it was told to play in.
+   */
+  private roomCentre(atBar: number = this.barIndexOf(Date.now())): number {
+    const tonic = scalePitchClasses(this.roomState.key)[0] ?? 0;
+    return roomCentre(this.recentAgentNotes(atBar), tonic);
+  }
+
+  /**
+   * WHAT THE OTHER AGENTS HOLD FOR A BAR: their queued plan for it and anything they have already
+   * published. A bar is written against both, because two renders for the same slot finish in either
+   * order and neither source alone holds the answer.
+   */
+  private otherNotesFor(excludePeerId: string, bar: number): PitchPoint[] {
+    const notes: PitchPoint[] = [];
+    for (const other of this.agents.values()) {
+      if (other.peer.peerId === excludePeerId) continue;
+      const entry = other.queue.find(q => q.bar === bar);
+      if (entry) for (const note of entry.notes) notes.push({ pitch: note.pitch, beatTime: note.beatTime });
+      const published = this.playedByBar.get(other.peer.peerId)?.get(bar);
+      if (published) {
+        for (const slot of published) {
+          const [pitch, beat] = slot.split('@');
+          if (pitch === undefined || beat === undefined) continue;
+          notes.push({ pitch, beatTime: Number(beat) });
+        }
+      }
+    }
+    return notes;
+  }
+
+  /**
+   * THE BAR THAT MOVES THE ROOM LEAST. A refresh answers a slot the queue already holds, so for a
+   * moment two candidate bars exist for it: the queued one and the fresh one. The room keeps the one
+   * whose pitch classes stay closest to the session's centre, and never one that would put two
+   * agents a semitone apart in the same slot (tonal-map.ts, preferredBar).
+   */
+  private preferForSlot(
+    agent: InProcessAgent,
+    bar: number,
+    current: ReadonlyArray<GeneratedNote>,
+    next: ReadonlyArray<GeneratedNote>,
+  ): 'current' | 'next' {
+    const others = this.otherNotesFor(agent.peer.peerId, bar);
+    const chosen = preferredBar([current, next], { centre: this.roomCentre(bar), others });
+    return chosen === 0 ? 'current' : 'next';
+  }
+
   private async renderAgentBar(
     agent: InProcessAgent,
     targetBar?: number,
@@ -1735,6 +1829,16 @@ export class JamRoom implements DurableObject {
           accents: this.roomAccents(forBar),
         });
 
+        // THE BAR THE ROOM WOULD HEAR IS THE ONE THAT MOVES IT LEAST. The other agents' plans for this
+        // bar are readable now (they queue a bar ahead), so a note that would put two agents a semitone
+        // apart in one slot is dropped here, before the bar is queued. The bar line repeats the check
+        // against what the others actually sounded, since a render that finished later can add one.
+        const heldByOthers = this.otherNotesFor(agent.peer.peerId, forBar);
+        if (heldByOthers.length > 0) {
+          const clashing = new Set(clashesWith(finalNotes, heldByOthers).map(c => c.note));
+          if (clashing.size > 0) finalNotes = finalNotes.filter(n => !clashing.has(n));
+        }
+
         // THE FIRST BAR OF A PHRASE IS THE HOOK. Kept exactly as it will be heard, because the restate
         // bar returns this, not a re-render of it.
         if (brief?.role === 'lead' && melody.position === 'state' && finalNotes.length >= 3) {
@@ -1767,6 +1871,9 @@ export class JamRoom implements DurableObject {
         if (taken.size > 0) {
           patch = patch.filter(n => !taken.has(`${n.pitch}@${n.beatTime}`.toLowerCase()));
         }
+        // AND NOT A SEMITONE FROM ONE, for the same reason the bar line checks it.
+        const heldNow = this.otherNotesFor(agent.peer.peerId, target);
+        if (heldNow.length > 0) patch = patch.filter(n => clashesWith([n], heldNow).length === 0);
         if (patch.length > 0) {
           this.emitAgentBar(agent, patch, target, beatMs);
           this.broadcastAll(JSON.stringify({
@@ -1787,6 +1894,14 @@ export class JamRoom implements DurableObject {
       // BAR EITHER: the queue already holds a full line for this slot, and two notes are less than it.
       const replacing = agent.queue.some(q => q.bar === target);
       if (replacing && (result.meta.source !== 'llm' || cellAsk)) return;
+
+      // TWO CANDIDATE BARS FOR ONE SLOT: the queued one and this answer. The room keeps the one
+      // whose pitch classes stay closest to the session's centre, and never one that would put two
+      // agents a semitone apart in the same slot (tonal-map.ts, preferredBar).
+      if (replacing) {
+        const current = agent.queue.find(q => q.bar === target);
+        if (current && this.preferForSlot(agent, target, current.notes, finalNotes) === 'current') return;
+      }
 
       if (replacing) agent.queue = agent.queue.filter(q => q.bar !== target);
       agent.queue.push({

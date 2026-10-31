@@ -20,6 +20,18 @@ import { WebSocket } from 'ws';
 const MAX_MESSAGES = 5000;
 const RECORD = /note_o|ai_debug|agent_spawned|peer_|bpm_change|key_change|error/;
 
+/** `C4` -> 0, `A#3` -> 10, `Bb4` -> 10: the pitch class the clash count compares. Null is not a pitch. */
+const NATURAL_PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+function pitchClassNumber(pitch) {
+  const m = /^([A-Ga-g])([#b]?)/.exec(String(pitch ?? '').trim());
+  if (!m) return null;
+  const base = NATURAL_PC[m[1].toUpperCase()];
+  if (base === undefined) return null;
+  if (m[2] === '#') return (base + 1) % 12;
+  if (m[2] === 'b') return (base + 11) % 12;
+  return base;
+}
+
 function arg(name, fallback) {
   const at = process.argv.indexOf(`--${name}`);
   return at === -1 ? fallback : process.argv[at + 1];
@@ -190,19 +202,27 @@ function report() {
     publishes.set(b.peerId, rows);
   }
   const barMs = 240000 / (meta.bpm ?? bpm);
-  const profiles = new Map();
-  for (const n of notes) {
-    if (n.kind !== 'on') continue;
+  // WHICH BAR A NOTE BELONGS TO. The room broadcasts a bar's record and then its notes at the same
+  // line, so the newest record at or before a note is the bar it plays in. A note more than a bar
+  // after its record is not that bar's.
+  const barOf = (n) => {
     const rows = publishes.get(n.peerId);
-    if (!rows || !rows.length) continue;
+    if (!rows || !rows.length) return null;
     let at = -1;
     for (let i = rows.length - 1; i >= 0; i--) {
       if (rows[i].t <= n.t + 20) { at = i; break; } // +20 ms: the probe's receipt, not the room's clock
     }
-    if (at === -1) continue;
+    if (at === -1) return null;
     const pub = rows[at];
-    if (n.t - pub.t > barMs) continue; // a note more than a bar after its record is not that bar's
-    const key = `${n.peerId}@${pub.bar ?? `p${at}`}`;
+    if (n.t - pub.t > barMs) return null;
+    return pub;
+  };
+  const profiles = new Map();
+  for (const n of notes) {
+    if (n.kind !== 'on') continue;
+    const pub = barOf(n);
+    if (!pub) continue;
+    const key = `${n.peerId}@${pub.bar ?? 'p'}`;
     const row = profiles.get(key) ?? [];
     row.push(n.velocity);
     profiles.set(key, row);
@@ -216,6 +236,37 @@ function report() {
   const examples = [...new Set(sets)].slice(0, 3).join('   |   ') || 'none';
   console.log(`dynamics  agent bars ${scored.length}  distinct velocity sets ${distinct}  flat bars ${flat}` +
     `  e.g. ${examples}`);
+  // A SEMITONE BETWEEN TWO AGENTS IN ONE SLOT, COUNTED. This is the interval the band cannot agree
+  // on: E against F, B against C, or any pair a whole tone apart on the grid. The room's tonal map
+  // (src/server/tonal-map.ts) exists to keep a bar that would put two agents a semitone apart out of
+  // the slot, so the reading a change is measured by is this count FALLING while model bars stay up.
+  const slotPeople = new Map();
+  for (const n of notes) {
+    if (n.kind !== 'on') continue;
+    const pub = barOf(n);
+    if (!pub || typeof pub.bar !== 'number') continue;
+    const pc = pitchClassNumber(n.pitch);
+    if (pc === null) continue;
+    const slot = `${pub.bar}@${Math.round(Number(n.beatTime) * 4) / 4}`;
+    const rows = slotPeople.get(slot) ?? [];
+    rows.push({ peerId: n.peerId, pc });
+    slotPeople.set(slot, rows);
+  }
+  let clashes = 0;
+  let clashSlots = 0;
+  for (const rows of slotPeople.values()) {
+    let hit = 0;
+    for (let i = 0; i < rows.length; i++) {
+      for (let j = i + 1; j < rows.length; j++) {
+        if (rows[i].peerId === rows[j].peerId) continue; // one agent's own two notes are not a clash
+        const raw = Math.abs(rows[i].pc - rows[j].pc);
+        if (Math.min(raw, 12 - raw) === 1) hit++; // a semitone, in either direction
+      }
+    }
+    if (hit > 0) { clashes += hit; clashSlots++; }
+  }
+  console.log(`clashes   ${clashes} semitone pairs between two agents in one slot, across ${clashSlots} slots`);
+
   if (prompts.length) {
     const drumHits = prompts.filter(p => /strong beats:.*\b(C2|D3|A5)\b/.test(p)).length;
     // THE TAIL-AWARE ASK, COUNTED. A prompt carries `CELL ASK` when the room asked for two notes in a
