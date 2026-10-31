@@ -160,3 +160,21 @@ on a late patch. Same probe, same tempo, after the deploy: **0 clashes across 87
 **71 model bars against 73** before, so model bars did not fall by a fifth. Falsifier: a recording
 that prints a clash above zero, or one where model bars fall by more than a fifth, which would mean
 harmony bought with silence.
+
+## 2026-10-31 A finished session leaves one bank row per AGENT, keyed by the agent's name
+
+Loser: one row per session holding every agent's motif, or the client's localStorage. Reason: the
+objective is the last four statements PER AGENT, so the row has to be per agent to enforce the cap and
+to answer a returning agent's lookup without reading a whole session; the plan already rules
+localStorage out because a shared room is shared memory. Rows live in the object's own storage under
+`motif:<room>:<agent name>:<session start>`, so the same session banked twice is an upsert and never a
+duplicate — the cap counts sessions, not writes — and a session that heard nothing from an agent
+writes no row for it: an empty motif would be the bank remembering silence. The offer rides the model prompt as
+`EARLIER SESSION: ...`, never as "your motif from last bar", because the statement is from the room's
+past and not from the bar before this one. The measured night: run one on room `bank-probe-1793432472`
+printed `bank 0`, run two on the same room id printed `bank 3` (one per agent), and the jazz line it
+offered (`B4@1.25, A4@1.50, E4@2.25`) is bar 19's plan from the first run's file.
+
+Falsifier: a returning agent whose first prompt carries no `EARLIER SESSION` line after its row was
+written, a fifth statement surviving the cap of four, or a bank row still present after its alarm
+fired at seven days.

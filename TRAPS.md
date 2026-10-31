@@ -3,6 +3,13 @@
 One dated line per failure that cost an hour, newest first. Every line carries the command that
 reveals it, so the next reader re-measures instead of re-learning.
 
+- **2026-10-31. A room test that spawns an agent waits on the REAL AI binding's warm call.**
+  `wrangler.test.jsonc` binds AI, so a join starts a remote warm call that an eight-second budget
+  gates, and the agent's first render awaits it: the case reads an empty prompt and looks like
+  whatever it was measuring broke. Install a fake `room.env.AI` before the first join (the motif bank
+  cases in `src/server/jam-room.test.ts` do exactly this).
+  Reveal: `grep -n 'await this.modelWarm' src/server/jam-room.ts` and `grep -n 'room.env.AI' src/server/jam-room.test.ts`.
+
 - **2026-10-29. A retired Workers AI model reads as a slow model, not as a dead one.** Every bar
   fell back to the pattern generator and the panel said `fallback`, so it looked like parse trouble.
   The error field carried `5028: @cf/meta/infire-llama-3.1-8b-instruct was deprecated on 2026-05-30`.
