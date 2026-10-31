@@ -3,6 +3,21 @@
 One dated line per failure that cost an hour, newest first. Every line carries the command that
 reveals it, so the next reader re-measures instead of re-learning.
 
+- **2026-10-31. The recorder's bar projection is a WHITELIST, so a field it does not name arrives as
+  `undefined` and a test that only asserts "a badge exists" still passes.** `sessionSnapshot()` builds
+  each bar row key by key, so a field the planner publishes but the projection forgets (`stride`, for
+  Task 13's badge) silently never reaches a reader. Name every field a panel reads, and assert the
+  VALUE and not the presence.
+  Reveal: `grep -n "stride: agentMeta.stride" src/client/features/room/lib/session-recorder.ts`.
+
+- **2026-10-31. The recorder has no change event, so a panel that reads it on mount draws the empty
+  state forever.** `messages` is a module-level array with no subscription and `recordedCount()` is a
+  plain read, so the summary has to be recomputed on something the socket already re-renders on.
+  `aiDebugEntries` is a fresh array per `ai_debug` message (one per bar record), which is the cheapest
+  honest trigger; a memo keyed on its LENGTH would freeze at 20 because that state is capped there.
+  Reveal: `grep -n "entries" src/client/features/room/ui/session-panel.tsx`, then spawn an agent and
+  watch `data-state` change from `empty` without a reload.
+
 - **2026-10-31. A room test that spawns an agent waits on the REAL AI binding's warm call.**
   `wrangler.test.jsonc` binds AI, so a join starts a remote warm call that an eight-second budget
   gates, and the agent's first render awaits it: the case reads an empty prompt and looks like

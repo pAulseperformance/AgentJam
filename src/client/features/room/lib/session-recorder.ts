@@ -108,6 +108,9 @@ export function sessionSnapshot(): SessionFile {
     if (m.type === 'ai_debug') {
       const agentMeta = (m.data.meta ?? {}) as Record<string, unknown>;
       const brief = (agentMeta.brief ?? {}) as Record<string, unknown>;
+      // THIS IS A WHITELIST, and a field left out of it never reaches a reader: the row below is built
+      // key by key, so `stride` (Task 13's badge) arrives as `undefined` unless it is named here, and a
+      // test that only asserts "a badge exists" still passes on it. Name every field a panel reads.
       bars.push({
         t: m.t,
         agent: m.data.agentName ?? null,
@@ -122,6 +125,7 @@ export function sessionSnapshot(): SessionFile {
         density: brief.density ?? null,
         register: brief.register ?? null,
         relation: brief.relation ?? null,
+        stride: agentMeta.stride ?? null,
         error: agentMeta.error ?? null,
       });
     }

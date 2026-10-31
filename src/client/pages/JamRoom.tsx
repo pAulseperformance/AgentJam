@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, useMemo, useEffect } from 'react';
-import { useRoomSocket, PeerList, TransportBar, AgentPanel, MetricsPanel, AiDebugPanel } from '@/client/features/room';
+import { useRoomSocket, PeerList, TransportBar, AgentPanel, MetricsPanel, AiDebugPanel, SessionPanel } from '@/client/features/room';
 import { useSynthEngine, Keyboard, useMidi, type InstrumentType } from '@/client/features/synth';
 import { Visualizer } from '@/client/features/visualizer';
 import type { NoteEvent, Peer } from '@/shared/protocol';
@@ -301,6 +301,15 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
         entries={aiDebugEntries}
         signedIn={who?.signedIn ?? false}
         onModelChange={handleModelChange}
+      />
+
+      {/* THE SESSION PANEL sits at the page foot, after the other after-the-fact card, so a listener
+          never scrolls past a retrospective summary to reach the live surface. It takes the same `who`
+          answer the debug panel takes, and `aiDebugEntries` doubles as its change trigger: the
+          recorder has no event of its own (see the panel's own comment). */}
+      <SessionPanel
+        signedIn={who ? who.signedIn : null}
+        entries={aiDebugEntries}
       />
     </div>
   );

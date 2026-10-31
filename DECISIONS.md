@@ -178,3 +178,29 @@ offered (`B4@1.25, A4@1.50, E4@2.25`) is bar 19's plan from the first run's file
 Falsifier: a returning agent whose first prompt carries no `EARLIER SESSION` line after its row was
 written, a fifth statement surviving the cap of four, or a bank row still present after its alarm
 fired at seven days.
+
+## 2026-10-31 The session panel counts AGENT-BAR RECORDS, and computes them in a pure module
+
+Loser: counting room bars (one chip per bar, "a bar carries a model line"), and testing the panel
+through a DOM. Reason: the recorder holds records, not bars — one `ai_debug` per agent per bar — so 87
+records at 160 BPM is 30 room bars, and the `one`/`many` split plus Task 13's per-agent stride need the
+per-agent attribution that a room-bar count throws away. Room bars are read off the CLOCK
+(`240000 / bpm` ms, the figure `tools/probe-session.mjs:138` divides by) and never off the record
+count, because a `late` patch is a second record for a bar that already had one. The panel's numbers
+therefore live in `session-summary.ts`, a pure function over `sessionSnapshot()`, because
+`vitest.config.ts` runs `defineWorkersConfig` with no DOM and `jsdom` is not a dependency: the numbers
+are what a gate can hold, and a `.tsx` test has nowhere to run. The artifact's `50 of 87` beside
+`12 + 35` adds to 97 against its own denominator, so every source class now gets its own row
+(`llm`, `rest`, `pattern`, `cell`, `fallback`, unknown) and the rows always partition the denominator;
+the failure pair is a subset printed under it, never a class of its own.
+
+The panel takes the app's theme variables through INLINE styles rather than a new block in
+`index.css`, because the card's file list does not include the sheet and an inline style cannot
+silently lose a rule to a later cascade. `--alert` does not exist in `index.css`, so the failure row
+and the failed chips take `--accent-rose`, the same token `AiDebugPanel` paints a fallback with; chips
+reuse its four-source map, `cell` and an unknown source take `--text-muted`, and a failed chip carries
+an outline as well as a colour because colour alone carries no information.
+
+Falsifier: a session whose drawn rows do not add up to its record denominator, a panel showing a
+number no recorder field carries, or a chip strip whose chip count disagrees with the count it is
+drawn beside.

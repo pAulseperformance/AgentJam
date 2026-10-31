@@ -5,3 +5,4 @@ export { TransportBar } from './ui/TransportBar';
 export { AgentPanel } from './ui/AgentPanel';
 export { MetricsPanel } from './ui/MetricsPanel';
 export { AiDebugPanel } from './ui/AiDebugPanel';
+export { SessionPanel } from './ui/session-panel';
