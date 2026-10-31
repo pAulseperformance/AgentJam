@@ -324,3 +324,33 @@ Falsifier: a run where the page constructs two sockets and `tools/browser-smoke.
 healthy page whose first model bar arrives after the twelve-second budget, which would make the
 deadline a flake rather than a reading; or a public-tier page that starts drawing the panel's rows,
 which would make the row readable and the socket view unnecessary.
+
+## 2026-10-31 The bar loop is proved on generated sessions, and the trim's rule on generated queues
+
+Loser: replaying the 2026-10-30 recording as the property. Reason: one recording is one tempo path and
+one latency path, and every invariant here is a statement about what holds at EVERY bar line. The
+fixture is sixteen seeded sessions of 200 bar lines: the tempo walks across the 171 BPM ceiling a
+1300 ms render has, so the stride steps between 1 and 2 inside one session; the latency drifts
+between 480 and 1400 ms with 16% spikes; and each session has one window of 3 to 6 bars where no
+render completes. Measured on this tree with `npx vitest run src/server/bar-loop.property.test.ts`:
+3,200 bar lines, 1,289 model bars, 1,410 renders, stride 2 at 850 of them, 121 tempo changes, and the
+last render at bar 199 of 200 in every session.
+
+THE TRIM'S MUTATION DOES NOT STOP THE LOOP, AND THE MEASUREMENT SAYS SO. The card's mutation is the
+ascending sort and slice, and on its own it leaves the 160 BPM session identical bar for bar: 1,144
+model bars and a last render at bar 199 of 200 under both. The reason is the other half of b019efc:
+`prunePast` drops the dead entry at the next line before it can hold a slot, and a completion never
+meets more than two candidates (0 of 1,410 landings on the shipped feed). What stops a session is the
+pre-fix PAIR — no prune, the ascending trim, and a late answer queued — which publishes 64 model bars
+and asks for nothing after bar 10 of 200, the shape of the recording itself (3 bars spoken, 47
+silent). Both arms are in the test file, so the next worker reads the difference rather than the claim.
+
+So the trim's rule is proved where a trim has work to do: 240 generated queues of one to six
+candidates, where `keepNewest` must return the highest n in ascending order and the ascending slice
+returns the lowest. Those are also the two tests the scratch-copy mutation fails; the session
+properties stay green under it, by measurement, not by tolerance.
+
+Falsifier: a session that stops writing model bars and still passes the liveness property; a landing
+on the shipped feed that meets three candidates, which would put the trim back in the loop's path; or
+a generated queue where the ascending slice agrees with `keepNewest`, which would mean the trim
+property stopped distinguishing anything.
