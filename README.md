@@ -171,8 +171,14 @@ the cadence fired on 2 of 16 bars because it rotated with the room instead of wi
 Independent agents that both decide "I will lead this bar" play two solos over each other, which is
 what "they are not collaborating" sounds like. So the room decides who leads.
 
-- The turn rotates by bar across the agents in spawn order, and the holder takes the line. The other
-  agent answers it, because by the time its render starts the leader's bar is in its listener window.
+- The turn rotates in TWO-BAR turns across the agents in spawn order, and the holder takes both bars
+  of the call. The other agent answers it, because by the time its render starts the leader's bar is
+  in its listener window. Two bars, not one: with a one-bar period the agents swap the lead every
+  measure (`trade.test.ts` fails its pair case on exactly that), so neither phrase lasts long
+  enough to be answered.
+- The prompt names which half of the turn the bar is (`TRADE: half 1 of 2` opens the statement,
+  `half 2 of 2` closes it and hands it over), so a model writes one two-bar statement instead of two
+  one-bar starts.
 - A human who played in the last two bars IS the lead, so an agent that decides to lead while someone
   is at the keyboard is demoted to answering. The room is for the person, not for the agents.
 - The next agent reads the other agent's QUEUED bar before it writes its own, is told not to copy it
