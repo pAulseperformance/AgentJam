@@ -208,9 +208,12 @@ function report() {
     profiles.set(key, row);
   }
   const scored = [...profiles.values()].filter(v => v.length >= 2);
-  const distinct = new Set(scored.map(v => [...v].sort((a, b) => a - b).join(' '))).size;
+  const sets = scored.map(v => [...v].sort((a, b) => a - b).join(' '));
+  const distinct = new Set(sets).size;
   const flat = scored.filter(v => new Set(v).size === 1).length;
-  const examples = scored.slice(0, 3).map(v => v.join(' ')).join('   |   ') || 'none';
+  // DISTINCT profiles, so an example never shows the same set twice: the reading is how many different
+  // velocity sets the room played, and the samples are three of them.
+  const examples = [...new Set(sets)].slice(0, 3).join('   |   ') || 'none';
   console.log(`dynamics  agent bars ${scored.length}  distinct velocity sets ${distinct}  flat bars ${flat}` +
     `  e.g. ${examples}`);
   if (prompts.length) {
