@@ -26,7 +26,7 @@ import {
 } from '@/shared/music';
 import { repairMeasure } from './measure-repair';
 import { summarizePhrase, motifFrom, describePhrase, describeMotif, type Motif, type NoteRecord } from './listener';
-import { melodyPlan, completeMelody, shapeLine, restateHook, applyContourRules, cadenceLine, accentMapFromDrums, pulseAccentMap, applyAccents, type AccentMap } from './melody';
+import { melodyPlan, completeMelody, shapeLine, restateHook, applyContourRules, cadenceLine, leadInto, accentMapFromDrums, pulseAccentMap, applyAccents, type AccentMap } from './melody';
 import { drumBar, bassBar, countInBar } from './groove';
 import {
   generateMeasureWithAi,
@@ -184,6 +184,13 @@ interface InProcessAgent {
   lastRegister: 'low' | 'mid' | 'high';
   /** the last bar index this agent published, so one bar cannot be announced twice */
   lastBarIndex: number;
+  /**
+   * THE NOTE THE NEXT BAR CONTINUES. The last sounding note of the last bar this agent published,
+   * kept with its bar index so a reader can tell which bar it belongs to. Recorded at the bar line
+   * AFTER the collision filter, so it is the note the room actually heard, not the plan.
+   */
+  lastBarNotes: GeneratedNote[] | null;
+  lastBarNotesBar: number;
   activeNotes: Set<string>;
   noteCount: number;
 }
@@ -776,6 +783,8 @@ export class JamRoom implements DurableObject {
       hook: null,
       lastRegister: 'mid',
       lastBarIndex: -1,
+      lastBarNotes: null,
+      lastBarNotesBar: -1,
       activeNotes: new Set(),
       noteCount: 0,
     };
@@ -1214,6 +1223,10 @@ export class JamRoom implements DurableObject {
       notes = notes.filter(n => !sounded.has(`${n.pitch}@${n.beatTime}`.toLowerCase()));
     }
     this.markSoundedSlots(agent.peer.peerId, bar, notes);
+    // WHAT THIS BAR LEAVES RINGING. The next bar starts a step out of it; a bar that sounded
+    // nothing hands on no note, because a rest is a break in the phrase and not a note at the centre.
+    agent.lastBarNotes = notes.length > 0 ? notes.map(n => ({ ...n })) : null;
+    agent.lastBarNotesBar = bar;
     // WHY A PATTERN BAR, SAID OUT LOUD. A bar with no queued render at a stride of one is a bar the
     // model missed; above a stride of one that bar is the agent's cells, so the tempo note now rides
     // on the cell record below instead of on a bar the generator played.
@@ -1372,6 +1385,29 @@ export class JamRoom implements DurableObject {
     // NOT MY TURN: answer or ornament, never lead.
     if (brief.role === 'lead') return { ...brief, role: 'answer' };
     return brief;
+  }
+
+  /**
+   * THE NOTE THE BAR BEFORE THIS ONE LEFT RINGING. The bar before this one belongs to whoever led it:
+   * this agent when the turn stayed, the OTHER agent when it moved. That agent's note is read from
+   * the queue the room will play when it has not reached the line yet, and from what it published
+   * when it has — the agents' bar timers fire in either order, so both places can hold the answer
+   * and neither alone is reliable. A silent bar hands on nothing.
+   */
+  private voiceFrom(bar: number): number | null {
+    const order = [...this.agents.keys()];
+    if (order.length === 0) return null;
+    const previous = bar - 1;
+    const speakerId = order[(((previous % order.length) + order.length) % order.length)]!;
+    const speaker = this.agents.get(speakerId);
+    if (!speaker) return null;
+    const queued = speaker.queue.find(q => q.bar === previous);
+    const notes = queued && queued.notes.length > 0
+      ? queued.notes
+      : speaker.lastBarNotesBar === previous ? speaker.lastBarNotes : null;
+    if (!notes || notes.length === 0) return null;
+    const last = notes.slice().sort((a, b) => a.beatTime - b.beatTime).at(-1)!;
+    return midiOf(last.pitch);
   }
 
   /**
@@ -1637,6 +1673,16 @@ export class JamRoom implements DurableObject {
           if (completed.completed) {
             finalNotes = completed.notes;
             result.meta.completed = completed.added;
+          }
+        }
+
+        // THE PHRASE PASSES ACROSS THE BAR LINE. A lead bar starts a step out of the note the bar
+        // before it left ringing; when the turn has just changed hands that note belongs to the OTHER
+        // agent, so the phrase is handed over instead of restarted at this agent's own centre.
+        if (brief?.role === 'lead') {
+          const from = this.voiceFrom(forBar);
+          if (from !== null) {
+            finalNotes = leadInto(finalNotes, { fromMidi: from, key: this.roomState.key, register });
           }
         }
 

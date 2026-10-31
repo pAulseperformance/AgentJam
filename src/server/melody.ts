@@ -277,6 +277,67 @@ export function restateHook(
   return copy;
 }
 
+// ─── The step across the bar line ────────────────────────────────────────────
+//
+// THE PHRASE PASSES BETWEEN THE PLAYERS. A bar written on its own starts wherever its register puts
+// it, which is why a room of agents sounds like a room of soloists: the turn changes and the new
+// agent restarts at its own centre instead of taking up the note the last bar left ringing. Measured
+// before: a lead change landed on the agent's centre pitch while the outgoing agent's last note was
+// most of an octave away, and the join is heard as a new idea even when the notes after it are the
+// same. Species counterpoint's first rule is that a phrase begins where the old one ended.
+
+/**
+ * Step a line's first note onto the note the previous bar left sounding.
+ *
+ * ONLY THE FIRST NOTE MOVES, and only when it has to: a first note already one or two semitones from
+ * the outgoing note is a scale step and is returned exactly as written. A leap is moved to the nearest
+ * in-key step in the direction the line was going, inside the bar's register; when the register has no
+ * step to offer, the bar keeps its leap rather than leave the key or the band. The rest of the line,
+ * its slots and its rhythms are never touched.
+ */
+export function leadInto(
+  notes: GeneratedNote[],
+  options: { fromMidi: number; key: string; register: { low: number; high: number }; maxStep?: number },
+): GeneratedNote[] {
+  if (notes.length === 0) return notes;
+  const ordered = notes.slice().sort((a, b) => a.beatTime - b.beatTime);
+  const first = ordered[0]!;
+  const firstMidi = midiOf(first.pitch);
+  if (firstMidi === null || !Number.isFinite(options.fromMidi)) return notes;
+
+  const maxStep = options.maxStep ?? 2;
+  const away = firstMidi - options.fromMidi;
+  // A STEP IS ONE OR TWO SEMITONES: the bar already leads in, so it is left alone.
+  if (away !== 0 && Math.abs(away) <= maxStep) return notes;
+
+  const allowed = scalePitchClasses(options.key);
+  const inKey = (midi: number) => allowed.includes(((midi % 12) + 12) % 12);
+  const inBand = (midi: number) => midi >= options.register.low && midi <= options.register.high;
+  // A REPEATED PITCH HAS NO DIRECTION, so both ways are tried; a leap prefers the way it was going,
+  // which is what makes the correction read as the phrase continuing rather than turning back.
+  const stepSign: 1 | -1 = away === 0 ? 1 : (Math.sign(away) as 1 | -1);
+  const candidates: Array<{ midi: number; preferred: boolean }> = [];
+  for (const direction of [1, -1] as const) {
+    for (let d = 1; d <= maxStep; d++) {
+      candidates.push({ midi: options.fromMidi + direction * d, preferred: direction === stepSign });
+    }
+  }
+  const valid = candidates.filter(c => c.midi !== options.fromMidi && inKey(c.midi) && inBand(c.midi));
+  // NO STEP INSIDE THE BAND: the leap is the only in-key, in-register move, so it stands.
+  if (valid.length === 0) return notes;
+
+  // THE NEAREST STEP TO WHERE THE LINE WANTED TO BEGIN, so the move is a correction and not a rewrite.
+  const target = valid.reduce((best, c) => {
+    const distance = Math.abs(c.midi - firstMidi);
+    const bestDistance = Math.abs(best.midi - firstMidi);
+    if (distance < bestDistance) return c;
+    if (distance === bestDistance && c.preferred && !best.preferred) return c;
+    return best;
+  }).midi;
+
+  return ordered.map((note, i) => (i === 0 ? { ...note, pitch: noteNameFromMidi(target) } : note));
+}
+
 /**
  * THE CONTOUR RULES. Species counterpoint's oldest and most audible ones, from the cantus firmus
  * literature: motion is mostly stepwise, a leap of a fourth or more must be answered by a step in the
