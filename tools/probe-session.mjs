@@ -122,6 +122,9 @@ ws.on('message', (buf) => {
       pitch: String(data.pitch ?? ''),
       velocity: Number(data.velocity ?? 0),
       beatTime: Number(data.beatTime ?? 0),
+      // THE SLOT the server addressed, kept so an export can prove the grid rather than infer it
+      at: data.at === undefined ? null : Number(data.at),
+      in: data.in === undefined ? null : Number(data.in),
       kind: type === 'note_on' ? 'on' : 'off',
     });
   }
