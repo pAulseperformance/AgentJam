@@ -1,10 +1,10 @@
-<!-- Card body for plan:938f032372d333da:17. The spec is the plan's Task 17 section at
-     .hermes/plans/2026-10-31_011630-jam-band-and-audit.md (sha16 938f032372d333da). Do not edit the plan.
+<!-- Card body for plan:6e1d9bac9347c305:17. The spec is the plan's Task 17 section at
+     .hermes/plans/2026-10-31_011630-jam-band-and-audit.md (sha16 6e1d9bac9347c305). Do not edit the plan.
      Repo: /Users/v99/Projects/Music/agentJam. Work in place, commit per the task's Commit line. -->
 
 # Task 17: Verify the browser half
 
-Repo `agentJam`  |  Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md`  |  Card key `plan:938f032372d333da:17`
+Repo `agentJam`  |  Plan `.hermes/plans/2026-10-31_011630-jam-band-and-audit.md`  |  Card key `plan:6e1d9bac9347c305:17`
 
 
 
