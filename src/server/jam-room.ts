@@ -1547,7 +1547,11 @@ export class JamRoom implements DurableObject {
     agent.refreshesThisBar = 0;
     const depth = stride > 1 ? 1 : 2;
     if (agent.queue.length < depth) void this.renderAgentBar(agent);
-    else this.maybeRefreshHead(agent);
+    // A PHRASE IS WRITTEN ONCE. A refresh replaces one queued bar with a bar asked in isolation, which
+    // is exactly the incoherence the phrase setting exists to remove, and it pays a second call for a
+    // bar the phrase already wrote. Measured on the live room with the setting on: 13 of 26 bars were
+    // paid individually, and every one of them was a refresh.
+    else if (this.roomState.phraseAsk !== true) this.maybeRefreshHead(agent);
 
     this.armAgentBar(agent);
   }

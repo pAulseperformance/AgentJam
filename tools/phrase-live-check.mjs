@@ -42,7 +42,7 @@ await new Promise((resolve, reject) => {
     try { m = JSON.parse(String(raw)); } catch { return; }
     if (m.type === 'bar') bars.push(m);
     if (m.type === 'ai_debug') debug.push(m.meta ?? {});
-    if (m.type === 'note' && m.kind === 'on') notes.push({ t: m.at ?? Date.now(), pitch: m.pitch, beatTime: m.beatTime, peerId: m.peerId });
+    if (m.type === 'note_on') notes.push({ t: m.at ?? Date.now(), pitch: m.pitch, beatTime: m.beatTime, peerId: m.peerId });
   });
   ws.on('error', reject);
   setTimeout(resolve, (seconds + 12) * 1000);
@@ -63,6 +63,13 @@ console.log(`  notes on the wire:     ${notes.length}`);
 console.log(withCall.length > 0 && without.length >= withCall.length * 2
   ? '  RESULT: the phrase ask is running: most bars answer calls 0 from one call per phrase'
   : '  RESULT: NOT running as a phrase (most bars paid individually, or nothing published)');
+
+// THE TIMELINE, because a count hides which bars paid: four consecutive bars from one call read
+// `calls 1` then `0 0 0`, and a refresh re-asks a bar the phrase already wrote.
+console.log('  bar : calls, position, notes, latency');
+for (const m of debug.slice(0, 40)) {
+  console.log(`   ${String(m.bar ?? '?').padStart(3)} : ${String(m.calls ?? '-').padStart(2)}  pos ${String(m.position ?? '-').padStart(2)}  n ${String(m.noteCount ?? 0).padStart(2)}  ${m.latencyMs ?? 0}ms  ${m.source}`);
+}
 
 if (debug[0]) {
   console.log(`  first meta: source ${debug[0].source} position ${debug[0].position ?? '?'} calls ${debug[0].calls} model ${debug[0].model ?? '?'} latency ${debug[0].latencyMs ?? '?'}ms notes ${debug[0].noteCount ?? '?'}`);
