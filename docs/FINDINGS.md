@@ -154,3 +154,46 @@ because `queuePhrase` broadcast a meta that the publish of that bar broadcasts a
 **What this does not settle:** whether it sounds better. The probe said the one-phrase answer wins the
 ending (7 of 8 against 5 of 8) and loses three points of stepwise motion, and that is a listener's
 call. The switch exists so the call can be made by ear rather than by this page.
+
+---
+
+## 2026-11-01 The phrase ask's lead: two defects, and what 125 BPM actually costs
+
+`set_phrase_ask` queues four bars from one call. Measured on the session recorded at 17:31 that day
+(125 BPM, 1920 ms bar, three melodic agents, the setting on), the generator covered **21 of 79 Funk
+Bot bars and 21 of 96 Jazz Bot bars** — one in four.
+
+**Two defects, both in the refill.**
+
+1. The refill fires on `queue.length < depth`, and a phrase makes that false for all four of its bars,
+   so the next phrase was asked only once the queue was EMPTY: one bar before the line it had to write
+   for, against calls that day of 1916, 2383 and 2788 ms. `phraseLead` asks while the current phrase
+   still holds the render's tail, in bars, rounded up.
+2. The bar line is the only place the next bar is asked for, and a render in flight made that ask
+   return immediately. With one call keeping an agent busy for four bars, every refill inside that
+   window was dropped. The ask is now remembered (`refillWanted`) and honoured the moment the render
+   finishes.
+
+**Measured at 125 BPM, two melodic agents, the rhythm section on, 60 s runs, live:**
+
+| arm | bars | generator | cells | model calls | calls / bar |
+|---|---|---|---|---|---|
+| per-bar ask (the default), 3 runs | 180 | 15 (8%) | 11 | 154 | 0.86 |
+| phrase ask, before the fixes, 1 run | 60 | 11 (18%) | 0 | 18 | 0.30 |
+| phrase ask, after the fixes, 3 runs | 180 | 24 (13%) | 32 | 46 | 0.26 |
+
+The two fixes took the phrase ask from 18% to 13% generator, and the cells that appeared are the
+agent's own short cells, not the generator's line.
+
+**What the table also says, and it is the more useful half:** the per-bar ask covers 92% of bars at
+125 BPM, and the phrase ask covers 87% while paying **70% fewer model calls**. The remaining gap is
+the model's tail, not the room's scheduling: in the runs after the fixes the slowest single call was
+3834, 2837 and 5012 ms against a 1920 ms bar, and the stride moved to 3, which is why cells appear.
+
+**The switch stays off by default** for that reason. Four bars per call is a spend decision at this
+tempo, not a musical one, and a listener should now be able to hear it as one.
+
+**Operational, and unrelated to the tree:** the vitest Workers pool mints a preview token per run and
+Cloudflare throttles that endpoint (error 971) when two suite runs land within a couple of minutes.
+`check.sh` and `deploy.sh` each run the suite, so a gate can fail for a reason that has nothing to do
+with the code it is gating, and pass on a retry a few minutes later.
