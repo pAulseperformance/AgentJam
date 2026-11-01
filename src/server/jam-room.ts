@@ -1051,8 +1051,26 @@ export class JamRoom implements DurableObject {
     // THE DRUMMER IS NOT A PLAYER TO ANSWER. Left in, its fixed figure was summarized as "they are
     // playing: ... strong beats: C2, A5" and as a note someone is holding, so an agent was told not to
     // play A5 because a hi-hat had it, and was asked to answer a kick drum.
+    //
+    // BUT EVERY OTHER PEER IS. This used to filter on `isPlayerPeer`, which answers "is this person at
+    // a keyboard" and is FALSE for every agent and every backing layer. So a signed agent heard nothing
+    // in a room where a bass and a drummer had been playing for a minute: nine prompts in one session
+    // each said "the room is silent, nobody has played recently" over a walking bass line, and every
+    // agent took the lead because nobody was playing. `isPlayerPeer` still decides who counts as a
+    // HUMAN (it guards `lastHumanAt`); what an agent listens to is everything but the kit.
     return this.noteRing.filter(n =>
-      n.peerId !== agentPeerId && n.timestamp >= since && this.isPlayerPeer(n.peerId));
+      n.peerId !== agentPeerId && n.timestamp >= since && !this.isDrumPeer(n.peerId));
+  }
+
+  /** Is this peer the drum kit? A fixed figure on fixed pitches is not a line to answer. */
+  private isDrumPeer(peerId: string): boolean {
+    for (const agent of this.agents.values()) {
+      if (agent.peer.peerId === peerId) return agent.peer.instrument === 'DrumKit';
+    }
+    for (const layer of this.layers.values()) {
+      if (layer.peer.peerId === peerId) return layer.peer.instrument === 'DrumKit';
+    }
+    return false;
   }
 
   // ─── The rhythm section ────────────────────────────────────────────────────
