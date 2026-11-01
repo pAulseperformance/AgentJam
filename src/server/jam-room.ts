@@ -26,7 +26,7 @@ import {
 } from '@/shared/music';
 import { repairMeasure } from './measure-repair';
 import { summarizePhrase, motifFrom, describePhrase, describeMotif, type Motif, type NoteRecord } from './listener';
-import { melodyPlan, completeMelody, shapeLine, restateHook, applyContourRules, cadenceLine, leadInto, accentMapFromDrums, pulseAccentMap, applyAccents, type AccentMap } from './melody';
+import { melodyPlan, completeMelody, shapeLine, restateHook, applyContourRules, cadenceFrom, leadInto, accentMapFromDrums, pulseAccentMap, applyAccents, type AccentMap } from './melody';
 import { drumBar, bassBar, countInBar } from './groove';
 import {
   generateMeasureWithAi,
@@ -215,6 +215,23 @@ interface InProcessAgent {
   sessionMotif: Motif | null;
   /** the bar this agent's phrase began at, so the arc is measured from ITS start, not the room's bar 0 */
   phraseStartBar: number;
+  /**
+   * HOW MANY BARS THIS AGENT HAS SOUNDED IN ITS CURRENT PHRASE, and the position each recent bar got.
+   *
+   * THE ARC ADVANCES ON THE AGENT'S OWN BARS, NOT THE ROOM'S BAR NUMBER. Measured on a recorded
+   * session (2026-11-01, 130 BPM, 16 model bars): the arc was `(bar - phraseStartBar) % 4` on the
+   * ROOM's clock, so an agent paced to write every other bar reached only two of the four positions,
+   * and one session came out 2 states, 6 restates, 3 developments and 5 cadences instead of four of
+   * each. The phrase was asked to land five times in sixteen bars, and a listener hears a phrase that
+   * has already ended three times.
+   */
+  phraseBars: number;
+  /**
+   * THE POSITION EACH RECENT BAR WAS GIVEN, so a re-render of one bar is the SAME position and a
+   * fallback bar arriving after the next bar was claimed still reads its own. Eight entries: the
+   * lookahead is one bar and a fallback can be one bar behind it.
+   */
+  phrasePos: Map<number, number>;
   /** the phrase's hook, kept so the restate bar can bring it back with one change (Yin-Yang's "vary") */
   hook: GeneratedNote[] | null;
   /** the register the last decision asked for, so a fallback bar lands in the same band */
@@ -866,6 +883,8 @@ export class JamRoom implements DurableObject {
       // THE PHRASE STARTS WHEN THE AGENT DOES. Measured: the arc used the ROOM's bar number, so the
       // cadence rotated with the room instead of landing at the end of the agent's own phrase.
       phraseStartBar: this.barIndexOf(Date.now()) + 1,
+      phraseBars: 0,
+      phrasePos: new Map(),
       hook: null,
       lastRegister: 'mid',
       lastBarIndex: -1,
@@ -1679,13 +1698,31 @@ export class JamRoom implements DurableObject {
   }
 
   /**
+   * WHERE THIS BAR SITS IN THE AGENT'S OWN PHRASE. The count advances once per bar the agent claims,
+   * and a bar already claimed keeps the position it was given: a re-render is the same bar, and a
+   * fallback for a bar that has begun reads the position the render for it had.
+   */
+  private phrasePosition(agent: InProcessAgent, bar: number): number {
+    const known = agent.phrasePos.get(bar);
+    if (known !== undefined) return known;
+    const position = agent.phraseBars % 4;
+    agent.phraseBars += 1;
+    agent.phrasePos.set(bar, position);
+    while (agent.phrasePos.size > 8) {
+      const oldest = Math.min(...agent.phrasePos.keys());
+      agent.phrasePos.delete(oldest);
+    }
+    return position;
+  }
+
+  /**
    * A BAR WITH NO MODEL ANSWER IS STILL MUSIC, NOT NOISE. The old fallback was `generateMeasure`, which
    * picks pitches at random across three octaves: measured live it produced `G3 B3 G5 C4 A4 D3 E5 C5 B5`
    * and it is what a listener hears when a render misses its bar. The line builder writes a stepwise
    * melody on the same arc instead, so a missed bar costs a model's flourish and not the tune.
    */
   private melodyBar(agent: InProcessAgent, bar: number): GeneratedNote[] {
-    const barInPhrase = ((bar - agent.phraseStartBar) % 4 + 4) % 4;
+    const barInPhrase = this.phrasePosition(agent, bar);
     const plan = melodyPlan(barInPhrase, agent.style, agent.motif !== null);
     const register = this.registerRange(agent.lastRegister ?? 'mid');
     const built = completeMelody([], {
@@ -1882,7 +1919,9 @@ export class JamRoom implements DurableObject {
       const peerPlan = this.otherAgentPlan(agent.peer.peerId, forBar);
       // WHERE THIS BAR SITS IN THE PHRASE: state, restate, develop, cadence. A melody needs a shape
       // across bars; a bar written with no idea where it sits is a gesture that happens to be in time.
-      const barInPhrase = ((forBar - agent.phraseStartBar) % 4 + 4) % 4;
+      // Counted on THIS agent's own bars (see `phraseBars`): a paced agent that writes every other bar
+      // still gets all four positions, and a re-render of one bar is the same position, not the next.
+      const barInPhrase = this.phrasePosition(agent, forBar);
       const melody = melodyPlan(barInPhrase, agent.style, agent.motif !== null);
 
       const jev = agent.tier === 'signed' && reuseBrief === undefined ? jevConfigFromEnv(this.env) : null;
@@ -2005,12 +2044,10 @@ export class JamRoom implements DurableObject {
         // A LEAD BAR IS A MELODY, NOT A GESTURE. The model writes what it can and this is what happens
         // when what it writes is a triad: the line is completed in key, along the arc, on the grid.
         if (brief?.role === 'lead' && melody.position === 'cadence') {
-          // THE PHRASE LANDS: two notes, the last on the tonic, approached by step, held longer
-          finalNotes = cadenceLine({
-            key: this.roomState.key,
-            register,
-            fromMidi: finalNotes.length ? midiOf(finalNotes.at(-1)!.pitch) ?? undefined : undefined,
-          });
+          // THE PHRASE LANDS WITHOUT LOSING THE BAR IT LANDS IN. This used to replace the whole bar
+          // with `cadenceLine`'s two fixed notes, which cost 14 of the session's 95 model notes and
+          // made every ending the same gesture: the model's opening stays and its last note resolves.
+          finalNotes = cadenceFrom(finalNotes, { key: this.roomState.key, register });
         } else if (brief?.role === 'lead' && melody.position === 'restate' && agent.hook?.length) {
           // THE HOOK COMES BACK. One change, chosen by the bar, never a new line (arXiv 2501.17759)
           finalNotes = restateHook(agent.hook, { key: this.roomState.key, register, bar: forBar });

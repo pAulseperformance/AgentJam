@@ -82,7 +82,10 @@ const roomStub = () => {
 interface AgentInternals {
   peer: { peerId: string; name: string };
   phraseStartBar: number;
-  queue: Array<{ bar: number; notes: Shape[]; meta: { source?: string } | null }>;
+  /** how many bars this agent has written in its phrase, and the position each recent bar got */
+  phraseBars: number;
+  phrasePos: Map<number, number>;
+  queue: Array<{ bar: number; notes: Shape[]; meta: { source?: string; prompt?: string } | null }>;
   barTimer: ReturnType<typeof setTimeout> | null;
   busy: boolean;
   hook: Shape[] | null;
@@ -98,6 +101,8 @@ interface RoomInternals {
   barIndexOf: (at: number) => number;
   renderAgentBar: (agent: AgentInternals, target?: number) => Promise<void>;
   voiceFrom: (bar: number) => number | null;
+  /** where a bar sits in the agent's own phrase; claiming a bar advances the arc */
+  phrasePosition: (agent: AgentInternals, bar: number) => number;
 }
 
 /** The model's held bar asks, per room. The stub pushes, the render walk answers. */
@@ -203,6 +208,10 @@ const quiet = (agent: AgentInternals): void => {
   agent.motif = null;
   agent.lastBarNotes = null;
   agent.lastBarNotesBar = -1;
+  // THE PHRASE RESTARTS WITH THE CASE: the arc counts this agent's own bars, so a case that wants a
+  // bar at a named position starts from position 0 rather than from whatever the spawn render claimed.
+  agent.phraseBars = 0;
+  agent.phrasePos.clear();
 };
 
 const firstNote = (notes: Shape[]): Shape =>
@@ -221,9 +230,12 @@ describe('the room leads across the bar line', () => {
         if (!agent) throw new Error('agent did not spawn');
         quiet(agent);
 
-        // THE PHRASE ENDS ON ITS HIGHEST NOTE. The cadence bar keeps only the model's LAST pitch as
-        // the place to land from, so a model line ending on C5 lands the phrase on C5 (72).
+        // THE PHRASE ENDS ON ITS HIGHEST NOTE. The cadence bar keeps the model's opening and resolves
+        // its last pitch onto a chord tone, so a line ending on C5 (already the tonic) lands on C5 (72).
+        // The cadence is the FOURTH bar this agent writes, so three bars are claimed first: the arc
+        // advances on the agent's own bars, not on the room's clock.
         const cadenceTarget = agent.phraseStartBar + 3 + 4 * 4; // position 3: cadence
+        for (let f = 3; f >= 1; f--) room.phrasePosition(agent, cadenceTarget - f);
         const answers = [note('E4', 0), note('G4', 1), note('C5', 2)];
         const cadence = await renderBar(room, agent, cadenceTarget, answers);
         const landing = cadence.slice().sort((a, b) => a.beatTime - b.beatTime).at(-1)!;
@@ -299,6 +311,82 @@ describe('the room leads across the bar line', () => {
         expect(midi(first.pitch)).toBe(71);
         // ... and the source was the OUTGOING agent's bar, not anything of the incoming agent's own.
         expect(room.voiceFrom(handoverTarget)).toBe(72);
+      });
+    } finally {
+      await close();
+    }
+  });
+});
+
+/**
+ * THE ARC RUNS ON THE AGENT'S OWN BARS.
+ *
+ * Measured on a recorded session (2026-11-01, 130 BPM, 16 model bars): the position was
+ * `(bar - phraseStartBar) % 4` against the ROOM's clock, so an agent paced to write every other bar
+ * reached only two of the four positions and the session came out 2 states, 6 restates, 3
+ * developments and 5 cadences. Here the same shape is reproduced: eight bars, two apart, and all four
+ * positions must appear twice, in order.
+ */
+describe('the phrase arc', () => {
+  const positionOf = (prompt: string): string =>
+    prompt.includes('This bar states the idea') ? 'state'
+      : prompt.includes('repeats the idea with ONE change') ? 'restate'
+        : prompt.includes('develops the idea') ? 'develop'
+          : prompt.includes('lands the phrase') ? 'cadence'
+            : '?';
+
+  it('runs its four positions on the agent’s own bars, even when it writes every other bar', async () => {
+    const { stub, close } = await openRoom(['Arc Bot']);
+    try {
+      await runInDurableObject(stub, async (instance: JamRoom) => {
+        const room = instance as unknown as RoomInternals;
+        ASKS.forEach(a => a.answer('[]'));
+        await sleep(80);
+        ASKS = [];
+        const agent = [...room.agents.values()][0];
+        if (!agent) throw new Error('agent did not spawn');
+        quiet(agent);
+
+        const line = [note('C4', 0), note('D#4', 1), note('G4', 2), note('C4', 3)];
+        const heard: string[] = [];
+        for (let i = 0; i < 8; i++) {
+          // EVERY OTHER BAR: what the room does above ~171 BPM, and what starved the arc's positions.
+          const target = agent.phraseStartBar + 8 + i * 2;
+          await renderBar(room, agent, target, line);
+          const entry = agent.queue.find(q => q.bar === target);
+          if (!entry) throw new Error(`no bar queued for ${target}`);
+          heard.push(positionOf(entry.meta?.prompt ?? ''));
+        }
+
+        expect(heard).toEqual([
+          'state', 'restate', 'develop', 'cadence',
+          'state', 'restate', 'develop', 'cadence',
+        ]);
+      });
+    } finally {
+      await close();
+    }
+  });
+
+  it('gives one bar one position, however many times it is rendered', async () => {
+    const { stub, close } = await openRoom(['Arc Bot']);
+    try {
+      await runInDurableObject(stub, async (instance: JamRoom) => {
+        const room = instance as unknown as RoomInternals;
+        ASKS.forEach(a => a.answer('[]'));
+        await sleep(80);
+        ASKS = [];
+        const agent = [...room.agents.values()][0];
+        if (!agent) throw new Error('agent did not spawn');
+        quiet(agent);
+
+        // A REFRESH IS THE SAME BAR, so it is the same position: the second call must not advance the
+        // arc, or a bar that is re-rendered once costs the phrase a position.
+        const first = room.phrasePosition(agent, 100);
+        expect(room.phrasePosition(agent, 100)).toBe(first);
+        // AND A FALLBACK FOR A BAR THAT HAS BEGUN READS ITS OWN POSITION, not the next one.
+        expect(room.phrasePosition(agent, 100)).toBe(first);
+        expect(room.phrasePosition(agent, 101)).toBe((first + 1) % 4);
       });
     } finally {
       await close();

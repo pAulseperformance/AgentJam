@@ -459,6 +459,68 @@ function nearestInKeyBelow(allowed: number[], target: number, register: { low: n
 }
 
 /**
+ * THE CADENCE LANDS WHERE THE LINE ALREADY IS, instead of replacing the bar with a gesture.
+ *
+ * `cadenceLine` writes the same two notes in the same two slots every time it fires, and it fired
+ * unconditionally on every cadence bar. Measured on the 2026-11-01 session (130 BPM, 16 model bars):
+ * five cadence bars carried 23 notes between them and played 10, so this one pass lost 14 of the 95
+ * notes the model wrote, more than repair, completion, contour and shaping together. It is also why the
+ * phrase "had already ended three times": the same two-note ending, in the same slot, five times in
+ * sixteen bars.
+ *
+ * So the model's bar is KEPT and only its ending is written: the opening notes stay, the last note
+ * moves onto a stable tone (tonic, third or fifth) by step inside the band, later notes are dropped and
+ * the landing is held. A bar that already lands on a stable tone is returned untouched.
+ */
+export function cadenceFrom(
+  notes: GeneratedNote[],
+  options: { key: string; register: { low: number; high: number }; fromMidi?: number },
+): GeneratedNote[] {
+  const ordered = notes
+    .filter(n => midiOf(n.pitch) !== null)
+    .slice()
+    .sort((a, b) => a.beatTime - b.beatTime);
+  if (ordered.length === 0) return cadenceLine(options);
+
+  const allowed = scalePitchClasses(options.key);
+  const tonic = allowed[0] ?? 0;
+  // A CADENCE RESTS ON A CHORD TONE of the mode: root, either third, or the fifth.
+  const stable = [0, 3, 4, 7].map(i => (tonic + i) % 12);
+  const lastNote = ordered.at(-1)!;
+  const lastMidi = midiOf(lastNote.pitch)!;
+  const pcOf = (m: number) => ((m % 12) + 12) % 12;
+
+  // A BAR THAT ALREADY LANDS IS A CADENCE ALREADY: short, and resting on a chord tone.
+  if (ordered.length <= 4 && stable.includes(pcOf(lastMidi))) return ordered;
+
+  // WHERE IT LANDS: the nearest chord tone by step, so the ending is approached and not jumped to.
+  let landing = lastMidi;
+  for (let d = 0; d <= 6; d++) {
+    const found = [lastMidi - d, lastMidi + d].find(m =>
+      m >= options.register.low && m <= options.register.high && stable.includes(pcOf(m)));
+    if (found !== undefined) { landing = found; break; }
+  }
+  if (!allowed.includes(pcOf(landing))) landing = nearestInKeyBelow(allowed, landing, options.register);
+
+  // THE OPENING OF THE BAR STAYS. Two notes is the model's gesture; a landing is not a bar.
+  const keep = ordered.slice(0, Math.min(2, Math.max(1, ordered.length - 1)));
+  const afterKeep = keep.at(-1)!.beatTime + 0.5;
+  const at = Math.max(lastNote.beatTime, afterKeep, 1.5);
+  const landingBeat = Math.min(3.5, at);
+  const meanVelocity = Math.round(ordered.reduce((a, n) => a + n.velocity, 0) / ordered.length);
+
+  return [
+    ...keep,
+    {
+      pitch: noteNameFromMidi(landing),
+      beatTime: landingBeat,
+      velocity: Math.max(40, Math.min(110, meanVelocity)),
+      duration: landingBeat <= 2.5 ? 1.5 : 1,
+    },
+  ];
+}
+
+/**
  * COMPLETE THE LINE. Given what the model wrote, return a bar that is a melody: at least `wantNotes`
  * notes, mostly stepwise, inside the register, in key, on the sixteenth grid.
  *

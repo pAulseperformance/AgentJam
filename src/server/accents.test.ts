@@ -159,6 +159,8 @@ interface RoomInternals {
   handleSetBacking: (drummer: boolean, bass: boolean) => void;
   renderAgentBar: (agent: unknown, target?: number) => Promise<void>;
   roomAccents: (bar: number) => AccentMap;
+  /** where a bar sits in the agent's own phrase; claiming a bar advances the arc */
+  phrasePosition: (agent: unknown, bar: number) => number;
 }
 
 /** The model's held bar asks, per room. The stub pushes, the render walk answers. */
@@ -257,6 +259,10 @@ const renderBars = async (
     for (let i = 0; i < count; i++) {
       if (i === drummerAt) room.handleSetBacking(true, false);
       const target = agent.phraseStartBar + barOffset + i * 4;
+      // THE ARC RUNS ON THE AGENT'S OWN BARS NOW, so "four bars apart" no longer means "same position
+      // in the phrase": three claims put this render back at position 0, which is what this case needs
+      // (identical arc, density and register, so only the accent map can move a velocity).
+      for (let f = 3; f >= 1; f--) room.phrasePosition(agent, target - f);
       const render = room.renderAgentBar(agent, target);
       let ask: HeldAsk | undefined;
       for (let wait = 0; wait < 300 && !ask; wait++) {

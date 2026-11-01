@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { melodyPlan, completeMelody, shapeLine, restateHook, applyContourRules, cadenceLine } from './melody';
+import { melodyPlan, completeMelody, shapeLine, restateHook, applyContourRules, cadenceLine, cadenceFrom } from './melody';
 import { midiOf, isInKey } from '../shared/music/pattern-generator';
 
 const note = (pitch: string, beatTime: number, velocity = 80, duration = 0.25) => ({ pitch, beatTime, velocity, duration });
@@ -224,6 +224,53 @@ describe('cadenceLine', () => {
     const cadence = cadenceLine({ key: 'C major', register: { low: 55, high: 72 }, fromMidi: 69 });
     const gap = Math.abs(midiOf(cadence[1]!.pitch)! - midiOf(cadence[0]!.pitch)!);
     expect(gap).toBeLessThanOrEqual(3);
+  });
+});
+
+/**
+ * THE CADENCE KEEPS THE BAR IT LANDS IN.
+ *
+ * `cadenceLine` replaces the whole bar with the same two notes in the same two slots, and it used to
+ * run on every cadence bar. Measured on the 2026-11-01 session: five cadence bars carried 23 model
+ * notes and played 10, so this pass alone lost 14 of the session's 95 notes, and every ending sounded
+ * like the same gesture.
+ */
+describe('cadenceFrom', () => {
+  const register = { low: 55, high: 72 };
+
+  it('keeps a bar that already lands on a chord tone', () => {
+    const bar = [note('E4', 0), note('G4', 1), note('C5', 2)];
+    const out = cadenceFrom(bar, { key: 'C minor', register });
+    expect(out.map(n => `${n.pitch}@${n.beatTime}`)).toEqual(['E4@0', 'G4@1', 'C5@2']);
+  });
+
+  it('keeps the model opening and resolves a last note that does not land', () => {
+    // D4 is the second degree of C minor: a line stopping there has not landed.
+    const bar = [note('E4', 0), note('G4', 1), note('D4', 2)];
+    const out = cadenceFrom(bar, { key: 'C minor', register });
+    const last = out.at(-1)!;
+    const pc = ((midiOf(last.pitch)! % 12) + 12) % 12;
+    expect([0, 3, 7]).toContain(pc); // tonic, third or fifth
+    // THE OPENING IS NOT REWRITTEN: the first two notes are the model's own.
+    expect(out[0]!.pitch).toBe('E4');
+    expect(out[0]!.beatTime).toBe(0);
+    expect(out[1]!.pitch).toBe('G4');
+    // THE RESOLUTION IS A STEP, not a jump to the tonic.
+    expect(Math.abs(midiOf(last.pitch)! - midiOf('D4')!)).toBeLessThanOrEqual(2);
+  });
+
+  it('never leaves the register the decision named', () => {
+    const bar = [note('C5', 0), note('B4', 1), note('D5', 2)];
+    for (const n of cadenceFrom(bar, { key: 'C minor', register })) {
+      expect(midiOf(n.pitch)!).toBeGreaterThanOrEqual(register.low);
+      expect(midiOf(n.pitch)!).toBeLessThanOrEqual(register.high);
+    }
+  });
+
+  it('falls back to the written cadence when the bar is empty', () => {
+    const out = cadenceFrom([], { key: 'C minor', register });
+    expect(out).toHaveLength(2);
+    expect(((midiOf(out[1]!.pitch)! % 12) + 12) % 12).toBe(0); // the tonic
   });
 });
 
