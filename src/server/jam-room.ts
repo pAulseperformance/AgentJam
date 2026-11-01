@@ -1847,14 +1847,9 @@ export class JamRoom implements DurableObject {
         },
       });
     }
+    // NO BROADCAST HERE: publishing a bar already announces its meta, and announcing the phrase as
+    // well put every phrase's first bar in the debug stream twice (measured live: `1 pos 0` repeated).
     agent.queue = keepNewest(agent.queue, 4);
-    this.broadcastAll(JSON.stringify({
-      type: 'ai_debug',
-      agentPeerId: agent.peer.peerId,
-      agentName: agent.peer.name,
-      bar: firstBar,
-      meta: agent.queue.find(q => q.bar === firstBar)?.meta ?? {},
-    }));
   }
 
   private melodyBar(agent: InProcessAgent, bar: number): GeneratedNote[] {
