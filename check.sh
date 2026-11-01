@@ -105,9 +105,16 @@ step "[2/6] live: the mount shell"
 shell_file="$(mktemp -t jam-shell.XXXXXX)"
 shell_ok=0
 code="$(curl -s -o "$shell_file" -w '%{http_code}' "${BASE}/jam/")"
-if [ "$code" = "200" ] && grep -q 'AgentJam' "$shell_file"; then
+# THE TITLE IS NOT THE COMPOSED PAGE. AgentJam is the app's own <title>, which the raw asset-layer
+# index.html carries too: that is the 2,033 B shell the mount existed to replace, so a title check is
+# green on exactly the regression it was written for. The estate bar is what only the composed page
+# has (data-zpe-bar plus the system stylesheet; measured 2026-11-01: 2,886 B composed, neither string
+# in dist/jam/index.html).
+if [ "$code" = "200" ] && grep -q 'AgentJam' "$shell_file" && grep -q 'data-zpe-bar' "$shell_file"; then
   shell_ok=1
-  green "      ok (200, title present)"
+  green "      ok (200, composed shell: title and estate bar present)"
+elif [ "$code" = "200" ] && grep -q 'AgentJam' "$shell_file"; then
+  note_failure "GET /jam/ answered 200 with the app's own shell and no estate bar: the asset layer answered before the Worker"
 else
   note_failure "GET /jam/ answered ${code} and the shell named no AgentJam"
 fi
@@ -132,6 +139,14 @@ else
     unverified=$((unverified + 1))
     green "      ok (${asset} 200)"
     step "      not asserted: no build in dist/ (bash deploy.sh builds it), so the live bundle is not compared to this tree"
+  elif [ -n "$(find src -newer dist/jam/index.html -name '*.ts*' -print -quit 2>/dev/null)" ]; then
+    # A PARITY READING AGAINST A STALE BUILD IS NOT A READING. This script never builds, so dist/ is
+    # whatever the last deploy left: a checkout three commits behind reports "the bundle this tree
+    # builds" for a tree that builds something else. Newer sources than the build means the comparison
+    # proves nothing, so it is reported as unverified instead of green.
+    unverified=$((unverified + 1))
+    green "      ok (${asset} 200)"
+    step "      not asserted: dist/ is older than src/, so this tree has no build to compare the live bundle to"
   elif [ "$built" != "$asset" ] && [ "$PARITY" = loose ]; then
     green "      ok (${asset} 200)"
     unverified=$((unverified + 1))

@@ -14,13 +14,21 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
+# THE SAME CREDENTIAL PATH THE DEPLOY USES. deploy.sh resolves the account from the zone and exports
+# CLOUDFLARE_ACCOUNT_ID before anything else, because this machine holds keys for three accounts and
+# neither a wrangler cache nor an interactive chooser may decide which account a command lands in. A
+# rollback that authenticates by whatever wrangler has cached is the exact failure the deploy excludes,
+# and it is the command the deploy prints as the way back.
+WRAPPER="${CF_RUN:-$HOME/.hermes/scripts/cf_run.sh}"
+NAME="${NAME:-agent-jam}"
+
 TARGET="${1:-}"
 MESSAGE="${2:-HALT: stopped by the repo stop command, ${TARGET:-previous deployment}}"
 
 if [ -n "$TARGET" ]; then
-  npx wrangler rollback "$TARGET" --message "$MESSAGE" --name agent-jam
+  bash "$WRAPPER" npx wrangler rollback "$TARGET" --message "$MESSAGE" --name "$NAME"
 else
-  npx wrangler rollback --message "$MESSAGE" --name agent-jam
+  bash "$WRAPPER" npx wrangler rollback --message "$MESSAGE" --name "$NAME"
 fi
 rc=$?
 

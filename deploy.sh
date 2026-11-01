@@ -146,6 +146,14 @@ green "      ok (bash check.sh exited 0)"
 step "[5/7] upload"
 serving_before="$(serving_rows | head -1)"
 [ -z "$serving_before" ] && serving_before="unknown"
+# WHEN THE READ-BACK SAID NOTHING THERE IS NO VERSION TO NAME, and the way back is BARE `bash HALT`
+# (roll back one deployment). Printing `bash HALT unknown` hands the operator, in the one branch where
+# they have the least information, a version id that cannot exist.
+if [ "$serving_before" = "unknown" ]; then
+  way_back="bash HALT (no version id was read back; bare HALT rolls back one deployment)"
+else
+  way_back="bash HALT ${serving_before%@*} (rolls to the version that served before this deploy)"
+fi
 upload_log="$(mktemp -t jam-upload.XXXXXX)"
 cf npx wrangler versions upload --name "$NAME" --message "deploy.sh ${sha}" >"$upload_log" 2>&1
 upload_rc=$?
@@ -186,12 +194,12 @@ while [ "$attempt" -lt 6 ]; do
 done
 if [ -z "$live" ]; then
   note_failure "the read-back printed no version: Cloudflare never said what is serving"
-  step "way back: bash HALT ${serving_before%@*} (rolls to the version that served before this deploy)"
+  step "way back: ${way_back}"
   exit 1
 fi
 if [ "$live" != "${id}@100" ]; then
   note_failure "the version serving is ${live}, NOT the one just uploaded (${id}@100%): traffic is on another build"
-  step "way back: bash HALT ${serving_before%@*} (rolls to the version that served before this deploy)"
+  step "way back: ${way_back}"
   exit 1
 fi
 step "      read back: ${live} (Cloudflare's own answer, matches the upload)"
@@ -203,11 +211,11 @@ bash check.sh --live --version "$id"
 live_rc=$?
 if [ "$live_rc" -ne 0 ]; then
   note_failure "the live gate failed on ${id}, which IS what is serving: the bytes are live and the gate said no"
-  step "way back: bash HALT ${serving_before%@*}"
+  step "way back: ${way_back}"
   exit 1
 fi
 
 green "deploy.sh: ${id} is serving 100% and the live gate passed"
-step "rollback: bash HALT ${serving_before%@*}"
+step "rollback: ${way_back}"
 step "          (the version serving before this deploy was ${serving_before})"
 exit 0

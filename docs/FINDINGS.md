@@ -33,28 +33,35 @@ hostname behaviour, which would make the redirect worth rebuilding in the repo t
 The room asks the model for ONE bar at a time and builds the phrase arc in code. The question was
 whether one call writing four bars would sound better. Measured with `tools/phrase-probe.ts` (8
 phrases, llama-3.2-3b, the four arc positions) and then `tools/phrase-apply.ts`, which runs BOTH arms
-through the same per-bar passes the room applies (repair, complete, contour):
+through the same per-bar passes the room applies.
+
+**CORRECTION, same day, after a critic pass.** The first version of this table came from a chain of
+three passes (repair, completion, contour) and the numbers in it, and the verdict under it, followed
+from that. `phrase-apply` now runs the room's real order, repair then the arc's own pass then the
+bar line's lead-in then the contour rules then the shaping, and with the shaping pass included the
+two arms land within three points of each other instead of nine. The paragraph stating the earlier
+verdict is kept below, labelled, because the owner has already read it.
 
 ```
 as the model wrote it        notes/bar  line4+  step%  rep%  leap%  restates-rhythm  lands-thin  ends-C/Eb/G
 A four one-bar calls              7.0    29/32    42     7    20             0/8         4/8          5/8
 B one four-bar call               5.2    25/32    25    19    17             4/8         7/8          4/8
-as the room would play it
-A four one-bar calls              6.5    28/32    61     2    11             0/8         4/8          3/8
-B one four-bar call               6.1    26/32    54     3     9             2/8         8/8          6/8
-B + gap-only top-up               5.6    28/32    42     6    16             4/8         8/8          5/8
+as the room would play it   (repair, arc, lead-in, contour, shape; one agent, no clash filter)
+A four one-bar calls              5.4    24/32    65     2    11             1/8         8/8          5/8
+B one four-bar call               6.0    26/32    62     1     8             2/8         8/8          7/8
+B + gap-only top-up               5.3    25/32    53     2    14             4/8         8/8          7/8
 ```
 
-What the phrase ask BUYS: a bar 2 that repeats bar 1's rhythm (0/8 to 4/8; four separate calls never
-do, because each call sees the previous bar only as text), a bar 4 that thins (4/8 to 8/8) and lands
-on a stable tone (3/8 to 6/8), and four times fewer calls (32 to 8; 4.65 s of render per phrase
-against 2.72 s for the single call).
+What the phrase ask BUYS: a bar 2 that repeats bar 1's rhythm (0/8 to 4/8 in the model's own notes;
+four separate calls never do, because each call sees the previous bar only as text), a bar 4 that
+thins and lands on a chord tone of the key (7 of 8 against 5 of 8 once the room plays it), more notes
+per bar after the passes (6.0 against 5.4) and a bar that is a line more often (26 of 32 against 24),
+and four times fewer calls (32 to 8; 4.65 s of render per phrase against 2.72 s for the single call).
 
-What it SELLS: the line. The same span is 5.2 notes per bar instead of 7.0 and 25% stepwise motion
-instead of 42%, and the room's completion pass is what rescues either arm (61% and 54%). That pass
-also rewrites the rhythm bar 2 was written to repeat: applied to every bar it drops the restatement
-from 4/8 to 2/8, and applied only to nearly empty bars it leaves stepwise motion at 42%. On a 3B
-model the arc and the line are paid for from the same budget.
+What it SELLS: three points of stepwise motion (62% against 65%), and its own rhythm when the room's
+completion pass is applied to every bar (4/8 down to 2/8). Applied only to nearly empty bars the
+restatement survives at 4/8 but stepwise motion falls to 53%, so the top-up is a real trade either
+way, not a free fix.
 
 Robustness, same run: 8 of 8 four-bar answers arrived truncated or with a malformed bracket
 (`}]],[[` between bars two and three) and one lost two of its four bars. Tokens used were 289 to 710
@@ -62,9 +69,16 @@ against a 2000 budget, so the model stops early rather than hitting the cap; a p
 without a bar-level salvage (`looseNotes`/`groupIntoBars` in the probe) that groups notes by the bar
 line instead of trusting the JSON envelope.
 
-Decision: not a swap. Four one-bar calls plus the completion pass is still the best line measured
-(61% stepwise, 28 of 32 bars a line). The phrase ask is worth taking once the line has an owner other
-than the model, because its arc wins on every ending.
+Decision, CORRECTED: the phrase ask is at least as good as four one-bar calls on every column but
+stepwise motion, where it is three points behind, and it is clearly better at ending a phrase. The
+earlier verdict below said the opposite; it rested on a chain that omitted the pass which shapes the
+line.
+
+> **What this paragraph said before the correction (kept, not deleted):** "Decision: not a swap. Four
+> one-bar calls plus the completion pass is still the best line measured (61% stepwise, 28 of 32 bars
+> a line)." The 61% and the 28 of 32 were real numbers for a chain without `shapeLine`; on the room's
+> full chain the same arm is 65% and 24 of 32, and the phrase arm is 62% and 26 of 32. The failure
+> class is a measurement labelled as the room's when it was three of the room's six passes.
 
 ## 2026-11-01 The arc was not arcing, and the cadence was erasing the bar
 
@@ -73,26 +87,38 @@ Two of the losses above were the room's own code, not the ask shape, and both ar
 THE ARC RAN ON THE ROOM'S CLOCK. The phrase position was `(bar - phraseStartBar) % 4`, so an agent
 paced to write every other bar reached only two of the four positions: the recorded session's sixteen
 model bars came out 2 states, 6 restates, 3 developments and 5 cadences. It is now a count of the bars
-THIS agent has written, one position per bar, and a re-render of a bar keeps its position. Measured on
-the live room after the fix, 60 s at 190 BPM with two agents and the drummer on, the heaviest pacing
-the room does: each agent's 38 readable bars came out 9 states, 9 restates, 10 developments and 10
-cadences, and 35 of the 37 position-to-position steps were the next one in the cycle.
+THIS agent takes, one position per bar, and a bar already claimed keeps its position so a re-render is
+not a new bar. The position is also PUBLISHED on every bar record (`meta.position`), so a session file
+proves the arc instead of a reader re-parsing the prompt.
 
 ```
 node tools/probe-session.mjs --bpm 190 --seconds 60 --agents jazz,funk --backing 1 --out /tmp/x.json
-# positions per agent, from each bar's prompt: 0:9 1:9 2:10 3:10   (before: 2/6/3/5 in one session)
+# phrase    Probe jazz     | state 10  restate 9  develop 10  cadence 10  | next-in-arc 36/38
+# phrase    Probe funk     | state 10  restate 9  develop 9  cadence 10   | next-in-arc 34/37
 ```
+
+Both agents at 190 BPM with the drummer on and 20 of 92 bars paced to stride 2: 38 and 37 bars taken,
+each position landing 9 or 10 times, and 36 and 34 of the steps the next one in the cycle. The session
+recorded before the fix read 2/6/3/5. A bar the agent rests on, fills with cells or answers on still
+takes a position: the phrase is the room's time, and which pass runs on a bar depends on the decision,
+not on the position.
 
 THE CADENCE ERASED THE BAR. `cadenceLine` replaced every cadence bar with the same two notes in the
 same two slots. `tools/note-loss.ts` replays a recorded session's own model answers through the
-pipeline one pass at a time and attributed the loss: repair 0, completion +1, the cadence pass -14,
-contour 0, shaping -9. So fourteen of that session's 95 notes died in one pass, more than every other
-pass together, and every ending was the same gesture. `cadenceFrom` keeps the model's opening, resolves
-its last note onto a chord tone by step, drops only what follows, and writes the fixed gesture only
-when the bar is empty. The same replay now keeps 78 of 95 notes instead of 73; the rest is deliberate
-(the shaping pass resting a sixteenth run, the cadence thinning on purpose).
+pipeline one pass at a time and attributes the loss. With `--legacy-cadence` the same session reads:
+completion takes 95 to 100, the cadence pass 100 to 86, the contour rules change nothing, the shaping
+86 to 75. So the pass cost 14 of the 100 notes the pipeline held at that point, more than any other
+pass, and five cadence bars that carried 23 model notes played 10, so thirteen of the model's own
+notes never sounded there. `cadenceFrom` keeps the model's opening, resolves its last note onto a chord
+tone OF THE KEY (the first version accepted either third, so a C minor line ending on E counted as a
+landing), drops only what follows, and writes the fixed gesture only when the bar is empty.
 
 ```
+npx tsx tools/note-loss.ts --in ~/.hermes/attachments/jam-session-default-room-2026-11-01T14-56-37-736Z.json --legacy-cadence
+# arc (cadence resolved)  100 -> 86 (-14) ... shaping 86 -> 75 ... kept 75 of 95 = 79%
 npx tsx tools/note-loss.ts --in ~/.hermes/attachments/jam-session-default-room-2026-11-01T14-56-37-736Z.json
-# arc (cadence replaced)  95 -> 87 ... 78 kept of 95 = 82%   (before: 73 = 77%)
+# arc (cadence resolved)  100 -> 91 (-9) ...  shaping 91 -> 80 ... kept 80 of 95 = 84%
 ```
+
+The remaining losses are deliberate: the shaping pass rests a sixteenth run (11 notes of the same
+session) and the cadence thins on purpose (9).
