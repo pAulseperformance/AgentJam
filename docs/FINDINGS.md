@@ -122,3 +122,35 @@ npx tsx tools/note-loss.ts --in ~/.hermes/attachments/jam-session-default-room-2
 
 The remaining losses are deliberate: the shaping pass rests a sixteenth run (11 notes of the same
 session) and the cadence thins on purpose (9).
+
+## 2026-11-01 Four bars per call: the switch, and the two things it needed to be real
+
+The room has a setting now, `set_phrase_ask`, off by default. Off, the model writes one bar per call.
+On, it is asked once on the bar that opens the agent's phrase and four bars are queued at once, so
+three of the four cost no model call.
+
+```
+node tools/phrase-live-check.mjs --seconds 42 --bpm 140
+```
+
+Measured on the live room, one jazz agent, 140 BPM, setting sent after joining:
+
+```
+ai_debug metas:        22
+paid for (calls > 0):  4
+queued free (calls 0): 18
+positions seen:        0 1 2 3  0 1 2 3  0 1 2 3  0
+notes on the wire:     120
+```
+
+Four calls wrote four phrases; the 18 bars that followed them answer `calls: 0`. The positions cycle
+0 1 2 3, so the arc travels with the phrase.
+
+**Two defects only the live room showed, both fixed:** the mid-bar refresh re-asked 13 of the 26 bars
+in the first run (a refreshed bar is the one place a phrase stops being a phrase, and it paid the call
+the setting exists to save), and the phrase's first bar was announced twice in the debug stream
+because `queuePhrase` broadcast a meta that the publish of that bar broadcasts again.
+
+**What this does not settle:** whether it sounds better. The probe said the one-phrase answer wins the
+ending (7 of 8 against 5 of 8) and loses three points of stepwise motion, and that is a listener's
+call. The switch exists so the call can be made by ear rather than by this page.
