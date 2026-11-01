@@ -462,11 +462,11 @@ function nearestInKeyBelow(allowed: number[], target: number, register: { low: n
  * THE CADENCE LANDS WHERE THE LINE ALREADY IS, instead of replacing the bar with a gesture.
  *
  * `cadenceLine` writes the same two notes in the same two slots every time it fires, and it fired
- * unconditionally on every cadence bar. Measured on the 2026-11-01 session (130 BPM, 16 model bars):
- * five cadence bars carried 23 notes between them and played 10, so this one pass lost 14 of the 95
- * notes the model wrote, more than repair, completion, contour and shaping together. It is also why the
- * phrase "had already ended three times": the same two-note ending, in the same slot, five times in
- * sixteen bars.
+ * unconditionally on every cadence bar. Measured on the 2026-11-01 session (130 BPM, 16 model bars,
+ * `tools/note-loss.ts --legacy-cadence`): five cadence bars carried 23 model notes between them and
+ * played 10, so thirteen of the model's own notes never sounded there, and across the session the pass
+ * cost 14 of the 100 notes the pipeline held at that point (9 today). It is also why the phrase "had
+ * already ended three times": the same two-note ending, in the same slot, five times in sixteen bars.
  *
  * So the model's bar is KEPT and only its ending is written: the opening notes stay, the last note
  * moves onto a stable tone (tonic, third or fifth) by step inside the band, later notes are dropped and
@@ -484,13 +484,18 @@ export function cadenceFrom(
 
   const allowed = scalePitchClasses(options.key);
   const tonic = allowed[0] ?? 0;
-  // A CADENCE RESTS ON A CHORD TONE of the mode: root, either third, or the fifth.
-  const stable = [0, 3, 4, 7].map(i => (tonic + i) % 12);
+  // A CADENCE RESTS ON A CHORD TONE OF *THIS* MODE. The first version carried both thirds, so a line
+  // ending on E natural read as a landing in C minor and one ending on Eb read as a landing in C major,
+  // and the bar was returned untouched in exactly the case this pass exists for. The set is built from
+  // the scale: root, the third the key actually has, and the fifth.
+  const stable = [0, 3, 4, 7]
+    .map(i => (tonic + i) % 12)
+    .filter(pc => allowed.includes(pc));
   const lastNote = ordered.at(-1)!;
   const lastMidi = midiOf(lastNote.pitch)!;
   const pcOf = (m: number) => ((m % 12) + 12) % 12;
 
-  // A BAR THAT ALREADY LANDS IS A CADENCE ALREADY: short, and resting on a chord tone.
+  // A BAR THAT ALREADY LANDS IS A CADENCE ALREADY: short, and resting on a chord tone of the mode.
   if (ordered.length <= 4 && stable.includes(pcOf(lastMidi))) return ordered;
 
   // WHERE IT LANDS: the nearest chord tone by step, so the ending is approached and not jumped to.
@@ -503,9 +508,13 @@ export function cadenceFrom(
   if (!allowed.includes(pcOf(landing))) landing = nearestInKeyBelow(allowed, landing, options.register);
 
   // THE OPENING OF THE BAR STAYS. Two notes is the model's gesture; a landing is not a bar.
-  const keep = ordered.slice(0, Math.min(2, Math.max(1, ordered.length - 1)));
-  const afterKeep = keep.at(-1)!.beatTime + 0.5;
-  const at = Math.max(lastNote.beatTime, afterKeep, 1.5);
+  let keep = ordered.slice(0, Math.min(2, Math.max(1, ordered.length - 1)));
+  // THE LANDING NEEDS A SLOT OF ITS OWN. When the model's opening already reaches the end of the bar,
+  // its last note is the one the landing replaces: two notes on one beat is a chord inside a
+  // monophonic line, which this repo has already fixed once (restateHook).
+  while (keep.length > 0 && keep.at(-1)!.beatTime >= 3.25) keep = keep.slice(0, -1);
+  const lastKept = keep.at(-1)?.beatTime ?? -1;
+  const at = Math.max(lastNote.beatTime, lastKept + 0.5, 1.5);
   const landingBeat = Math.min(3.5, at);
   const meanVelocity = Math.round(ordered.reduce((a, n) => a + n.velocity, 0) / ordered.length);
 

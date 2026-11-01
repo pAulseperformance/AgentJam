@@ -140,6 +140,14 @@ export interface AiCallMeta {
   plan?: string;
   /** true when this bar replaced an older render of the SAME bar because something new was played */
   refreshed?: boolean;
+  /**
+   * WHERE THIS BAR SITS IN THE AGENT'S PHRASE: 0 state, 1 restate, 2 develop, 3 cadence.
+   *
+   * Published on the record so a session file can prove the arc ran, rather than a reader parsing the
+   * prompt back out of it. A bar the agent rests on still takes a position: the phrase is the room's
+   * time, and the pass that runs on a bar depends on the decision, not on the position.
+   */
+  position?: number;
   /** notes the melody completion added to a lead bar that arrived too short or too jumpy */
   completed?: number;
   error?: string;

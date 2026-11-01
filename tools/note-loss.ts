@@ -6,15 +6,18 @@
  * `meta.plan` is what the room queued. A third of the notes disappear between them and this says which
  * pass takes them.
  *
- *   npx tsx tools/note-loss.ts --in ~/.hermes/attachments/jam-session-default-room-2026-11-01T14-56-37-736Z.json
+ *   npx tsx tools/note-loss.ts --in <session.json>              this tree's pipeline
+ *   npx tsx tools/note-loss.ts --in <session.json> --legacy-cadence   the pass it replaced
  */
 
 import { parseAiResponse } from '../src/server/llm-planner';
-import { melodyPlan, applyContourRules, completeMelody, cadenceFrom, leadInto, shapeLine } from '../src/server/melody';
+import { melodyPlan, applyContourRules, completeMelody, cadenceFrom, cadenceLine, leadInto, shapeLine } from '../src/server/melody';
 import { repairMeasure } from '../src/server/measure-repair';
 import type { GeneratedNote } from '../src/shared/music';
 
 const IN = arg('--in') ?? '';
+/** Replay the cadence pass this one replaced, so the before/after pair in the docs has one command. */
+const LEGACY_CADENCE = process.argv.includes('--legacy-cadence');
 const REGISTER = { low: 55, high: 72 };
 
 function arg(flag: string): string | undefined {
@@ -34,9 +37,15 @@ interface Row {
   planned: number;
 }
 
+/**
+ * WHICH ARC POSITION THE PROMPT ASKED FOR. The room's wording is `melody.ts`'s, exactly: 'repeats the
+ * idea with ONE change'. This matcher was written with the wrong case for the restate sentence, so
+ * every restate bar came back '?' and was then completed along the STATE plan, which moved the tool's
+ * own headline from 80 of 95 to 78. A matcher over the room's copy is a copy of the room's copy.
+ */
 function positionOf(prompt: string): string {
   if (prompt.includes('This bar states the idea')) return 'state';
-  if (prompt.includes('repeats the idea with ONE CHANGE')) return 'restate';
+  if (prompt.includes('repeats the idea with ONE change')) return 'restate';
   if (prompt.includes('develops the idea')) return 'develop';
   if (prompt.includes('lands the phrase')) return 'cadence';
   return '?';
@@ -67,10 +76,14 @@ async function main() {
     const completed = idx >= 0
       ? completeMelody(repaired.notes, { plan, key, motif: null, register: REGISTER, maxNotes: 10 })
       : { notes: repaired.notes };
-    // THE ARC'S OWN OVERRIDES, in the room's order: a cadence bar is REPLACED, a restate bar is
-    // replaced by the stored hook (no hook here, so it stands as the model wrote it).
+    // THE ARC'S OWN PASS, in the room's order: a cadence bar keeps its opening and has its ending
+    // resolved (`cadenceFrom`), and a restate bar is replaced by the stored hook (no hook in a replay,
+    // so it stands as the model wrote it). `--legacy-cadence` replays the pass this replaced, which
+    // wrote the same two notes into every cadence bar, so the before/after pair has one command.
     const arc = position === 'cadence'
-      ? cadenceFrom(completed.notes, { key, register: REGISTER })
+      ? LEGACY_CADENCE
+        ? cadenceLine({ key, register: REGISTER })
+        : cadenceFrom(completed.notes, { key, register: REGISTER })
       : completed.notes;
     const led = idx === 0 ? leadInto(arc, { fromMidi: 67, key, register: REGISTER }) : arc;
     const contoured = applyContourRules(led, { key, register: REGISTER });
@@ -123,7 +136,7 @@ async function main() {
   const stages: Array<[string, number]> = [
     ['repair', sum(r => r.afterRepair)],
     ['complete', sum(r => r.afterComplete)],
-    ['arc (cadence replaced)', sum(r => r.afterArc)],
+    ['arc (cadence resolved)', sum(r => r.afterArc)],
     ['contour', sum(r => r.afterContour)],
     ['shapeLine', sum(r => r.afterShape)],
   ];

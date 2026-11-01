@@ -2,17 +2,22 @@
  * PHRASE PROBE: four bars per call, or one bar per call?
  *
  * The room asks the model for ONE bar at a time and rebuilds the phrase in code afterwards
- * (`melodyPlan`'s state/restate/develop/cadence arc, `cadenceLine`, `restateHook`,
- * `applyContourRules`). The question this probe answers with numbers: does a single call that
- * writes a whole four-bar phrase produce a better line than four calls that each write a bar?
+ * (`melodyPlan`'s state/restate/develop/cadence arc, `cadenceFrom`/`restateHook`, `leadInto`,
+ * `applyContourRules`, `shapeLine`). The question this probe answers with numbers: does a single call
+ * that writes a whole four-bar phrase produce a better line than four calls that each write a bar?
  *
  * ARMS
- *   A  today's path: `generateMeasureWithAi` called once per bar, motif threaded forward, the
- *      phrase arc's own words in `ctx.melody`, the trade half set. This is the real code path.
- *   B  one call, one phrase: the same four arc sentences, one array of four bars.
+ *   A  `generateMeasureWithAi` once per bar, motif threaded forward, the arc's own words in
+ *      `ctx.melody`, the trade half set. This is the room's PLANNER, but not the room's clock: the arc
+ *      index is this loop's `i` (the room now counts the agent's own bars), the context carries no
+ *      recent notes, and the budget is 12 s so a slow answer is measured rather than cut off at the
+ *      room's 2500 ms cap. Read its latencies as the model's, not as the room's.
+ *   B  one call, one phrase: a hand-written four-bar translation of the same arc sentences, one array
+ *      of four bars. Its prompt is NOT the room's string.
  *
  * Every bar of both arms then goes through the SAME deterministic pass (repairMeasure, then
- * applyContourRules), so the comparison isolates the ask shape and not the repairer.
+ * applyContourRules), so the comparison isolates the ask shape and not the repairer. That pass is
+ * three of the room's six; `tools/phrase-apply.ts` runs the fuller chain on a stored probe.
  *
  *   npx tsx tools/phrase-probe.ts [--model @cf/meta/llama-3.2-3b-instruct] [--out /tmp/x.json]
  *
@@ -465,8 +470,12 @@ async function main() {
     p.repeat += m.repeat; p.leap += m.leap; p.inKey += m.inKey;
     p.barsWithLine += m.barsWithLine;
     p.cadenceFalls = m.cadenceFalls; p.cadenceStable = m.cadenceStable;
+    // COUNTED, NOT OVERWRITTEN: assigning these made the pooled row report the LAST phrase's
+    // booleans while every other field was the run's.
     p.ms += ms; p.calls += calls;
-    p.perBar = p.perBar; p.sharesMotif += m.sharesMotif;
+    if (m.cadenceFalls) p.cadenceFalls = true;
+    if (m.cadenceStable) p.cadenceStable = true;
+    p.sharesMotif += m.sharesMotif;
   };
   for (let r = 0; r < reps; r++) {
     for (const c of CASES) {

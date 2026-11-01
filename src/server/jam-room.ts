@@ -213,10 +213,18 @@ interface InProcessAgent {
    * every bar, so a session that ends on a rest would otherwise be remembered as silence.
    */
   sessionMotif: Motif | null;
-  /** the bar this agent's phrase began at, so the arc is measured from ITS start, not the room's bar 0 */
+  /**
+   * WHERE THIS AGENT'S FIRST PHRASE BEGAN. DEAD IN THE WORKER: the arc counts the bars the agent takes
+   * (`phraseBars` below), and nothing in `src/` reads this field any more. Its only readers are four
+   * test files that anchor their bar arithmetic on it, which is why it is recorded as pending removal
+   * in the review instead of being deleted in a pass that could not re-anchor them safely.
+   */
   phraseStartBar: number;
   /**
-   * HOW MANY BARS THIS AGENT HAS SOUNDED IN ITS CURRENT PHRASE, and the position each recent bar got.
+   * HOW MANY BARS THIS AGENT HAS TAKEN IN ITS CURRENT PHRASE, and the position each recent bar got.
+   * "Taken" is the honest word: a bar it leads, answers, fills with cells or rests on all advance the
+   * phrase, because the phrase is the room's time and the pass that runs on a bar depends on the
+   * decision, not on the position.
    *
    * THE ARC ADVANCES ON THE AGENT'S OWN BARS, NOT THE ROOM'S BAR NUMBER. Measured on a recorded
    * session (2026-11-01, 130 BPM, 16 model bars): the arc was `(bar - phraseStartBar) % 4` on the
@@ -880,8 +888,8 @@ export class JamRoom implements DurableObject {
       earlierMotif: null,
       earlierWarm: null,
       sessionMotif: null,
-      // THE PHRASE STARTS WHEN THE AGENT DOES. Measured: the arc used the ROOM's bar number, so the
-      // cadence rotated with the room instead of landing at the end of the agent's own phrase.
+      // WHERE THE PHRASE BEGAN, recorded. The ARC itself counts the bars this agent takes
+      // (`phraseBars`), which is what makes a paced agent reach all four positions.
       phraseStartBar: this.barIndexOf(Date.now()) + 1,
       phraseBars: 0,
       phrasePos: new Map(),
@@ -1177,7 +1185,14 @@ export class JamRoom implements DurableObject {
     // in the 2026-10-31T16-40-33 session, a tempo change respawned the rhythm section three times and
     // each respawn replayed the count-in over a room that was already playing, which is the sound of a
     // drummer who cannot hold a beat.
-    const roomAlreadyPlaying = this.noteRing.length > 0 || [...this.layers.values()].some(l => l !== layer && l.bars > 0);
+    //
+    // "PLAYING" IS RECENT, NOT EVER. The first version asked whether the note ring held anything at
+    // all, and the ring is only trimmed by LENGTH, so after the first note the room counted as busy
+    // for the life of the durable object and the count-in never came back. A room that has been quiet
+    // for four bars is empty again, so the window is that.
+    const quietSince = Date.now() - this.barMs() * 4;
+    const playingNow = this.noteRing.some(n => n.timestamp >= quietSince);
+    const roomAlreadyPlaying = playingNow || [...this.layers.values()].some(l => l !== layer && l.bars > 0);
     const notes = layer.role === 'drummer' && layer.bars === 0 && !roomAlreadyPlaying
       ? countInBar(layer.style)
       : layer.role === 'drummer'
@@ -1919,7 +1934,7 @@ export class JamRoom implements DurableObject {
       const peerPlan = this.otherAgentPlan(agent.peer.peerId, forBar);
       // WHERE THIS BAR SITS IN THE PHRASE: state, restate, develop, cadence. A melody needs a shape
       // across bars; a bar written with no idea where it sits is a gesture that happens to be in time.
-      // Counted on THIS agent's own bars (see `phraseBars`): a paced agent that writes every other bar
+      // Counted on THIS agent's own bars (see `phraseBars`): a paced agent that takes every other bar
       // still gets all four positions, and a re-render of one bar is the same position, not the next.
       const barInPhrase = this.phrasePosition(agent, forBar);
       const melody = melodyPlan(barInPhrase, agent.style, agent.motif !== null);
@@ -2173,6 +2188,7 @@ export class JamRoom implements DurableObject {
         meta: {
           ...result.meta,
           refreshed: replacing,
+          position: barInPhrase,
           noteCount: finalNotes.length,
           plan: finalNotes.slice(0, 6).map(n => `${n.pitch}@${n.beatTime}`).join(' ') || '(rest)',
         },

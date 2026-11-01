@@ -9,7 +9,7 @@
  *   npx tsx tools/phrase-apply.ts --in /tmp/phrase-probe.json
  */
 
-import { melodyPlan, applyContourRules, completeMelody } from '../src/server/melody';
+import { melodyPlan, applyContourRules, completeMelody, cadenceFrom, leadInto, shapeLine, pulseAccentMap } from '../src/server/melody';
 import { repairMeasure } from '../src/server/measure-repair';
 import type { GeneratedNote } from '../src/shared/music';
 
@@ -40,20 +40,42 @@ function decode(bars: string[][]): GeneratedNote[][] {
   }));
 }
 
-/** The three passes a lead bar gets in the room, in the room's order. */
+/**
+ * THE PASSES A LEAD BAR GETS IN THE ROOM, IN THE ROOM'S ORDER: repair, then the arc's own pass (a
+ * cadence bar resolves its ending, a lead bar that is not a line is completed), then the bar line's
+ * lead-in, then the contour rules, then the shaping the room applies with its accent map.
+ *
+ * WHAT THIS REPLAY DOES NOT CARRY, said here because the numbers depend on it: the cross-agent clash
+ * filter (one agent, so nothing to clash with), the stored hook a restate bar would bring back (a
+ * replay has no previous session's hook), and the Jev brief (the register and density are fixed).
+ * The accent map is the bar's own pulse, because a replay has no drummer to follow.
+ */
 function heard(bars: GeneratedNote[][], opts: { gapOnly?: boolean } = {}): GeneratedNote[][] {
-  return bars.map((bar, i) => {
+  const out: GeneratedNote[][] = [];
+  bars.forEach((bar, i) => {
     const plan = melodyPlan(i, 'jazz', i > 0);
     const repaired = repairMeasure(bar, { key: KEY, heldPitches: [], maxNotes: 10 }).notes;
     // A PHRASE TOP-UP HAS TO LEAVE THE PHRASE ALONE. The room completes a bar that "is not a line",
     // which on a four-bar answer also rewrites the rhythm bar 2 was written to repeat. `gapOnly` fills
     // a bar that has almost nothing in it and keeps every bar that already says something.
-    const fill = opts.gapOnly ? repaired.length < 4 : true;
-    const completed = fill
-      ? completeMelody(repaired, { plan, key: KEY, motif: null, register: REGISTER, maxNotes: 10 })
-      : { notes: repaired };
-    return applyContourRules(completed.notes, { key: KEY, register: REGISTER });
+    let line: GeneratedNote[];
+    if (plan.position === 'cadence') {
+      line = cadenceFrom(repaired, { key: KEY, register: REGISTER });
+    } else if (opts.gapOnly && repaired.length >= 4) {
+      line = repaired;
+    } else {
+      line = completeMelody(repaired, { plan, key: KEY, motif: null, register: REGISTER, maxNotes: 10 }).notes;
+    }
+    // THE PHRASE PASSES ACROSS THE BAR LINE: the first note starts a step out of the note the bar
+    // before left ringing.
+    const previous = out[i - 1]?.slice().sort((a, c) => a.beatTime - c.beatTime).at(-1);
+    const fromMidi = previous ? midi(previous.pitch) : null;
+    if (fromMidi !== null) line = leadInto(line, { fromMidi, key: KEY, register: REGISTER });
+    line = applyContourRules(line, { key: KEY, register: REGISTER });
+    line = shapeLine(line, { contour: plan.contour, density: 'medium', accents: pulseAccentMap(i) });
+    out.push(line);
   });
+  return out;
 }
 
 interface Tally {
@@ -139,9 +161,10 @@ async function main() {
   }
   console.log(`model: ${probe.model}  phrases: ${probe.detail.length}\n`);
   console.log('AS THE MODEL WROTE IT');
+  // The raw rows are the model's own notes: no repair, no arc, no shaping.
   console.log(row('A four one-bar calls', raw.A));
   console.log(row('B one four-bar call', raw.B));
-  console.log('\nAS THE ROOM WOULD PLAY IT (repair, complete, contour)');
+  console.log('\nAS THE ROOM WOULD PLAY IT (repair, arc, lead-in, contour, shape; one agent, no clash filter)');
   console.log(row('A four one-bar calls', played.A));
   console.log(row('B one four-bar call', played.B));
   console.log(row('B + gap-only top-up', played.Bgap));

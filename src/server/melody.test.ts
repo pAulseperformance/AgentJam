@@ -232,8 +232,8 @@ describe('cadenceLine', () => {
  *
  * `cadenceLine` replaces the whole bar with the same two notes in the same two slots, and it used to
  * run on every cadence bar. Measured on the 2026-11-01 session: five cadence bars carried 23 model
- * notes and played 10, so this pass alone lost 14 of the session's 95 notes, and every ending sounded
- * like the same gesture.
+ * notes and played 10, so thirteen of the model's own notes never sounded there, the pass cost 14 of
+ * the 100 notes the pipeline held (9 today), and every ending sounded like the same gesture.
  */
 describe('cadenceFrom', () => {
   const register = { low: 55, high: 72 };
@@ -259,12 +259,37 @@ describe('cadenceFrom', () => {
     expect(Math.abs(midiOf(last.pitch)! - midiOf('D4')!)).toBeLessThanOrEqual(2);
   });
 
-  it('never leaves the register the decision named', () => {
+  it('never leaves the register the decision named, and keeps the opening note', () => {
     const bar = [note('C5', 0), note('B4', 1), note('D5', 2)];
-    for (const n of cadenceFrom(bar, { key: 'C minor', register })) {
+    const out = cadenceFrom(bar, { key: 'C minor', register });
+    for (const n of out) {
       expect(midiOf(n.pitch)!).toBeGreaterThanOrEqual(register.low);
       expect(midiOf(n.pitch)!).toBeLessThanOrEqual(register.high);
     }
+    // THE OPENING IS THE MODEL'S, which is what separates this from `cadenceLine`: its fixed gesture
+    // starts on A#3 in this register, so the assertion is red with the old pass restored.
+    expect(out[0]!.pitch).toBe('C5');
+  });
+
+  it('does not accept the key’s OTHER third as a landing', () => {
+    // E natural is not a chord tone of C minor, and Eb is not one of C major. The first version's
+    // chord-tone set held both thirds, so it returned these bars untouched: a cadence that never
+    // landed, queued as if it had.
+    const minor = cadenceFrom([note('C4', 0), note('E4', 1), note('E5', 2)], { key: 'C minor', register });
+    const minorPc = ((midiOf(minor.at(-1)!.pitch)! % 12) + 12) % 12;
+    expect([0, 3, 7]).toContain(minorPc);
+
+    const major = cadenceFrom([note('C4', 0), note('G4', 1), note('Eb4', 2)], { key: 'C major', register });
+    const majorPc = ((midiOf(major.at(-1)!.pitch)! % 12) + 12) % 12;
+    expect([0, 4, 7]).toContain(majorPc);
+  });
+
+  it('never puts the landing on a slot the opening already uses', () => {
+    // The model's opening can already reach the end of the bar; the landing takes the last of those
+    // notes' slot rather than landing on top of it. Two notes on one beat is a chord in a line.
+    const out = cadenceFrom([note('A4', 0.5), note('B4', 3.5), note('D5', 3.75)], { key: 'C minor', register });
+    const slots = out.map(n => n.beatTime);
+    expect(new Set(slots).size).toBe(out.length);
   });
 
   it('falls back to the written cadence when the bar is empty', () => {

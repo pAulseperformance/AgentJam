@@ -149,6 +149,9 @@ ws.on('message', (buf) => {
       error: m.error ?? null,
       response: m.response ?? null,
       prompt: m.prompt ?? null,
+      // THE ARC POSITION THE ROOM RECORDED (0 state, 1 restate, 2 develop, 3 cadence). Preferred over
+      // the prompt below: a bar the agent rests on records a position but carries no arc sentence.
+      position: typeof m.position === 'number' ? m.position : null,
       // THE SPEND, FROM THE BAR'S OWN RECORD. `calls` is what the room charged this bar: 0 for a
       // rest or a pattern agent, 1 normally, 2 when the ask was hedged (llm-planner.ts).
       calls: typeof m.calls === 'number' ? m.calls : null,
@@ -360,6 +363,42 @@ function report() {
   for (const [agent, row] of byAgent) {
     console.log(`  ${String(agent).padEnd(14)} llm ${row.llm}  rest ${row.rest}  cell ${row.cell}  fallback ${row.fallback}` +
       `  pattern ${row.pattern}  last model t=${row.lastModelT}`);
+  }
+  // THE PHRASE ARC, AS THE ROOM ASKED FOR IT. Every bar record keeps the prompt its model was given,
+  // and the arc's own sentence is in it (melody.ts, `melodyPlan`). Counting these per agent is how a
+  // session shows whether the arc ran state -> restate -> develop -> cadence, or whether a paced agent
+  // only ever saw two of the four positions: measured 2026-11-01, a session at stride 2 came out
+  // 2 states, 6 restates, 3 developments and 5 cadences before the count moved to the agent's own bars.
+  const ARC = [
+    ['state', 'This bar states the idea'],
+    ['restate', 'repeats the idea with ONE change'],
+    ['develop', 'develops the idea'],
+    ['cadence', 'lands the phrase'],
+  ];
+  const arcByAgent = new Map();
+  for (const b of bars) {
+    if (!b.agent || typeof b.bar !== 'number') continue;
+    // THE ROOM'S OWN FIELD FIRST. A record that carries `position` knows where it sat, including the
+    // bars whose prompt has no arc sentence (a rest, a cell, the generator); the prompt is the fallback
+    // for a session recorded before the field existed.
+    const fromField = typeof b.position === 'number' ? ARC[b.position]?.[0] : undefined;
+    const fromPrompt = typeof b.prompt === 'string'
+      ? ARC.find(([, sentence]) => b.prompt.includes(sentence))?.[0]
+      : undefined;
+    const position = fromField ?? fromPrompt;
+    if (!position) continue;
+    const seen = arcByAgent.get(b.agent) ?? new Map();
+    seen.set(b.bar, position);
+    arcByAgent.set(b.agent, seen);
+  }
+  for (const [agent, seen] of arcByAgent) {
+    const ordered = [...seen.entries()].sort((a, b) => a[0] - b[0]);
+    const counts = new Map(ARC.map(([name]) => [name, 0]));
+    for (const [, position] of ordered) counts.set(position, counts.get(position) + 1);
+    const index = position => ARC.findIndex(([name]) => name === position);
+    const next = ordered.slice(1).filter(([, position], i) => index(position) === (index(ordered[i][1]) + 1) % 4).length;
+    console.log(`phrase    ${String(agent).padEnd(14)} ${ordered.map(([, p]) => p[0].toUpperCase()).join('')}` +
+      `  | ${[...counts].map(([k, v]) => `${k} ${v}`).join('  ')}  | next-in-arc ${next}/${Math.max(0, ordered.length - 1)}`);
   }
   if (errors.length) for (const e of errors.slice(0, 4)) console.log(`  FAILED ${e.agent} t=${e.t} ${e.error}`);
   else console.log('  no AI failures');

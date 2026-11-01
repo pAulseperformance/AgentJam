@@ -103,6 +103,8 @@ interface RoomInternals {
   voiceFrom: (bar: number) => number | null;
   /** where a bar sits in the agent's own phrase; claiming a bar advances the arc */
   phrasePosition: (agent: AgentInternals, bar: number) => number;
+  /** the fallback line for a bar with no model answer, which claims through the same memo */
+  melodyBar: (agent: AgentInternals, bar: number) => Shape[];
 }
 
 /** The model's held bar asks, per room. The stub pushes, the render walk answers. */
@@ -384,9 +386,15 @@ describe('the phrase arc', () => {
         // arc, or a bar that is re-rendered once costs the phrase a position.
         const first = room.phrasePosition(agent, 100);
         expect(room.phrasePosition(agent, 100)).toBe(first);
-        // AND A FALLBACK FOR A BAR THAT HAS BEGUN READS ITS OWN POSITION, not the next one.
-        expect(room.phrasePosition(agent, 100)).toBe(first);
         expect(room.phrasePosition(agent, 101)).toBe((first + 1) % 4);
+
+        // AND THE FALLBACK FOR A BAR THAT HAS BEGUN READS ITS OWN POSITION, not the next one. This is
+        // the one path where two callers reach the same bar: the render claims it a bar ahead, and a
+        // bar with no model answer is then filled by `melodyBar` at the bar line.
+        const second = room.phrasePosition(agent, 101);
+        const fallback = room.melodyBar(agent, 101);
+        expect(fallback.length).toBeGreaterThan(0);
+        expect(room.phrasePosition(agent, 101)).toBe(second);
       });
     } finally {
       await close();
