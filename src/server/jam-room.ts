@@ -154,6 +154,16 @@ interface InProcessAgent {
   /** a decision or a render already in flight: a measure that cannot fit is skipped, never queued */
   busy: boolean;
   /**
+   * A REFILL THAT ARRIVED WHILE THIS AGENT WAS RENDERING.
+   *
+   * The bar line is the only place the next bar is asked for, and a render in flight makes that ask
+   * return immediately. With the phrase ask on, one call keeps the agent busy for four bars, so every
+   * ask inside that window was dropped and the next phrase got one bar of lead instead of two: measured
+   * at 125 BPM with the setting on, 11 of 60 bars fell to the generator against 2 of 60 with it off.
+   * The ask is remembered here and honoured the moment the render finishes.
+   */
+  refillWanted: boolean;
+  /**
    * WHAT A RENDER COSTS THIS AGENT, smoothed: Jev plus the model. The stride below is derived from it,
    * so a room whose calls are fast keeps playing every bar and a slow one writes less often.
    */
@@ -878,6 +888,7 @@ export class JamRoom implements DurableObject {
       model: tier === 'signed' ? SIGNED_MODEL : FREE_MODEL,
       tier,
       busy: false,
+      refillWanted: false,
       renderCostMs: RENDER_COST_ASSUMED_MS,
       renderTailMs: RENDER_TAIL_ASSUMED_MS,
       // Nothing is queued at spawn: the first boundary plays a pattern bar (never silence) while two
@@ -1447,6 +1458,36 @@ export class JamRoom implements DurableObject {
     void this.renderAgentBar(agent, head.bar, head.meta?.brief ?? null);
   }
 
+
+  /**
+   * KEEP THE QUEUE FED, from the bar line and again from a render that just finished.
+   *
+   * Two numbers decide it. DEPTH is the room's own two slots at a stride of one. LEAD is the phrase
+   * ask's, because one call queues four bars: `queue.length < depth` is then false for the whole
+   * phrase, and the next phrase used to be asked only once the queue was EMPTY, one bar before the
+   * line it had to write for. Measured on the session recorded at 2026-11-01 17:31 (125 BPM, 1920 ms
+   * bar, three melodic agents, the setting on), the generator covered 21 of 79 Funk Bot bars and 21 of
+   * 96 Jazz Bot bars. With the setting off in the same room, 2 of 60.
+   *
+   * A PHRASE IS ALSO WRITTEN ONCE: a refresh replaces one queued bar with a bar asked in isolation,
+   * which is the incoherence the setting exists to remove and a second call for a bar already written
+   * (measured: 13 of 26 bars were paid individually, every one a refresh).
+   */
+  private refillAgentBar(agent: InProcessAgent, allowRefresh = true): void {
+    const bar = this.barIndexOf(Date.now());
+    const stride = this.strideFor(agent);
+    const depth = stride > 1 ? 1 : 2;
+    const lead = this.roomState.phraseAsk === true
+      ? phraseLead(Math.max(agent.renderCostMs, agent.renderTailMs), this.barMs())
+      : 0;
+    const queuedMax = agent.queue.reduce((max, q) => Math.max(max, q.bar), bar);
+    if (agent.queue.length < depth || (lead > 0 && queuedMax - bar <= lead)) {
+      void this.renderAgentBar(agent);
+      return;
+    }
+    if (allowRefresh && this.roomState.phraseAsk !== true) this.maybeRefreshHead(agent);
+  }
+
   private armAgentBar(agent: InProcessAgent): void {
     // ONE TIMER PER AGENT, AND NEVER A ZERO WAIT. Arming without clearing is how a tempo change can
     // double the bar line, and a wait of 0 is self-sustaining: the callback re-arms itself, so firing
@@ -1580,24 +1621,7 @@ export class JamRoom implements DurableObject {
     // is shorter than a render, one slot IS the cadence: a second would queue a bar the agent cannot
     // reach, and the queue would fill with exactly the entries the prune exists to remove.
     agent.refreshesThisBar = 0;
-    const depth = stride > 1 ? 1 : 2;
-    // AND A FOUR-BAR PHRASE LEADS ITS OWN BAR LINE. The phrase ask queues four bars in one call, so
-    // `queue.length < depth` is false for the whole phrase and the next ask started only once the
-    // queue was EMPTY: one bar of lead for a call that can take longer than one bar. Measured on the
-    // 2026-11-01 17:31 recording (125 BPM, three melodic agents, the setting on), the generator
-    // covered 21 of 79 Funk Bot bars and 21 of 96 Jazz Bot bars, one per phrase boundary. Asking
-    // while the phrase still has the tail's worth of bars left moves the lead from one bar to the
-    // measured cost, and costs no extra call: the phrase is still asked once per four bars.
-    const lead = this.roomState.phraseAsk === true
-      ? phraseLead(Math.max(agent.renderCostMs, agent.renderTailMs), this.barMs())
-      : 0;
-    const queuedMax = agent.queue.reduce((max, q) => Math.max(max, q.bar), bar);
-    if (agent.queue.length < depth || (lead > 0 && queuedMax - bar <= lead)) void this.renderAgentBar(agent);
-    // A PHRASE IS WRITTEN ONCE. A refresh replaces one queued bar with a bar asked in isolation, which
-    // is exactly the incoherence the phrase setting exists to remove, and it pays a second call for a
-    // bar the phrase already wrote. Measured on the live room with the setting on: 13 of 26 bars were
-    // paid individually, and every one of them was a refresh.
-    else if (this.roomState.phraseAsk !== true) this.maybeRefreshHead(agent);
+    this.refillAgentBar(agent);
 
     this.armAgentBar(agent);
   }
@@ -2039,7 +2063,13 @@ export class JamRoom implements DurableObject {
     /** reuse a decided brief instead of asking Jev again, so a refresh costs ONE call, not two */
     reuseBrief?: AiCallMeta['brief'],
   ): Promise<void> {
-    if (agent.busy) return;
+    // A REFILL THAT LOST ITS TURN IS NOT A MISS. The bar line is the only place the next bar is asked
+    // for; with a render in flight the ask returned here and the queue stayed short until the NEXT
+    // line, which with the phrase ask on (one call, four bars) is most of the phrase.
+    if (agent.busy) {
+      agent.refillWanted = true;
+      return;
+    }
     agent.busy = true;
 
     try {
@@ -2385,6 +2415,12 @@ export class JamRoom implements DurableObject {
       agent.queue = keepNewest(agent.queue, 2);
     } finally {
       agent.busy = false;
+      // HONOUR THE ASK THAT ARRIVED WHILE THIS ONE WAS RUNNING, before the refresh gets a turn: the
+      // queue is what a bar is published from, and a refresh replaces a bar that is already queued.
+      if (agent.refillWanted) {
+        agent.refillWanted = false;
+        this.refillAgentBar(agent, false);
+      }
       // CHAIN: a render that just finished is the only moment a second one can start without a clash.
       this.maybeRefreshHead(agent);
     }
