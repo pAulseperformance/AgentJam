@@ -138,7 +138,11 @@ export function useRoomSocket({
         switch (msg.type) {
           case 'room_state':
             setRoomState(msg.roomState);
-            setPeers(msg.peers);
+            // A FRAME WITHOUT PEERS DOES NOT EMPTY THE ROOM. One handler (the phrase-ask toggle) used
+            // to broadcast room_state with no `peers`, and this line then set the list to undefined:
+            // the next render spread it and the page died with "Q is not iterable". The server sends
+            // them now; this keeps an older or partial frame from taking the page down.
+            if (Array.isArray(msg.peers)) setPeers(msg.peers);
             beginSession(roomId);
             noteRoomState(msg.roomState);
             break;

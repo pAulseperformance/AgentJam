@@ -1131,7 +1131,15 @@ export class JamRoom implements DurableObject {
     this.roomState.phraseAsk = enabled;
     this.roomState.serverTime = Date.now();
     void this.ctx.storage.put('roomState', this.roomState);
-    this.broadcastAll(JSON.stringify({ type: 'room_state', roomState: this.roomState }));
+    // WITH THE PEERS. Every other room_state in this room carries them (join, tempo, key, gap rests)
+    // because the client sets its peer list from this frame; this one did not, so pressing the button
+    // emptied every listener's peer list and the next render threw "Q is not iterable" (a spread of
+    // undefined). Reported from the live page on 2026-11-01.
+    this.broadcastAll(JSON.stringify({
+      type: 'room_state',
+      roomState: this.roomState,
+      peers: this.getAllPeers(),
+    }));
   }
 
   private handleSetHedge(ws: WebSocket, enabled: boolean): void {

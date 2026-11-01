@@ -9,6 +9,7 @@
  */
 import { env, runInDurableObject } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
+import { RoomStateMessageSchema } from '@/shared/protocol/types';
 import { JamRoom } from './jam-room';
 
 const room = () => {
@@ -100,6 +101,44 @@ describe('the phrase ask', () => {
         expect(agent.queue.some(q => q.notes.length > 0)).toBe(true);
       });
       expect(asks.filter(a => a[0]! >= 1500).length, 'exactly one phrase call').toBe(1);
+    });
+  });
+
+  it('answers the toggle with a room_state that carries the peers', async () => {
+    // THE TOGGLE SPEAKS THE FRAME A JOIN DOES. `peers` is required by the protocol and the client sets
+    // its peer list from this frame; the handler used to broadcast room_state without it, so pressing
+    // the button emptied every listener's list and the next render threw "Q is not iterable" (a spread
+    // of undefined) on the live page.
+    const stub = room();
+    const res = await stub.fetch(new Request('http://localhost/api/room/x/ws', { headers: { Upgrade: 'websocket' } }));
+    const ws = res.webSocket!;
+    ws.accept();
+    const frames: string[] = [];
+    ws.addEventListener('message', (event: MessageEvent) => {
+      if (typeof event.data === 'string') frames.push(event.data);
+    });
+    await sleep(40);
+    ws.send(JSON.stringify({ type: 'join_room', name: 'TogglePeer', kind: 'human' }));
+    await sleep(80);
+    frames.length = 0;
+    ws.send(JSON.stringify({ type: 'set_phrase_ask', enabled: true }));
+    await sleep(80);
+
+    const states = frames
+      .map(f => JSON.parse(f) as { type: string })
+      .filter(m => m.type === 'room_state');
+    expect(states.length, 'the toggle answers with a room_state').toBeGreaterThan(0);
+    for (const state of states) {
+      expect(RoomStateMessageSchema.safeParse(state).success, 'the frame parses as room_state').toBe(true);
+      expect(Array.isArray((state as { peers?: unknown[] }).peers), 'peers is a list').toBe(true);
+      expect(((state as { peers?: unknown[] }).peers ?? []).length, 'and it is not empty').toBeGreaterThan(0);
+    }
+
+    ws.close();
+    await sleep(60);
+    await runInDurableObject(stub, async (instance: JamRoom) => {
+      // @ts-expect-error - private method, called so the isolated storage frame can be popped
+      instance.cleanupIntervals();
     });
   });
 });
