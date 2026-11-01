@@ -19,6 +19,7 @@
  */
 
 import { generateMeasure, midiOf, snapPitchToKey, type GeneratedNote, type AgentStyle } from '@/shared/music';
+import { parsePhraseResponse, phraseInstruction, type PhraseBars } from './phrase';
 import { FREE_MODEL } from '@/shared/ai/models';
 
 export { AI_MODELS, FREE_MODEL, SIGNED_MODEL, isFreeModel, isKnownModel } from '@/shared/ai/models';
@@ -598,6 +599,81 @@ async function firstValidAnswer(ask: () => Promise<Attempt>, gapMs: number): Pro
     launch();
     if (pending > 0) gap = setTimeout(() => { pending = 0; launch(); }, gapMs);
   });
+}
+
+/** A four-bar answer, or null when the model wrote nothing a bar can use. */
+export interface PhraseResult {
+  bars: PhraseBars | null;
+  prompt: string;
+  response: string;
+  latencyMs: number;
+  calls: number;
+  error?: string;
+}
+
+/** The phrase ask's prompt: the room's own state lines, then one instruction for four bars. */
+function buildPhrasePrompt(ctx: MeasureContext, brief: DecisionBrief | null): string {
+  const recent = ctx.recentNotes.length > 0
+    ? ctx.recentNotes.slice(-20).map(n => `${n.pitch}@${n.beatTime.toFixed(2)}`).join(', ')
+    : 'silence, be the first to play';
+  const lines = [
+    `Key: ${ctx.key} | BPM: ${ctx.bpm} | Style: ${ctx.style} | Bars: 4`,
+    `They are playing: ${ctx.phrase ?? recent}`,
+    `Your motif from last bar: ${ctx.motif ?? 'none yet (this is your first statement)'}`,
+  ];
+  if (brief) {
+    lines.push(`YOUR MOVE: ${brief.role}. ${ROLE_RULE[brief.role]}`);
+    lines.push(`RELATION: ${brief.relation}. ${RELATION_RULE[brief.relation]}`);
+    lines.push(REGISTER_RULE[brief.register]);
+  }
+  lines.push(phraseInstruction());
+  return lines.join('\n');
+}
+
+/**
+ * ONE CALL, FOUR BARS. The room turns this on with `set_phrase_ask`; the setting is off by default
+ * because the answer arrives in one object that is often truncated, and because the per-bar ask is the
+ * shape every other measurement in this repo was taken against.
+ */
+export async function generatePhraseWithAi(
+  ai: AiBinding | undefined,
+  ctx: MeasureContext,
+  model: string,
+  brief: DecisionBrief | null,
+  budgetMs: number,
+): Promise<PhraseResult> {
+  const prompt = buildPhrasePrompt(ctx, brief);
+  if (!ai || model === 'none') {
+    return { bars: null, prompt, response: '(no AI binding)', latencyMs: 0, calls: 0 };
+  }
+  const started = Date.now();
+  try {
+    const call = ai.run(model, {
+      messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: prompt }],
+      // FOUR BARS IS FOUR TIMES THE OUTPUT: at 1400 tokens the probe's answers stopped on the closing
+      // brace with all four bars written, so the budget is set for the phrase, not for the bar.
+      max_tokens: 2000,
+      temperature: 0.7,
+    });
+    const result = await Promise.race([
+      call,
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error(`phrase call exceeded ${budgetMs}ms`)), budgetMs)),
+    ]) as { response?: unknown };
+    const text = describeResponse(result.response);
+    return {
+      bars: parsePhraseResponse(text),
+      prompt,
+      response: text,
+      latencyMs: Date.now() - started,
+      calls: 1,
+    };
+  } catch (err) {
+    return {
+      bars: null, prompt, response: '(the phrase call failed)',
+      latencyMs: Date.now() - started, calls: 1, error: String(err).slice(0, 160),
+    };
+  }
 }
 
 /**

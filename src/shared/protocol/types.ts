@@ -29,6 +29,7 @@ export const RoomStateSchema = z.object({
    * the room's default, and rests are the listener's choice.
    */
   gapRests: z.boolean().optional().describe('Whether a bar the agent did not write with the model rests instead of playing the room’s own fill'),
+  phraseAsk: z.boolean().optional().describe('Whether one model call writes four bars for this room instead of one call per bar'),
 });
 export type RoomState = z.infer<typeof RoomStateSchema>;
 
@@ -117,6 +118,18 @@ export const SetGapRestsMessageSchema = z.object({
   enabled: z.boolean().describe('Whether a bar the agent did not write with the model is silence instead of the room’s own fill'),
 });
 export type SetGapRestsMessage = z.infer<typeof SetGapRestsMessageSchema>;
+
+/**
+ * ONE CALL, FOUR BARS. The room asks the model for a whole phrase on the bar that opens it and queues
+ * the four bars at once, so three of the four cost no call. Off by default: the per-bar ask is the
+ * shape every other measurement was taken against, and a four-bar answer arrives as one object that a
+ * small model truncates often.
+ */
+export const SetPhraseAskMessageSchema = z.object({
+  type: z.literal('set_phrase_ask').describe('Message discriminator: one model call per four bars for this room'),
+  enabled: z.boolean().describe('Whether the agent is asked for a four-bar phrase instead of one bar'),
+});
+export type SetPhraseAskMessage = z.infer<typeof SetPhraseAskMessageSchema>;
 
 export const InstrumentChangeMessageSchema = z.object({
   type: z.literal('instrument_change').describe('Message discriminator'),
@@ -219,6 +232,7 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   SetBackingMessageSchema,
   SetHedgeMessageSchema,
   SetGapRestsMessageSchema,
+  SetPhraseAskMessageSchema,
   z.object({ type: z.literal('set_agent_model'), agentPeerId: z.string(), model: z.string() }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;

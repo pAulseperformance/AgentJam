@@ -30,6 +30,9 @@ import { melodyPlan, completeMelody, shapeLine, restateHook, applyContourRules, 
 import { drumBar, bassBar, countInBar } from './groove';
 import {
   generateMeasureWithAi,
+  generatePhraseWithAi,
+  type PhraseResult,
+  type DecisionBrief,
   AI_BUDGET_MS,
   FREE_MODEL,
   SIGNED_MODEL,
@@ -506,6 +509,9 @@ export class JamRoom implements DurableObject {
         break;
       case 'set_backing':
         this.handleSetBacking(msg.drummer, msg.bass);
+        break;
+      case 'set_phrase_ask':
+        this.handleSetPhraseAsk(ws, msg.enabled);
         break;
       case 'set_hedge':
         this.handleSetHedge(ws, msg.enabled);
@@ -1068,6 +1074,20 @@ export class JamRoom implements DurableObject {
    * The setting is stored so it outlives an eviction, and `/health` reports it so an operator can
    * read back what the room will spend without opening a socket.
    */
+  /**
+   * ONE CALL, FOUR BARS. Off by default: the per-bar ask is the shape every measurement in this repo
+   * was taken against, and a four-bar answer arrives in one object that a 3B model truncates often
+   * (8 of 8 in the probe run). On, the agent is asked on the bar that opens its phrase and its four
+   * bars are queued at once, so three of the four cost no model call at all.
+   */
+  private handleSetPhraseAsk(ws: WebSocket, enabled: boolean): void {
+    void ws;
+    this.roomState.phraseAsk = enabled;
+    this.roomState.serverTime = Date.now();
+    void this.ctx.storage.put('roomState', this.roomState);
+    this.broadcastAll(JSON.stringify({ type: 'room_state', roomState: this.roomState }));
+  }
+
   private handleSetHedge(ws: WebSocket, enabled: boolean): void {
     if (!this.maySetRoomSpend(ws, 'hedge', this.hedge)) return;
     this.hedge = enabled;
@@ -1755,6 +1775,84 @@ export class JamRoom implements DurableObject {
    * and it is what a listener hears when a render misses its bar. The line builder writes a stepwise
    * melody on the same arc instead, so a missed bar costs a model's flourish and not the tune.
    */
+  /**
+   * QUEUE A WHOLE PHRASE. One call wrote four bars; each of them takes the same passes a single bar
+   * takes, in the same order, because a phrase that skipped the contour rules or the shaping would be
+   * a different player from the one the room already has. The cost is recorded on the bar that paid
+   * it, so a probe can still price a bar from the session file.
+   */
+  private queuePhrase(
+    agent: InProcessAgent,
+    firstBar: number,
+    answer: PhraseResult,
+    brief: DecisionBrief | null,
+    decider: 'jev' | 'none',
+    sawUpTo: number,
+  ): void {
+    const key = this.roomState.key;
+    // A PHRASE WITHOUT A JUDGE STILL HAS A SHAPE: the same defaults the code's own brief carries.
+    const role = brief?.role ?? 'lead';
+    const density = brief?.density ?? 'medium';
+    const register = this.registerRange(brief?.register ?? agent.lastRegister ?? 'mid');
+    const written = answer.bars ?? [];
+    for (let i = 0; i < 4; i++) {
+      const bar = firstBar + i;
+      const position = this.phrasePosition(agent, bar);
+      const plan = melodyPlan(position, agent.style, agent.motif !== null || i > 0);
+      let line = repairMeasure(written[i] ?? [], {
+        key,
+        heldPitches: this.heldByOthers(agent.peer.peerId),
+        maxNotes: 10,
+      }).notes;
+      if (role === 'lead') {
+        if (plan.position === 'cadence') line = cadenceFrom(line, { key, register });
+        else if (plan.position === 'restate' && agent.hook?.length) line = restateHook(agent.hook, { key, register, bar });
+        else line = completeMelody(line, { plan, key, motif: agent.motif, register, maxNotes: 10 }).notes;
+        const from = this.voiceFrom(bar);
+        if (from !== null) line = leadInto(line, { fromMidi: from, key, register });
+      }
+      line = applyContourRules(line, { key, register });
+      line = shapeLine(line, { contour: plan.contour, density, accents: this.roomAccents(bar) });
+      const others = this.otherNotesFor(agent.peer.peerId, bar);
+      if (others.length > 0) {
+        const clashing = new Set(clashesWith(line, others).map(c => c.note));
+        if (clashing.size > 0) line = line.filter(n => !clashing.has(n));
+      }
+      // THE PHRASE'S FIRST BAR IS THE HOOK, as it is for a single bar: the restate bar returns this.
+      if (i === 0 && role === 'lead' && plan.position === 'state' && line.length >= 3) {
+        agent.hook = line.map(n => ({ ...n }));
+      }
+      agent.queue.push({
+        bar,
+        sawUpTo,
+        notes: line,
+        meta: {
+          source: 'llm',
+          ask: 'bar',
+          tier: agent.tier,
+          model: agent.model,
+          decider,
+          brief,
+          prompt: answer.prompt,
+          response: answer.response,
+          latencyMs: i === 0 ? answer.latencyMs : 0,
+          calls: i === 0 ? answer.calls : 0,
+          position,
+          noteCount: line.length,
+          plan: line.slice(0, 6).map(n => `${n.pitch}@${n.beatTime}`).join(' ') || '(rest)',
+        },
+      });
+    }
+    agent.queue = keepNewest(agent.queue, 4);
+    this.broadcastAll(JSON.stringify({
+      type: 'ai_debug',
+      agentPeerId: agent.peer.peerId,
+      agentName: agent.peer.name,
+      bar: firstBar,
+      meta: agent.queue.find(q => q.bar === firstBar)?.meta ?? {},
+    }));
+  }
+
   private melodyBar(agent: InProcessAgent, bar: number): GeneratedNote[] {
     const barInPhrase = this.phrasePosition(agent, bar);
     const plan = melodyPlan(barInPhrase, agent.style, agent.motif !== null);
@@ -1950,6 +2048,11 @@ export class JamRoom implements DurableObject {
           agent.renderCostMs + 100,
         );
       }
+      // A BAR THE PHRASE ALREADY WROTE IS NOT RENDERED AGAIN. With the phrase ask on, one call queues
+      // four bars; the timer still fires for each of them, and a second ask would pay twice for music
+      // the queue already holds. A refresh (`targetBar` set) is the one call that may re-render.
+      if (targetBar === undefined && agent.queue.some(q => q.bar === forBar)) return;
+
       const peerPlan = this.otherAgentPlan(agent.peer.peerId, forBar);
       // WHERE THIS BAR SITS IN THE PHRASE: state, restate, develop, cadence. A melody needs a shape
       // across bars; a bar written with no idea where it sits is a gesture that happens to be in time.
@@ -2036,6 +2139,25 @@ export class JamRoom implements DurableObject {
       // one bar away. Measuring to the NEXT bar line would cancel a call that has the time to finish.
       const deadlineMs = this.roomState.transportStartTime + forBar * this.barMs();
       const budgetMs = renderBudget(deadlineMs - Date.now(), AI_BUDGET_MS);
+
+      // THE PHRASE ASK, WHEN THE ROOM HAS TURNED IT ON: asked once on the bar that opens the phrase,
+      // and its four bars are queued here. A phrase that comes back unusable falls through to the
+      // per-bar ask below, so the setting can cost a worse answer but never a silent one.
+      if (this.roomState.phraseAsk === true && barInPhrase === 0) {
+        const answer = await generatePhraseWithAi(
+          this.env.AI,
+          ctx,
+          agent.model,
+          brief,
+          // FOUR BARS OF TIME, capped: the answer has until the fourth bar's line, not this bar's.
+          Math.min(8000, Math.max(budgetMs, this.barMs() * 3)),
+        );
+        if (answer.bars && answer.bars.some(b => b.length > 0)) {
+          // THE BRIEF IS ALWAYS THERE: `coordinateRole` above returns the code's own when no judge spoke.
+          this.queuePhrase(agent, forBar, answer, brief, judged ? 'jev' : 'none', sawUpTo);
+          return;
+        }
+      }
       // THE HEDGE SPENDS WHERE THE TAIL IS. Only a boundary render is exposed to the agent's tail
       // (a refresh carries no tail reading and replaces a bar the queue already holds), so only it
       // may buy a second call: a hedged refresh would pay twice to replace music already queued.

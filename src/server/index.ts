@@ -15,6 +15,27 @@ export { JamRoom } from './jam-room';
  */
 const TIER_HEADER = 'x-jam-tier';
 
+/**
+ * WHERE THE REQUEST SITS, and what path the router below should see.
+ *
+ * A preview host (the workers.dev address, or any host that is neither the mount's nor the app's own)
+ * is served AS IF it were at the mount, so its pages work. Stripping the mount's prefix off every path
+ * there was the defect: a bare `/api/room/<id>/ws` became `/room/<id>/ws`, matched no route, and
+ * answered 404 on the one address `deploy.sh` prints to exercise a change before it takes traffic.
+ * The prefix is stripped only when the path really carries it.
+ */
+export function resolveMountPath(
+  outer: string,
+  mount: string,
+  previewHost: boolean,
+): { underMount: boolean; path: string } {
+  if (!mount) return { underMount: false, path: outer };
+  const hasPrefix = outer === mount || outer.startsWith(`${mount}/`);
+  const underMount = hasPrefix || previewHost;
+  const path = hasPrefix ? (outer.slice(mount.length) || '/') : outer;
+  return { underMount, path };
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const requestUrl = new URL(request.url);
@@ -40,7 +61,7 @@ export default {
       Boolean(mount) &&
       requestUrl.hostname !== mountOrigin.hostname &&
       (!env.CANONICAL_HOST || requestUrl.hostname !== env.CANONICAL_HOST);
-    const underMount = Boolean(mount) && (previewHost || outer === mount || outer.startsWith(`${mount}/`));
+    const { underMount, path: mountPath } = resolveMountPath(outer, mount, previewHost);
     const isApi = outer === '/api' || outer.startsWith('/api/');
 
     if (
@@ -57,8 +78,12 @@ export default {
 
     // THE STRIPPED URL IS WHAT EVERYTHING BELOW SEES, built once: the room id is split off the
     // pathname, and a mount left on it would name the room 'jam'.
+    // STRIP THE MOUNT ONLY WHEN THE PATH REALLY CARRIES IT. A preview host is served as if it were at
+    // the mount, but its own paths are bare: slicing the prefix off `/api/room/demo/ws` produced
+    // `/room/demo/ws`, which matches no route, so the preview URL `deploy.sh` prints answered 404 for
+    // the room API it exists to let an operator exercise before traffic moves.
     const url = underMount
-      ? new URL(`${requestUrl.origin}${outer.slice(mount.length) || '/'}${requestUrl.search}`)
+      ? new URL(`${requestUrl.origin}${mountPath}${requestUrl.search}`)
       : requestUrl;
 
     // WHO IS ASKING: one question to the door, answered once per request. Both entry points below

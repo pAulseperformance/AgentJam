@@ -224,6 +224,14 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     sendMessage(JSON.stringify({ type: 'set_gap_rests', enabled }));
   }, [sendMessage]);
 
+  // ONE CALL, FOUR BARS. Off by default: the room asks for one bar at a time, which is the shape every
+  // measurement in this repo was taken against. On, the agent is asked for a whole phrase on the bar
+  // that opens it, so it is heard as one idea and costs a quarter of the calls.
+  const phraseAsk = roomState?.phraseAsk === true;
+  const handlePhraseAskChange = useCallback((enabled: boolean) => {
+    sendMessage(JSON.stringify({ type: 'set_phrase_ask', enabled }));
+  }, [sendMessage]);
+
   const handleInstrumentChange = useCallback((instrument: InstrumentType) => {
     setCurrentInstrument(instrument);
     engine?.changeInstrument(instrument);
@@ -337,6 +345,27 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
           {gapRests
             ? 'on: the space between the bars each agent writes is silence'
             : 'off: the room fills the bars an agent does not write'}
+        </span>
+      </div>
+
+      <div
+        className="jam-room__phrase-ask"
+        style={{ margin: '4px 2px 0', fontSize: 13, color: 'var(--text-secondary)' }}
+      >
+        <label htmlFor="phrase-ask" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+          <input
+            id="phrase-ask"
+            type="checkbox"
+            checked={phraseAsk}
+            disabled={status !== 'connected'}
+            onChange={(e) => handlePhraseAskChange(e.target.checked)}
+          />
+          <span>Four bars per call</span>
+        </label>
+        <span style={{ marginLeft: 8, color: 'var(--text-muted)' }}>
+          {phraseAsk
+            ? 'on: one model call writes a whole phrase, so the ending is part of the idea'
+            : 'off: the model writes one bar at a time'}
         </span>
       </div>
 

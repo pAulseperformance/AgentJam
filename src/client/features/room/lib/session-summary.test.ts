@@ -174,7 +174,9 @@ describe('the measured night', () => {
     expect(guest.state).toBe('signed out');
     expect(guest.rows).toEqual([]);
     expect(guest.chips).toEqual([]);
-    expect(guest.sentence).toContain('drummer and the bass carry every bar');
+    expect(guest.sentence).toContain('agents render on the free model');
+    // AND IT DOES NOT CLAIM THE ROOM HAS NO AGENTS: a public agent's bars are published as model bars.
+    expect(guest.sentence).not.toContain('no agent lands a note');
     // OPEN-1: one line about the fallback inside this state, not a sixth state
     expect(guest.sentence).toContain('A render fell back during this session');
     // the numbers are still computed, they are just not drawn

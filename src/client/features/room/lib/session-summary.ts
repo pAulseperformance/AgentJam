@@ -467,7 +467,12 @@ function sentenceOf(state: SessionState, numbers: SummaryNumbers, agents: Readon
     case 'empty':
       return 'Nothing has played in this room since the page opened. Join, spawn an agent, and this panel fills at the bar line.';
     case 'signed out': {
-      const base = 'Signed out, the room still plays without the decision layer: the drummer and the bass carry every bar, and no agent lands a note or sits one out.';
+      // A PUBLIC ROOM STILL HAS AGENTS. The first sentence said "no agent lands a note or sits one
+      // out", which is false: the tier caps the MODEL, not the agents (`agent.tier === 'signed'` is
+      // the only signed-only branch, and a public agent's bars are published as `llm` with
+      // `decider: 'none'`). A guest who spawned three agents and heard sixty model bars was told the
+      // band was only the rhythm section.
+      const base = 'Signed out, the room still plays: agents render on the free model, without the decision layer, and the drummer and the bass carry the bars no agent takes.';
       // OPEN-1 of the screen spec, taken at its recommendation: a guest who heard a fallback gets one
       // line saying so, inside this state rather than as a sixth state. Delete this line to undo.
       return numbers.failed > 0
