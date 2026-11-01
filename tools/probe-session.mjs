@@ -13,6 +13,7 @@
  * which one happened, so a probe run never has to guess at the tier.
  *
  *   node tools/probe-session.mjs --bpm 200 --seconds 60 --agents jazz,funk,ambient --out /tmp/x.json
+ *   node tools/probe-session.mjs --bpm 125 --seconds 60 --agents jazz,funk --backing --phrase --out /tmp/p.json
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { WebSocket } from 'ws';
@@ -63,6 +64,11 @@ const hedge = process.argv.includes('--hedge');
 // does: `--gap-rests` turns it on before the agents spawn, and the summary prints the rest and the
 // generator counts that follow from it. A bare flag, like --hedge, because there is nothing to tune.
 const gapRests = process.argv.includes('--gap-rests');
+// FOUR BARS PER CALL. Off is the room's default; `--phrase` turns it on before the agents spawn, so a
+// probe can price the setting the room exposes but never runs by itself. The thing it changes is the
+// FALLBACK RATE: a phrase queues four bars at once, so the refill has to ask the next phrase before
+// the queue runs dry or one bar per phrase falls to the generator.
+const phraseAsk = process.argv.includes('--phrase');
 
 let cookie = '';
 try { cookie = readFileSync(cookieFile, 'utf8').trim(); } catch { /* public tier */ }
@@ -91,6 +97,7 @@ ws.on('open', () => {
   // bar published while the setting was still off is the generator's, which is the reading this run
   // exists to compare against. The read-back is a room_state frame, printed below.
   if (gapRests) setTimeout(() => send({ type: 'set_gap_rests', enabled: true }), 320);
+  if (phraseAsk) setTimeout(() => send({ type: 'set_phrase_ask', enabled: true }), 330);
   agents.forEach((style, i) => {
     const at = spawnAt[i] ?? (500 + i * 250);
     setTimeout(() => send({ type: 'spawn_agent', name: `Probe ${style}`, style }), at);

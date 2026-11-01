@@ -47,7 +47,7 @@ import {
 import {
   prunePast, keepNewest, takeForBar, renderBudget, renderStride, renderCeilingBpm, RENDER_COST_ASSUMED_MS,
   RENDER_TAIL_ASSUMED_MS, cellsForBar,
-  barDelayMs, barMsFor, barElapsedEnough, firstReachableBar, nextRenderTail, DEFAULT_BAR_MS,
+  barDelayMs, barMsFor, barElapsedEnough, firstReachableBar, nextRenderTail, phraseLead, DEFAULT_BAR_MS,
   MIN_BPM, MAX_BPM,
 } from './bar-queue';
 import { reactionCells, type ReactionBar } from './reaction';
@@ -1581,7 +1581,18 @@ export class JamRoom implements DurableObject {
     // reach, and the queue would fill with exactly the entries the prune exists to remove.
     agent.refreshesThisBar = 0;
     const depth = stride > 1 ? 1 : 2;
-    if (agent.queue.length < depth) void this.renderAgentBar(agent);
+    // AND A FOUR-BAR PHRASE LEADS ITS OWN BAR LINE. The phrase ask queues four bars in one call, so
+    // `queue.length < depth` is false for the whole phrase and the next ask started only once the
+    // queue was EMPTY: one bar of lead for a call that can take longer than one bar. Measured on the
+    // 2026-11-01 17:31 recording (125 BPM, three melodic agents, the setting on), the generator
+    // covered 21 of 79 Funk Bot bars and 21 of 96 Jazz Bot bars, one per phrase boundary. Asking
+    // while the phrase still has the tail's worth of bars left moves the lead from one bar to the
+    // measured cost, and costs no extra call: the phrase is still asked once per four bars.
+    const lead = this.roomState.phraseAsk === true
+      ? phraseLead(Math.max(agent.renderCostMs, agent.renderTailMs), this.barMs())
+      : 0;
+    const queuedMax = agent.queue.reduce((max, q) => Math.max(max, q.bar), bar);
+    if (agent.queue.length < depth || (lead > 0 && queuedMax - bar <= lead)) void this.renderAgentBar(agent);
     // A PHRASE IS WRITTEN ONCE. A refresh replaces one queued bar with a bar asked in isolation, which
     // is exactly the incoherence the phrase setting exists to remove, and it pays a second call for a
     // bar the phrase already wrote. Measured on the live room with the setting on: 13 of 26 bars were

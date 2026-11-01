@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   keepNewest, prunePast, renderBudget, renderStride, renderCeilingBpm, takeForBar,
   RENDER_COST_ASSUMED_MS, RENDER_TAIL_ASSUMED_MS,
-  barDelayMs, barMsFor, barElapsedEnough, firstReachableBar, nextRenderTail, DEFAULT_BAR_MS, MAX_BPM,
+  barDelayMs, barMsFor, barElapsedEnough, firstReachableBar, nextRenderTail, phraseLead, DEFAULT_BAR_MS, MAX_BPM,
   MIN_BPM, MIN_BAR_MS,
 } from './bar-queue';
 
@@ -329,5 +329,33 @@ describe('nextRenderTail', () => {
     const barMs = 240_000 / 160;                       // 1500 ms
     expect(renderStride(1300, barMs)).toBe(1);          // the mean says "one bar per bar"
     expect(renderStride(Math.max(1300, 1800), barMs)).toBe(2);  // the tail says it will miss
+  });
+});
+
+describe('phraseLead', () => {
+  const bar125 = 240_000 / 125;   // 1920 ms, the recording this comes from
+
+  it('asks a slow phrase two bars early, which is what the 125 BPM session needed', () => {
+    // 2788 ms was the slowest call in that session against a 1920 ms bar: one bar of lead, which is
+    // what the old refill gave it, cannot hold a call that long.
+    expect(phraseLead(2788, bar125)).toBe(2);
+    expect(phraseLead(1800, bar125)).toBe(1);
+  });
+
+  it('never asks on the bar line itself, whatever the cost', () => {
+    // A tail under the bar still gets one bar of lead: a phrase begun at its own line is the miss.
+    expect(phraseLead(300, bar125)).toBe(1);
+    expect(phraseLead(RENDER_TAIL_ASSUMED_MS, 2000)).toBe(1);
+  });
+
+  it('rounds UP, because half a bar of lead is a miss', () => {
+    expect(phraseLead(1000, 1920)).toBe(1);
+    expect(phraseLead(1921, 1920)).toBe(2);
+  });
+
+  it('cannot divide by a bar it does not have', () => {
+    expect(phraseLead(1500, 0)).toBe(1);
+    expect(phraseLead(1500, NaN)).toBe(1);
+    expect(phraseLead(0, 1920)).toBe(1);
   });
 });

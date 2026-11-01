@@ -210,3 +210,21 @@ export function nextRenderTail(previous: number, cost: number, decay = 0.9): num
  * call took 1,312 ms of budget and overran it.
  */
 export const RENDER_TAIL_ASSUMED_MS = 1800;
+
+/**
+ * HOW MANY BARS OF LEAD A FOUR-BAR PHRASE MUST BE ASKED WITH.
+ *
+ * The phrase ask queues four bars in ONE call, so the refill's `queue.length < 2` is false for the
+ * whole phrase and the next ask only starts when the queue is empty: one bar of lead for a call that
+ * can take longer than one bar. Measured on the 2026-11-01 17:31 recording (125 BPM, 1920 ms bar,
+ * three melodic agents, the setting on): 21 of 79 Funk Bot bars and 21 of 96 Jazz Bot bars were the
+ * generator, about one per phrase boundary.
+ *
+ * The lead is the render's TAIL in bars, rounded up: a call that can take 2.8 s has to be started two
+ * bars before the line it writes for, not on the line. Never 0 — a phrase asked at its own bar line
+ * is the defect this replaces.
+ */
+export function phraseLead(costMs: number, barMs: number): number {
+  if (!(barMs > 0) || !(costMs > 0)) return 1;
+  return Math.max(1, Math.ceil(costMs / barMs));
+}
