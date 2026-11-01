@@ -197,3 +197,24 @@ tempo, not a musical one, and a listener should now be able to hear it as one.
 Cloudflare throttles that endpoint (error 971) when two suite runs land within a couple of minutes.
 `check.sh` and `deploy.sh` each run the suite, so a gate can fail for a reason that has nothing to do
 with the code it is gating, and pass on a retry a few minutes later.
+
+---
+
+## 2026-11-01 The button that killed the page
+
+Pressing **four bars per call** on the live page answered `Something went wrong. Q is not iterable`.
+
+`handleSetPhraseAsk` broadcast `room_state` with **no `peers`**, and the client sets its peer list from
+that frame (`setPeers(msg.peers)`), so the list became `undefined` and the next render spread it. Every
+other broadcast of that frame in the room carries peers (join, tempo, key, gap rests); this one did not.
+The schema says `peers` is required, but nothing on the frame path validated what the room sent.
+
+Two fixes, because either alone leaves the page one bad frame from dying again: the handler sends
+`peers: this.getAllPeers()`, and the client keeps its list when a frame arrives without them.
+
+The gate could not have caught it. `tools/browser-smoke.mjs` joined, spawned, counted one model bar and
+closed the page without pressing anything, so the one control that took the page down was the one
+control the gate never touched. It now presses `#phrase-ask` after the bar reading and asserts four
+things: the switch comes back checked, its note reads the ON copy, the peer list still holds rows, and
+no page error was raised. Read the note from `textContent` with care: the label and the note are
+adjacent inline elements and concatenate (`Four bars per callon: ...`), so match a phrase, not `on:`.

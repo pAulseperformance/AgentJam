@@ -185,6 +185,9 @@ function budget() {
 
 let failure = null;
 let overlayTakenDown = false;
+/** what the "four bars per call" switch read after it was pressed (null when the press never happened) */
+let toggle = null;
+let toggleErrors = [];
 try {
   loadStartedAt = Date.now();
   // COMMIT, NOT DOMContentLoaded. The estate bar's script (zpe-bar.js in the shell head) holds
@@ -240,6 +243,26 @@ try {
       `ai_debug ${received.get('ai_debug') ?? 0} (${describe(sources)})`);
   }
   mark('bar');
+
+  // AND THE PANEL'S OWN SWITCH, PRESSED. "Four bars per call" used to take the page down the moment it
+  // was pressed: the handler broadcast room_state with no `peers`, the page's peer list became
+  // undefined, and the next render spread it, so the listener saw "Something went wrong. Q is not
+  // iterable". This run pressed nothing, so nothing in the gate could have said so. The reading is the
+  // switch's own state after the round trip, plus the peer list that the defect emptied.
+  const errorsBefore = pageErrors.length;
+  await page.click('#phrase-ask', { timeout: Math.max(500, Math.min(remaining(), 4000)) });
+  await page.waitForTimeout(700);
+  toggle = await page.evaluate(() => {
+    const box = document.querySelector('#phrase-ask');
+    const host = document.querySelector('.jam-room__phrase-ask');
+    return {
+      checked: box instanceof HTMLInputElement ? box.checked : null,
+      note: (host?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      peers: document.querySelectorAll('.peer-list__item').length,
+      crashed: document.body.innerText.includes('Something went wrong'),
+    };
+  });
+  toggleErrors = pageErrors.slice(errorsBefore);
 } catch (err) {
   failure = err.message;
 }
@@ -288,6 +311,11 @@ if (llmBars.length) {
 console.log(panelDrawn
   ? `panel drawn, state "${panelState ?? 'unknown'}"${panelState === 'signed out' ? ' (a guest: the panel draws its guest state and no rows)' : ''}`
   : 'panel not drawn (no .session-panel on the page)');
+console.log(toggle
+  ? `toggle     "four bars per call" pressed: checked ${toggle.checked}, peers ${toggle.peers}` +
+    `${toggle.crashed ? ', PAGE SAYS SOMETHING WENT WRONG' : ''}${toggleErrors.length ? `, ${toggleErrors.length} page error(s)` : ''}` +
+    `\n           ${toggle.note || '(no note under the switch)'}`
+  : 'toggle     not pressed (the page never reached the switch)');
 if (overlayTakenDown) console.log('audio     the start-audio overlay was taken down without the engine starting');
 if (pageErrors.length) console.log(`page errors ${pageErrors.length}: ${pageErrors.slice(0, 3).join(' | ')}`);
 
@@ -308,6 +336,17 @@ if (!failure) {
       `${(deadlineMs / 1000).toFixed(1)} s deadline`;
   } else if (!spawnedPeers.includes('Smoke')) {
     failure = `the room never announced the one agent: agent_spawned names ${spawnedPeers.join(', ') || 'nobody'}`;
+  } else if (!toggle) {
+    failure = 'the "four bars per call" switch was never pressed (no #phrase-ask on the page)';
+  } else if (toggle.checked !== true || !toggle.note.includes('one model call writes a whole phrase')) {
+    failure = `pressing "four bars per call" left the switch at checked=${String(toggle.checked)} ` +
+      `with the note "${toggle.note || '(none)'}"`;
+  } else if (toggle.peers < 1) {
+    failure = `pressing "four bars per call" emptied the peer list (${toggle.peers} rows after the press)`;
+  } else if (toggle.crashed) {
+    failure = 'pressing "four bars per call" put "Something went wrong" on the page';
+  } else if (toggleErrors.length) {
+    failure = `pressing "four bars per call" raised a page error: ${toggleErrors[0]}`;
   }
 }
 
