@@ -422,7 +422,12 @@ describe('JamRoom Durable Object', () => {
           await new Promise(r => setTimeout(r, 40));
         });
 
-        ws.send(JSON.stringify({ type: 'set_hedge', enabled: true }));
+        // A SIGNED LISTENER TURNS IT ON: the switch is refused from a public socket now, and this
+        // socket has no door cookie. The frame path itself is covered by 'the room spend switches'.
+        await runInDurableObject(stub, async (instance: JamRoom) => {
+          (instance as unknown as { handleSetHedge: (ws: unknown, on: boolean) => void })
+            .handleSetHedge({ deserializeAttachment: () => ({ tier: 'signed' }), send: () => {} }, true);
+        });
         await new Promise(r => setTimeout(r, 60));
 
         await runInDurableObject(stub, async (instance: JamRoom) => {
@@ -448,7 +453,12 @@ describe('JamRoom Durable Object', () => {
         await new Promise(r => setTimeout(r, 40));
         ws.send(JSON.stringify({ type: 'spawn_agent', name: 'Hedge Bot', style: 'jazz' }));
         await new Promise(r => setTimeout(r, 120));
-        ws.send(JSON.stringify({ type: 'set_hedge', enabled: true }));
+        // A SIGNED LISTENER TURNS IT ON: the switch is refused from a public socket now, and this
+        // socket has no door cookie. The frame path itself is covered by 'the room spend switches'.
+        await runInDurableObject(stub, async (instance: JamRoom) => {
+          (instance as unknown as { handleSetHedge: (ws: unknown, on: boolean) => void })
+            .handleSetHedge({ deserializeAttachment: () => ({ tier: 'signed' }), send: () => {} }, true);
+        });
         await new Promise(r => setTimeout(r, 60));
 
         await runInDurableObject(stub, async (instance: JamRoom) => {
@@ -661,6 +671,51 @@ describe('JamRoom Durable Object', () => {
 
         await settle(stub);
       });
+    });
+  });
+});
+
+/**
+ * THE ROOM'S SPEND SWITCHES BELONG TO A SIGNED-IN LISTENER.
+ *
+ * set_hedge doubles every agent's model calls in the room and set_gap_rests silences its fill for
+ * everyone listening, and both are persisted. The schema's comment called them the owner's decision
+ * while nothing in the room identified an owner, so any connected guest could set them. The refusal
+ * answers the asking socket with what the room is actually set to, so a client snaps back instead of
+ * showing a switch the room disagrees with.
+ */
+describe('the room spend switches', () => {
+  const getRoomStub = () => {
+    const typedEnv = env as any;
+    return typedEnv.JAM_ROOM.get(typedEnv.JAM_ROOM.idFromName(`spend-${crypto.randomUUID()}`));
+  };
+
+  it('refuses them from a public socket and takes them from a signed one', async () => {
+    const stub = getRoomStub();
+    await runInDurableObject(stub, async (instance: JamRoom) => {
+      const room = instance as unknown as {
+        hedge: boolean;
+        roomState: { gapRests?: boolean };
+        handleSetHedge: (ws: unknown, on: boolean) => void;
+        handleSetGapRests: (ws: unknown, on: boolean) => void;
+      };
+      const sent: string[] = [];
+      const guest = { deserializeAttachment: () => ({ tier: 'public' }), send: (s: string) => sent.push(s) };
+      const signed = { deserializeAttachment: () => ({ tier: 'signed' }), send: (s: string) => sent.push(s) };
+
+      expect(room.hedge).toBe(false);
+      room.handleSetHedge(guest, true);
+      expect(room.hedge, 'a guest turned the hedged ask on').toBe(false);
+      expect(sent.join(' ')).toContain('signed-in');
+
+      room.handleSetGapRests(guest, true);
+      expect(room.roomState.gapRests, 'a guest silenced the room').not.toBe(true);
+
+      // THE SAME TWO FRAMES FROM A SIGNED LISTENER ARE TAKEN.
+      room.handleSetHedge(signed, true);
+      expect(room.hedge).toBe(true);
+      room.handleSetGapRests(signed, true);
+      expect(room.roomState.gapRests).toBe(true);
     });
   });
 });

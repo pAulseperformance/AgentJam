@@ -508,10 +508,10 @@ export class JamRoom implements DurableObject {
         this.handleSetBacking(msg.drummer, msg.bass);
         break;
       case 'set_hedge':
-        this.handleSetHedge(msg.enabled);
+        this.handleSetHedge(ws, msg.enabled);
         break;
       case 'set_gap_rests':
-        this.handleSetGapRests(msg.enabled);
+        this.handleSetGapRests(ws, msg.enabled);
         break;
       case 'instrument_change':
         // Broadcast to all peers so they can update per-peer synth routing
@@ -1068,9 +1068,27 @@ export class JamRoom implements DurableObject {
    * The setting is stored so it outlives an eviction, and `/health` reports it so an operator can
    * read back what the room will spend without opening a socket.
    */
-  private handleSetHedge(enabled: boolean): void {
+  private handleSetHedge(ws: WebSocket, enabled: boolean): void {
+    if (!this.maySetRoomSpend(ws, 'hedge', this.hedge)) return;
     this.hedge = enabled;
     void this.ctx.storage.put('hedge', enabled);
+  }
+
+  /**
+   * THE SPEND SWITCH IS A SIGNED-IN LISTENER'S. `set_hedge` doubles every agent's model calls in the
+   * room, and the value is persisted across eviction, so a guest who could set it would spend the
+   * room's budget for everyone still listening. The schema's own comment already called that the room
+   * owner's decision; this is the mechanism that makes the sentence true. A refusal changes nothing
+   * and answers the asking socket with what the room is actually set to, so a client that guessed
+   * snaps back instead of showing a switch the room disagrees with.
+   */
+  private maySetRoomSpend(ws: WebSocket, setting: 'hedge' | 'gap rests', current: boolean): boolean {
+    if (this.tierOf(ws) === 'signed') return true;
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: `the ${setting} setting is a signed-in listener's: it stays ${current ? 'on' : 'off'}`,
+    }));
+    return false;
   }
 
   /**
@@ -1094,7 +1112,8 @@ export class JamRoom implements DurableObject {
    * reported on `/health`, and broadcast to every listener: a setting only the client that asked can
    * see is not the room's setting.
    */
-  private handleSetGapRests(enabled: boolean): void {
+  private handleSetGapRests(ws: WebSocket, enabled: boolean): void {
+    if (!this.maySetRoomSpend(ws, 'gap rests', this.gapRests)) return;
     this.roomState.gapRests = enabled;
     this.roomState.serverTime = Date.now();
     void this.ctx.storage.put('roomState', this.roomState);

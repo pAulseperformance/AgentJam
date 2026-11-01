@@ -318,15 +318,21 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
         style={{ margin: '8px 2px 0', fontSize: 13, color: 'var(--text-secondary)' }}
       >
         <label htmlFor="gap-rests" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+          {/* A GUEST CANNOT SET IT: the switch silences the room's fill for everyone listening, and
+              the room refuses the frame from a public socket anyway. Showing it live but dead is the
+              lamp the room disagrees with, so it is disabled and says why. */}
           <input
             id="gap-rests"
             type="checkbox"
             checked={gapRests}
-            disabled={status !== 'connected'}
+            disabled={status !== 'connected' || !who?.signedIn}
             onChange={(e) => handleGapRestsChange(e.target.checked)}
           />
           <span>Gap bars rest</span>
         </label>
+        {who?.signedIn ? null : (
+          <span style={{ marginLeft: 8, color: 'var(--text-muted)' }}>(signed-in listeners only)</span>
+        )}
         <span style={{ marginLeft: 8, color: 'var(--text-muted)' }}>
           {gapRests
             ? 'on: the space between the bars each agent writes is silence'

@@ -44,7 +44,7 @@ interface RoomInternals {
   broadcastAll: (message: string) => void;
   onAgentBar: (agent: AgentInternals) => void;
   renderAgentBar: (agent: AgentInternals) => Promise<void>;
-  handleSetGapRests: (enabled: boolean) => void;
+  handleSetGapRests: (ws: unknown, enabled: boolean) => void;
   barMs: () => number;
 }
 
@@ -121,7 +121,9 @@ async function publishOneBar(opts: {
       // THE MODEL NEVER ANSWERS THIS ROOM. The case is the bar with no queued render; an in-flight
       // render would fill the queue and the bar would be the model's, which is not what is measured.
       room.renderAgentBar = async () => {};
-      if (opts.rests) room.handleSetGapRests(true);
+      // A SIGNED LISTENER SETS IT: the switch is refused from a public socket (see jam-room.test.ts,
+      // 'the room spend switches'), and this harness has no door cookie.
+      if (opts.rests) room.handleSetGapRests({ deserializeAttachment: () => ({ tier: 'signed' }), send: () => {} }, true);
 
       // A FRESH BAR LINE, five milliseconds in: the bar that publishes is bar 0, so a queued answer
       // addressed to bar 0 is ready and every slot of the empty bar is still ahead of it.
@@ -209,7 +211,12 @@ describe('the setting on the wire', () => {
         };
       });
 
-      ws.send(JSON.stringify({ type: 'set_gap_rests', enabled: true }));
+      // A SIGNED LISTENER SETS IT: the room refuses this frame from a public socket now,
+      // and this socket carries no door cookie.
+      await runInDurableObject(stub, async (instance: JamRoom) => {
+        (instance as unknown as { handleSetGapRests: (ws: unknown, on: boolean) => void })
+          .handleSetGapRests({ deserializeAttachment: () => ({ tier: 'signed' }), send: () => {} }, true);
+      });
       await new Promise(r => setTimeout(r, 60));
 
       await runInDurableObject(stub, async (instance: JamRoom) => {
@@ -230,7 +237,10 @@ describe('the setting on the wire', () => {
       });
 
       // AND OFF AGAIN, because a setting that can only be turned on is a setting with one value.
-      ws.send(JSON.stringify({ type: 'set_gap_rests', enabled: false }));
+      await runInDurableObject(stub, async (instance: JamRoom) => {
+        (instance as unknown as { handleSetGapRests: (ws: unknown, on: boolean) => void })
+          .handleSetGapRests({ deserializeAttachment: () => ({ tier: 'signed' }), send: () => {} }, false);
+      });
       await new Promise(r => setTimeout(r, 60));
       await runInDurableObject(stub, async (instance: JamRoom) => {
         const room = instance as unknown as RoomInternals;
