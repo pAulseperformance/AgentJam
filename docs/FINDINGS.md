@@ -65,3 +65,34 @@ line instead of trusting the JSON envelope.
 Decision: not a swap. Four one-bar calls plus the completion pass is still the best line measured
 (61% stepwise, 28 of 32 bars a line). The phrase ask is worth taking once the line has an owner other
 than the model, because its arc wins on every ending.
+
+## 2026-11-01 The arc was not arcing, and the cadence was erasing the bar
+
+Two of the losses above were the room's own code, not the ask shape, and both are fixed.
+
+THE ARC RAN ON THE ROOM'S CLOCK. The phrase position was `(bar - phraseStartBar) % 4`, so an agent
+paced to write every other bar reached only two of the four positions: the recorded session's sixteen
+model bars came out 2 states, 6 restates, 3 developments and 5 cadences. It is now a count of the bars
+THIS agent has written, one position per bar, and a re-render of a bar keeps its position. Measured on
+the live room after the fix, 60 s at 190 BPM with two agents and the drummer on, the heaviest pacing
+the room does: each agent's 38 readable bars came out 9 states, 9 restates, 10 developments and 10
+cadences, and 35 of the 37 position-to-position steps were the next one in the cycle.
+
+```
+node tools/probe-session.mjs --bpm 190 --seconds 60 --agents jazz,funk --backing 1 --out /tmp/x.json
+# positions per agent, from each bar's prompt: 0:9 1:9 2:10 3:10   (before: 2/6/3/5 in one session)
+```
+
+THE CADENCE ERASED THE BAR. `cadenceLine` replaced every cadence bar with the same two notes in the
+same two slots. `tools/note-loss.ts` replays a recorded session's own model answers through the
+pipeline one pass at a time and attributed the loss: repair 0, completion +1, the cadence pass -14,
+contour 0, shaping -9. So fourteen of that session's 95 notes died in one pass, more than every other
+pass together, and every ending was the same gesture. `cadenceFrom` keeps the model's opening, resolves
+its last note onto a chord tone by step, drops only what follows, and writes the fixed gesture only
+when the bar is empty. The same replay now keeps 78 of 95 notes instead of 73; the rest is deliberate
+(the shaping pass resting a sixteenth run, the cadence thinning on purpose).
+
+```
+npx tsx tools/note-loss.ts --in ~/.hermes/attachments/jam-session-default-room-2026-11-01T14-56-37-736Z.json
+# arc (cadence replaced)  95 -> 87 ... 78 kept of 95 = 82%   (before: 73 = 77%)
+```
