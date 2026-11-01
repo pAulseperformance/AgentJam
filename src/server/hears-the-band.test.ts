@@ -27,22 +27,29 @@ const stub = () => {
 };
 
 describe('what an agent hears', () => {
-  it('hears the backing bass and not the kit', async () => {
+  it('keeps the rhythm section out of the phrase it answers, and says it is there in words', async () => {
+    // LETTING THE BASS IN WAS TRIED AND THE ROOM'S OWN GATE REFUSED IT: `C2 G2` landed in 34 of 87
+    // prompts as "strong beats". The section's notes are not a line to answer; that it is PLAYING is a
+    // fact the model needs, and it gets it from `sectionLine()` with no pitch in it.
     const room = stub();
     await runInDurableObject(room, async (instance: JamRoom) => {
-      const internals = instance as unknown as Internals;
+      const internals = instance as unknown as Internals & { sectionLine: () => string | undefined };
       internals.handleSetBacking(true, true);
       const bass = [...internals.layers.values()].find(l => l.peer.instrument !== 'DrumKit')!;
       const kit = [...internals.layers.values()].find(l => l.peer.instrument === 'DrumKit')!;
-      const agentId = 'agent-under-test';
 
       internals.recordEvent({ type: 'note_on', peerId: bass.peer.peerId, pitch: 'C2', beatTime: 0, velocity: 90, timestamp: Date.now() });
       internals.recordEvent({ type: 'note_on', peerId: kit.peer.peerId, pitch: 'A5', beatTime: 0, velocity: 58, timestamp: Date.now() });
 
-      const heard = internals.othersRecent(agentId);
-      expect(heard.map(n => n.pitch)).toContain('C2');
-      // A HI-HAT IS NOT A LINE: letting it in is what made an agent refuse to play A5 in an earlier cut.
-      expect(heard.map(n => n.pitch)).not.toContain('A5');
+      const heard = internals.othersRecent('agent-under-test').map(n => n.pitch);
+      expect(heard).not.toContain('C2');
+      expect(heard).not.toContain('A5');
+
+      // A HI-HAT IS NOT A LINE and neither is a kick, but the model is still told a band is playing.
+      const section = internals.sectionLine();
+      expect(section).toContain('drummer');
+      expect(section).toContain('bass');
+      expect(section).not.toMatch(/[A-G]#?\d/);
     });
   });
 

@@ -1052,23 +1052,40 @@ export class JamRoom implements DurableObject {
     // playing: ... strong beats: C2, A5" and as a note someone is holding, so an agent was told not to
     // play A5 because a hi-hat had it, and was asked to answer a kick drum.
     //
-    // BUT EVERY OTHER PEER IS. This used to filter on `isPlayerPeer`, which answers "is this person at
-    // a keyboard" and is FALSE for every agent and every backing layer. So a signed agent heard nothing
-    // in a room where a bass and a drummer had been playing for a minute: nine prompts in one session
-    // each said "the room is silent, nobody has played recently" over a walking bass line, and every
-    // agent took the lead because nobody was playing. `isPlayerPeer` still decides who counts as a
-    // HUMAN (it guards `lastHumanAt`); what an agent listens to is everything but the kit.
+    // BUT ANOTHER AGENT IS. This used to filter on `isPlayerPeer`, which answers "is this person at a
+    // keyboard" and is FALSE for every agent and every backing layer, so a signed agent heard nothing
+    // in a room where a bass and a drummer had played for a minute: nine prompts in one session each
+    // said "the room is silent, nobody has played recently", and every agent took the lead.
+    //
+    // THE RHYTHM SECTION STILL STAYS OUT, and the room's own live gate is why: letting the bass in put
+    // `C2 G2` into 34 of 87 prompts as "strong beats", and check.sh refuses a session whose prompts
+    // name a section code. Its notes are not a line to answer; that it is PLAYING is a fact the model
+    // needs, and `sectionLine()` gives it that in words with no pitch in it.
     return this.noteRing.filter(n =>
-      n.peerId !== agentPeerId && n.timestamp >= since && !this.isDrumPeer(n.peerId));
+      n.peerId !== agentPeerId && n.timestamp >= since && !this.isSectionPeer(n.peerId));
   }
 
-  /** Is this peer the drum kit? A fixed figure on fixed pitches is not a line to answer. */
-  private isDrumPeer(peerId: string): boolean {
+  /**
+   * WHAT IS PLAYING UNDER THE AGENTS, as words. The listener leaves the rhythm section out of its
+   * summary on purpose (a kit's pitches are not a line to answer, and the room's own gate refuses a
+   * prompt that names one), so an agent was told the room was silent while a bass walked under it.
+   * This says the section is there without handing the model a pitch code.
+   */
+  private sectionLine(): string | undefined {
+    const parts: string[] = [];
+    if (this.layers.has('drummer')) parts.push('a drummer keeping time');
+    if (this.layers.has('bass')) parts.push('a bass holding the low end');
+    return parts.length > 0 ? parts.join(' and ') : undefined;
+  }
+
+  /**
+   * Is this peer the rhythm section: a backing layer, or a peer playing the kit? Neither is a line to
+   * answer, and both are excluded from the phrase summary a model reads.
+   */
+  private isSectionPeer(peerId: string): boolean {
+    for (const layer of this.layers.values()) if (layer.peer.peerId === peerId) return true;
     for (const agent of this.agents.values()) {
       if (agent.peer.peerId === peerId) return agent.peer.instrument === 'DrumKit';
-    }
-    for (const layer of this.layers.values()) {
-      if (layer.peer.peerId === peerId) return layer.peer.instrument === 'DrumKit';
     }
     return false;
   }
@@ -2136,7 +2153,8 @@ export class JamRoom implements DurableObject {
         recentNotes: others.filter(e => e.type === 'note_on').slice(-20)
           .map(e => ({ pitch: e.pitch, peerId: e.peerId, beatTime: e.beatTime })),
         currentBeat: 0,
-        phrase: describePhrase(phrase),
+        phrase: describePhrase(phrase, this.sectionLine()),
+        section: this.sectionLine(),
         motif: motifText,
         earlierMotif: earlierText,
         heldNotes: [...new Set([...heldPitches, ...phrase.held])].slice(0, 8),

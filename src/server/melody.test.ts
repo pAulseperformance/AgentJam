@@ -15,7 +15,7 @@ describe('melodyPlan', () => {
   });
 
   it('asks for a line of at least five notes, except the cadence which lands short', () => {
-    for (const style of ['ambient', 'funk', 'jazz', 'random']) {
+    for (const style of ['ambient', 'jazz', 'random']) {
       for (let bar = 0; bar < 4; bar++) {
         const plan = melodyPlan(bar, style, bar > 0);
         if (plan.position === 'cadence') expect(plan.wantNotes).toBeLessThanOrEqual(3);
@@ -23,6 +23,18 @@ describe('melodyPlan', () => {
         expect(plan.instruction).toContain('MELODY');
       }
     }
+  });
+
+  it('asks funk for a riff with space around it, not the densest line in the room', () => {
+    // FUNK WAS MAPPED TO "MORE NOTES" (seven, then eight, every bar, joined up) and a recorded funk
+    // agent played 47 notes in 16 seconds: a wash. A funk part is a short shape with silence around it.
+    for (let bar = 0; bar < 4; bar++) {
+      const plan = melodyPlan(bar, 'funk', bar > 0);
+      expect(plan.wantNotes).toBeLessThanOrEqual(plan.position === 'cadence' ? 3 : 5);
+      expect(plan.instruction).toContain('RIFF');
+      expect(plan.instruction).toContain('silence');
+    }
+    expect(melodyPlan(0, 'funk', false).wantNotes).toBeLessThan(melodyPlan(0, 'jazz', false).wantNotes);
   });
 
   it('uses a wave for a develop bar that has a motif to develop', () => {

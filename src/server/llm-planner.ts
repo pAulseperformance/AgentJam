@@ -38,6 +38,13 @@ export interface MeasureContext {
   currentBeat: number;
   /** the listener's summary of what the room is playing, already in words */
   phrase?: string;
+  /**
+   * WHAT IS PLAYING UNDER THIS BAR, in words and without a single pitch code: "a drummer keeping time
+   * and a bass holding the low end". The listener's summary deliberately leaves the rhythm section out
+   * (its pitches are not a line to answer), which left the model writing as if the room were empty
+   * while three instruments played. This is the half it may know: what is there, not what notes.
+   */
+  section?: string;
   /** the agent's own last statement, so it can restate or vary it instead of starting over */
   motif?: string;
   /**
@@ -324,6 +331,13 @@ function buildUserPrompt(ctx: MeasureContext, brief: DecisionBrief | null, ask: 
   // above says whether to keep it.
   if (ctx.earlierMotif) {
     lines.push(`${EARLIER_SESSION} this room heard you play ${ctx.earlierMotif}.`);
+  }
+
+  // WHAT IS UNDER THE BAR. The listener's line above describes the players it can answer; this says
+  // what else is sounding, in words, because an agent told "the room is silent" by a summary that
+  // deliberately omits the rhythm section writes a solo over a band.
+  if (ctx.section) {
+    lines.push(`UNDER YOU: ${ctx.section}. Play inside what they leave open, not a solo over the top.`);
   }
 
   if (ctx.melody) lines.push(ctx.melody);

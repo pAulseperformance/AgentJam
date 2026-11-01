@@ -177,9 +177,19 @@ export function motifFrom(notes: Array<{ pitch: string; beatTime: number }>): Mo
   };
 }
 
-/** Human-readable lines for the prompt. Short by design: a 3B model wastes words it cannot spend. */
-export function describePhrase(summary: PhraseSummary): string {
-  if (summary.count === 0) return 'the room is silent, nobody has played recently';
+/**
+ * Human-readable lines for the prompt. Short by design: a 3B model wastes words it cannot spend.
+ *
+ * `under` is what is playing that the summary deliberately leaves out, in words with no pitch in it
+ * (the rhythm section). Without it a room with a walking bass line told the model "the room is silent,
+ * nobody has played recently", and the model wrote a solo over a band.
+ */
+export function describePhrase(summary: PhraseSummary, under?: string): string {
+  if (summary.count === 0) {
+    return under
+      ? `nothing on top, but under you ${under} is playing`
+      : 'the room is silent, nobody has played recently';
+  }
   const strong = summary.strongBeatPitches.join(', ') || 'nothing on the strong beats';
   const open = summary.openSlots.length ? `open slots at ${summary.openSlots.slice(0, 6).join(', ')} (sixteenths)` : 'the bar is full';
   return [

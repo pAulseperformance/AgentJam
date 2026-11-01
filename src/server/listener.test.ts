@@ -19,6 +19,18 @@ describe('the listener', () => {
     expect(describePhrase(phrase)).toContain('silent');
   });
 
+  it('says the section is playing instead of calling the room silent', () => {
+    // THE PROMPT THAT MADE THREE SOLOISTS: a room with a walking bass under it was described as
+    // "the room is silent, nobody has played recently", because the section is left out of the summary
+    // on purpose (its pitches are not a line to answer). The words come from the room, not a pitch.
+    const empty = summarizePhrase([], opts);
+    const line = describePhrase(empty, 'a drummer keeping time and a bass holding the low end');
+    expect(line).not.toContain('silent');
+    expect(line).toContain('drummer');
+    expect(line).toContain('bass');
+    expect(line).not.toMatch(/[A-G]#?\d/);
+  });
+
   it('reads a rising line as rising', () => {
     const phrase = summarizePhrase([on('C4', 0), on('E4', 1), on('G4', 2), on('B4', 3)], opts);
     expect(phrase.contour).toBe('rising');
