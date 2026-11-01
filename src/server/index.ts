@@ -2,7 +2,7 @@
 // Exports the JamRoom Durable Object class and handles asset fallthrough
 
 import { machineRefusal } from 'zpe-kit';
-import { FONT_NAME, SHEET_PATH, fontResponse, sheetResponse } from 'zpe-kit/shell';
+import { FONT_NAME, SHEET_PATH, fontResponse, notFound, sheetResponse } from 'zpe-kit/shell';
 import { doorWho, doorSignIn } from './door';
 import { pageFromIndex } from './page';
 
@@ -14,6 +14,9 @@ export { JamRoom } from './jam-room';
  * its own copy of the same string).
  */
 const TIER_HEADER = 'x-jam-tier';
+
+/** A path that names a file, and so belongs to the asset layer rather than to a page. */
+const FILE_PATH = /\.[a-z0-9]+$/i;
 
 /**
  * WHERE THE REQUEST SITS, and what path the router below should see.
@@ -153,10 +156,16 @@ export default {
     const refusal = machineRefusal(url.pathname, ['/health']);
     if (refusal) return refusal;
 
-    // A CLIENT ROUTE UNDER THE MOUNT (a hard refresh on a screen) gets the mount's own shell: the
-    // asset layer's SPA fallback would serve the assets-directory ROOT shell, which is the wrong
-    // door's bundle. A request that names a FILE is the asset layer's business.
-    if (underMount && env.ASSETS && !/\.(?:[a-z0-9]+)$/i.test(url.pathname)) {
+    // THE MOUNT ROOT IS THE APP'S ONLY PAGE, AND EVERY OTHER ADDRESS IS A MISS.
+    //
+    // This used to answer ANY extension-less path under the mount with the app's shell, on the theory that a
+    // client route deserved a hard refresh. There is no client route: `src/client/App.tsx` never reads the
+    // pathname, the room is typed into a form and joined in state, so nothing but `/jam/` can render. The
+    // fallback's only measured effect was that a path which never existed answered 200 with the front door
+    // while the rest of the estate answered a real 404 (2026-11-01: `/jam/zz-page-values-20261101` 200,
+    // `zpe.vc/zz-page-values-20261101` 404). So the shell is served BY NAME, at the mount root, and the
+    // not-found branch below owns everything else.
+    if (underMount && env.ASSETS && url.pathname === '/') {
       const doc = await env.ASSETS.fetch(new URL(`${mount}/index.html`, requestUrl).toString());
       if (doc.status === 200) {
         // THE ESTATE'S SHELL AROUND THE APP'S BUNDLE. `pageFromIndex` reads Vite's two tags out of the
@@ -174,6 +183,15 @@ export default {
     if (env.ASSETS) {
       const asset = await env.ASSETS.fetch(request);
       if (asset.status !== 404) return asset;
+    }
+    // A BROWSER PATH GETS THE ESTATE'S NOT-FOUND PAGE, AT THE ADDRESS IT ASKED FOR: 404, the fleet's
+    // sheets, and a way back to the mount. A FILE PATH gets one line of text, because a missing script or
+    // image is a resource error and an HTML document under `content-type: image/png` is not an answer.
+    if (!FILE_PATH.test(url.pathname)) {
+      return new Response(notFound({ mount }), {
+        status: 404,
+        headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
+      });
     }
     return new Response('Not found', { status: 404 });
   },

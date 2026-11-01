@@ -354,3 +354,19 @@ Falsifier: a session that stops writing model bars and still passes the liveness
 on the shipped feed that meets three candidates, which would put the trim back in the loop's path; or
 a generated queue where the ascending slice agrees with `keepNewest`, which would mean the trim
 property stopped distinguishing anything.
+
+## 2026-11-01 An unknown path under the mount is the estate's 404, not the jam shell
+
+Loser: keeping the shell fallback for extension-less paths, so a hard refresh on a future client route
+would work. Reason: the app has no client route to protect. `src/client/App.tsx` never reads the
+pathname (the room is typed into the form and joined in state), so `/jam/` is the only page that can
+render, and the fallback's one measured effect was that a path which never existed answered 200 with
+the front door while the rest of the estate answered a real 404 (2026-11-01:
+`/jam/zz-page-values-20261101` answered 200 at 2,886 B; `zpe.vc/zz-page-values-20261101` answered 404).
+The shell is now served at the mount root by name, and any other browser path answers
+`notFound({ mount })` from zpe-kit with status 404 and a link back to `/jam/`; a path that names a file
+keeps its one line of `text/plain`, because a missing script is a resource error and not a page.
+
+Falsifier: a client route that must survive a hard refresh, which would mean the app reads the
+pathname and this decision has to become a named list of routes rather than the mount root.
+

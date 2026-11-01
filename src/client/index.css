@@ -16,6 +16,14 @@
   --accent-amber: #f59e0b;
   --accent-violet: #8b5cf6;
   --accent-cyan: #06b6d4;
+  /* THE ACTION GRADIENT'S INK IS WHITE, SO THE GROUND CARRIES THE CONTRAST. Measured 2026-11-01 on
+     https://zpe.vc/jam/ with tools/page-values.cjs: "Join Room →" at 16px read 4.23:1 against the violet
+     stop and 4.47:1 against the indigo one, and AA's floor for text this size is 4.5:1. White is already
+     the lightest ink there is, so the two stops move one step deeper in their own families: each now
+     clears 5.7:1 with white (measured with the same instrument), and the accents above keep their job
+     as rings and borders, where no text sits on them. */
+  --action-from: #4f46e5;
+  --action-to: #7c3aed;
   --border: #2a2a45;
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -130,7 +138,7 @@ body {
 }
 
 .landing__join-btn {
-  background: linear-gradient(135deg, var(--accent-indigo), var(--accent-violet));
+  background: linear-gradient(135deg, var(--action-from), var(--action-to));
   color: white;
   border: none;
   border-radius: var(--radius-sm);
@@ -167,7 +175,7 @@ body {
 }
 
 .jam-room__start-btn {
-  background: linear-gradient(135deg, var(--accent-indigo), var(--accent-violet));
+  background: linear-gradient(135deg, var(--action-from), var(--action-to));
   color: white;
   border: none;
   border-radius: var(--radius-lg);
