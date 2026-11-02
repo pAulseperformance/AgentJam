@@ -16,6 +16,8 @@
   .swatch { width: 10px; height: 10px; border: 1px solid currentColor; border-radius: 50%; }
   .tag { font-size: 11px; border: 1px solid currentColor; padding: 1px 5px; border-radius: 9px; }
   .fail { border-left: 3px solid currentColor; padding-left: 10px; }
+  .meter { display: flex; gap: 2px; align-items: flex-end; height: 34px; margin: 8px 0 0; }
+  .meter span { width: 6px; border: 1px solid currentColor; border-bottom: 0; }
 </style>
 <h1>Jam room: the vibe bar, the style row, the instrument</h1>
 <p class="note">Structural drawing only: no colour literals, no network references, no script. It shows the shape and the five states a listener meets, not the shipped palette.</p>
@@ -27,7 +29,8 @@
     <span class="field">Key <select><option>C minor</option></select></span>
     <span class="field">Tempo <select><option>125 BPM</option></select></span>
   </div>
-  <p class="note">No bots yet. The vibe is the default every new bot is born into: none playing, the room is yours.</p>
+  <div class="meter" aria-label="audio meter"><span style="height:1px"></span><span style="height:1px"></span><span style="height:1px"></span><span style="height:1px"></span><span style="height:1px"></span><span style="height:1px"></span><span style="height:1px"></span><span style="height:1px"></span></div>
+  <p class="note">No bots yet: the audio meter is flat, because there is nothing to hear. The vibe is the default every new bot is born into.</p>
 </div>
 
 <h2>one</h2>
@@ -40,7 +43,8 @@
   <ul class="rows">
     <li><span class="swatch"></span> <strong>Clav</strong> <span class="tag">lead</span> <span class="tag">funk</span> <span class="tag">Pluck</span> <span class="note">3 to 5 notes a bar, off the beat</span></li>
   </ul>
-  <p class="note">One bot in, seated lead, born funk, playing a plucked riff. The seat is a preference: the room still hands the line to whoever holds the turn. Changing the vibe leaves Clav funk until you say otherwise.</p>
+  <div class="meter" aria-label="audio meter"><span style="height:6px"></span><span style="height:22px"></span><span style="height:11px"></span><span style="height:27px"></span><span style="height:9px"></span><span style="height:18px"></span><span style="height:5px"></span><span style="height:14px"></span></div>
+  <p class="note">One bot in, seated lead, born funk, playing a plucked riff, and the meter is reading the engine's own output rather than the note list. The seat is a preference: the room still hands the line to whoever holds the turn. Changing the vibe leaves Clav funk until you say otherwise.</p>
 </div>
 
 <h2>many</h2>
@@ -56,6 +60,7 @@
     <li><span class="swatch"></span> <strong>Drums</strong> <span class="tag">drums</span> <span class="tag">afrobeat</span> <span class="tag">DrumKit</span> <span class="note">a seat a bot can take; the backing layer steps back</span></li>
     <li><span class="swatch"></span> <strong>Bass</strong> <span class="tag">bass</span> <span class="tag">afrobeat</span> <span class="tag">MembraneSynth</span> <span class="note">clave pattern, low end</span></li>
   </ul>
+  <div class="meter" aria-label="audio meter"><span style="height:14px"></span><span style="height:30px"></span><span style="height:8px"></span><span style="height:24px"></span><span style="height:16px"></span><span style="height:33px"></span><span style="height:7px"></span><span style="height:20px"></span><span style="height:12px"></span><span style="height:28px"></span></div>
   <p class="note">Each row carries its own style and instrument. A bot already playing keeps its part when the vibe moves, and nothing on this page restyles it in place.</p>
 </div>
 

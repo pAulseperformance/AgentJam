@@ -47,6 +47,7 @@ A person creates a BOT through the agent panel: a name, a style picked from the 
 | The room's vibe fills spawn defaults, and a bot's style stays its own field | The vibe live-binds every running bot | One listener's click would rewrite every bot's part with no undo; the per-part field is the two-way door and the restyle button is the third option made explicit |
 | The backing section reads the vibe first, then the first bot's style, then jazz | Leave first-bot-wins as it is today | The drummer must follow the room's groove, not whichever bot happened to spawn first |
 | A bot takes a SEAT (drums, bass, lead, answer, ornament) and the three melodic seats are a preference the phrase arc still overrides | A hard role lock, where a bot seated lead always leads | The room already hands the line to the turn holder and demotes a bot when a human just played, and a lock would make one bot talk over both; the seat is what a person can ask for, the arc stays what makes it a band |
+| One analyser on the engine's master gain, drawn at 30 frames a second, in the same strip as the note roll | A 60 frame spectrum, or none at all | The note roll is a score and cannot show what the room sounds like; a 60 frame FFT runs on the thread that schedules note onsets, and onset accuracy is the one thing this room has already broken once |
 | The instrument is a per-part field, defaulted from the row | One synth for the whole band | Per-peer routing already exists in the engine and the page applies it for humans; the row only supplies the default |
 | Eight rows now, each carrying numbers | Twenty rows of prompt adjectives | The falsifier counts notes per bar and onsets per beat; rows that differ only in words measure the same and are renames |
 | A new style ships its own generator or names a fallback row | Let a missing generator fall back to jazz silently | The generator map already falls back to jazz, so a row with no generator would measure identical to jazz while wearing a new label |
@@ -66,7 +67,9 @@ A person creates a BOT through the agent panel: a name, a style picked from the 
 | The instrument union and its list live in the client only, and hold 5 entries | MEASURED | `sed -n '6p;8,13p' src/client/features/synth/lib/audio-engine.ts` prints the union and the 5 rows |
 | The role a bot plays is computed per bar, not chosen: alone it leads, the turn holder leads, a bot is demoted to answer when a human just played | READ FROM SOURCE | `sed -n '1738,1772p' src/server/jam-room.ts` prints the four rules in order |
 | The only seats a person can pick today are the room's two backing layers, drummer and bass | MEASURED | `grep -n 'drummer' src/server/jam-room.ts` prints the layer type at line 125 and the spawn at line 1201; `grep -c 'set_backing' src/shared/protocol/types.ts` prints 1 |
-| The visualizer is mounted, animates, and the gate now prints what it paints | MEASURED | `node tools/browser-smoke.mjs` prints the bright pixel count at the bar and 1.2 s later |
+| What is mounted is a note roll, not an audio visualizer: it draws note rectangles from the event stream and reads no audio | MEASURED | `grep -n 'fillRect' src/client/features/visualizer/ui/Visualizer.tsx` prints the note rectangles; `grep -rn 'Analyser' src` prints no audio analysis anywhere, only the comment at `src/client/features/visualizer/ui/Visualizer.tsx:35` claiming a waveform the file does not draw |
+| The tap point for a real analyser already exists | READ FROM SOURCE | `grep -n 'masterGain' src/client/features/synth/lib/audio-engine.ts` prints the master gain wired to the destination at line 158 |
+| The note roll paints and animates when a bar lands | MEASURED | `node tools/browser-smoke.mjs` prints 1314 bright pixels at the bar and 2124 a second later |
 | The four test files the extraction pins hold 8, 28, 10 and 13 tests, which is where every Run baseline below comes from | MEASURED | `bash ~/.hermes/scripts/cf_run.sh npx vitest run src/server/groove.test.ts src/server/melody.test.ts src/server/reaction.test.ts src/shared/music/pattern-generator.test.ts` prints 59 passed across the four files |
 
 ## Tasks
@@ -219,6 +222,22 @@ A person creates a BOT through the agent panel: a name, a style picked from the 
 
 **Run:** `node tools/style-probe.mjs --styles jazz,funk,ambient,latin --seconds 45` prints one line per style with its notes per bar, its share of onsets on the grid and its velocity median, and the whole suite prints 360 passed.
 
+### Task 12: The audio visualizer
+
+**Objective:** feed one analyser from the engine's master gain and draw what the room actually sounds like, at 30 frames a second, beside the note roll, and delete the comment that claims the note roll is one.
+
+**Files:**
+- create `src/client/features/visualizer/ui/AudioMeter.tsx`
+- modify `src/client/features/visualizer/index.ts`
+- modify `src/client/features/visualizer/ui/Visualizer.tsx`
+- modify `src/client/features/synth/lib/audio-engine.ts`
+- modify `src/client/pages/JamRoom.tsx`
+- modify `tools/browser-smoke.mjs`
+
+**Mutation:** unfix the analyser from the master gain and the smoke's new reading must report a meter that never leaves zero while notes are playing; a visualizer drawn from anything but the audio is a second animation of the event stream and would look identical with the speakers off, which is the defect this reading exists to catch.
+
+**Run:** `grep -c 'AnalyserNode\|Tone.Analyser' src/client/features/synth/lib/audio-engine.ts` prints at least 1, then `node tools/browser-smoke.mjs` prints a meter line whose peak is above zero at the bar and whose note roll reading is unchanged, and the whole suite still prints 360 passed.
+
 ## Verification
 
 - `python3 ~/.hermes/skills/software-development/plan/scripts/check_plan.py .hermes/plans/2026-11-02_115639-jam-vibe-and-style-registry.md --repo .` prints every rule passed.
@@ -228,13 +247,14 @@ A person creates a BOT through the agent panel: a name, a style picked from the 
 - Owner step 2: set the vibe to funk, spawn one bot, and read its row. It must be tagged funk and carry a plucked voice, where the last measured spawn in the smoke test was tagged nothing and played PolySynth.
 - Owner step 3: change the vibe to ambient with that bot still running. The bot must stay funk and the drums and bass must move, and the row must say which of the two it is doing.
 - Owner step 4: seat a second bot on bass. The backing bass must stop and the new bot must be tagged bass, where today the room plays two bass lines with no way to tell which one you are hearing.
-- Owner step 5: despawn and respawn the bot under the new vibe. It must come back tagged with the room's style and that row's instrument, which is the same press that failed before this work because the spawn form had four hardcoded options and no instrument.
+- Owner step 5: watch the meter while the band plays. It must move with the room, flatten when every part rests, and the note roll above it must keep painting the same bars it painted before.
+- Owner step 6: despawn and respawn the bot under the new vibe. It must come back tagged with the room's style and that row's instrument, which is the same press that failed before this work because the spawn form had four hardcoded options and no instrument.
 
 ## Non-goals
 
 | Excluded | Why not | Reopens when |
 |---|---|---|
-| Moving the visualizer and the mixer into one desk strip under the keyboard, with meters | The visualizer is mounted at 840 by 264 above the keyboard and animating, and the mixer already has master and per-peer volume; neither is what makes the band sound like a band | A room has been heard with the vibe driving it and the desk strip is the next thing he names |
+| Moving the MIXER into one strip with per-peer meters | The mixer already has master and per-peer volume, and a meter is a nice-to-have beside a band that cannot take a seat or change its voice | He asks for the mixer by name, after the audio visualizer exists |
 | Broadcasting per-part volume so the band shares a balance | Volume is a listener's own ears today, and making it shared turns a private slider into a group decision with no consent step | Two listeners report they cannot hear the same part |
 | Instrument programs beyond the five the engine implements | The engine has five voices and each new one is a synthesiser, not a list entry | A style row needs a voice the engine does not have, named by him |
 | The vibe moving the room's tempo to fit its tempo range | Moving the tempo mid-bar is the exact class of change that once made the drummer lose the beat, and the room's tempo is a separate control with its own consent | He asks for a genre to clamp the tempo, and the change is scheduled at a bar line |
