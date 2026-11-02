@@ -213,6 +213,8 @@ let spawnStyleButtons = 0;
 let keyboardReadout = null;
 /** the board's geometry: contiguous whites, black keys centred on seams */
 let piano = null;
+/** the instruments a bot's card offers, and the one it was born with */
+let instruments = null;
 try {
   loadStartedAt = Date.now();
   // COMMIT, NOT DOMContentLoaded. The estate bar's script (zpe-bar.js in the shell head) holds
@@ -299,6 +301,17 @@ try {
   // AND THEY ARE INSIDE THE PEER CARD, beside the bot's own volume, which is where a person looks for a
   // player. A control in the agent panel was a second place to set the same thing.
   controlsInCard = await page.evaluate(() => document.querySelectorAll('.peer-list__item [data-agent-part]').length);
+  // EVERY BOT COMES WITH AN INSTRUMENT, and the card names the patch rather than a synth class.
+  instruments = await page.evaluate(() => {
+    const select = document.querySelector('.peer-list__item select[aria-label$="voice"]');
+    if (!select) return null;
+    return {
+      options: select.options.length,
+      groups: select.querySelectorAll('optgroup').length,
+      chosen: select.options[select.selectedIndex]?.textContent?.trim() ?? null,
+      value: select.value,
+    };
+  });
 
   // THE PIANO'S HELPERS: a letter on every key, the notes outside the room's key dimmed, and a readout
   // that names the note a person just played. A computer key is pressed for real, with focus off the form.
@@ -501,6 +514,7 @@ console.log(meterAtBar
   : 'audio meter not on the page (no canvas.spectrum-pane)');
 console.log(`visualizer bright pixels ${canvasAtBar ?? 'n/a'} at the bar, ${canvasLater ?? 'n/a'} 1.2 s later` +
   `${canvasAtBar === null ? ' (no canvas.visualizer on the page)' : ''}`);
+console.log(`voices     ${instruments?.options ?? 0} instruments in ${instruments?.groups ?? 0} groups, this bot plays ${instruments?.chosen ?? 'nothing'}`);
 console.log(`piano      ${piano?.whites ?? 0} white keys with a ${piano?.maxGap ?? 'n/a'} px worst gap, ${piano?.blacks ?? 0} black keys off their seam by at most ${piano?.maxSeamError ?? 'n/a'} px`);
 console.log(`keyboard   ${keyboardLetters} letters drawn, ${keysOutside} keys marked outside the room's key, readout "${keyboardReadout ?? ''}"`);
 console.log(`cards      ${controlsInCard} part controls inside a peer card`);
@@ -558,6 +572,10 @@ if (!failure) {
     failure = 'the "four bars per call" switch was never pressed (no #phrase-ask on the page)';
   } else if (!spawnLabel || !/^➕ Add a /.test(spawnLabel)) {
     failure = `the spawn button reads "${spawnLabel}", not the seat it will fill`;
+  } else if (!instruments || instruments.options < 10 || instruments.groups < 4) {
+    failure = `a bot's card offers ${instruments?.options ?? 0} instruments in ${instruments?.groups ?? 0} groups, and every bot should arrive with a patch`;
+  } else if (!instruments.chosen || /^Classic$/.test(instruments.chosen)) {
+    failure = `the card names "${instruments?.chosen ?? ''}", which is a synth class rather than an instrument`;
   } else if (!piano || piano.whites !== 21 || piano.blacks !== 15) {
     failure = `the board has ${piano?.whites ?? 0} white and ${piano?.blacks ?? 0} black keys, not 21 and 15`;
   } else if (piano.maxGap > 2) {

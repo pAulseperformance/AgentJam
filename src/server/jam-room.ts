@@ -26,6 +26,8 @@ import {
   type GeneratedNote,
   type InstrumentId,
 } from '@/shared/music';
+import { SEAT_PRESETS, instrumentFromWire } from '@/shared/music/presets';
+import { DEFAULT_INSTRUMENT as DEFAULT_PLAYER_INSTRUMENT } from '@/shared/music/instruments';
 import { repairMeasure } from './measure-repair';
 import { summarizePhrase, motifFrom, describePhrase, describeMotif, type Motif, type NoteRecord } from './listener';
 import { melodyPlan, completeMelody, shapeLine, restateHook, applyContourRules, cadenceFrom, leadInto, accentMapFromDrums, pulseAccentMap, applyAccents, type AccentMap } from './melody';
@@ -528,13 +530,15 @@ export class JamRoom implements DurableObject {
         this.handleClockSyncPing(ws, msg.t0);
         break;
       case 'spawn_agent':
-        this.handleSpawnAgent(ws, msg.name, msg.style, msg.instrument, msg.seat);
+        // THE WIRE'S INSTRUMENT IS MAPPED AT THE DOOR: a preset id is itself, one of the six old synth
+        // class names becomes its patch, and nothing the engine cannot build gets past the schema.
+        this.handleSpawnAgent(ws, msg.name, msg.style, instrumentFromWire(msg.instrument), msg.seat);
         break;
       case 'despawn_agent':
         this.handleDespawnAgent(ws, msg.agentPeerId);
         break;
       case 'set_agent_part':
-        this.handleSetAgentPart(ws, msg);
+        this.handleSetAgentPart(ws, { ...msg, instrument: instrumentFromWire(msg.instrument) });
         break;
       case 'set_vibe':
         this.handleSetVibe(msg.vibe);
@@ -624,7 +628,7 @@ export class JamRoom implements DurableObject {
       peerId: crypto.randomUUID(),
       name,
       kind,
-      instrument: instrument ?? 'PolySynth',
+      instrument: instrumentFromWire(instrument) ?? DEFAULT_PLAYER_INSTRUMENT,
       color,
     };
 
@@ -905,10 +909,13 @@ export class JamRoom implements DurableObject {
 
     // THE VOICE: what the bot asked for, else what its style row names.
     const rowStyle = style ?? ((this.roomState.vibe as AgentStyle | undefined) ?? 'jazz');
-    // A SEAT IMPLIES ITS VOICE: a drummer is a kit and a bass is a membrane, whatever the style row
-    // says, unless the spawn names a voice outright.
+    // A SEAT IMPLIES ITS INSTRUMENT: every bot is born with a preset already attached, the seat's own
+    // when it has one (a kit for drums, a sub for the bass) and the style's patch otherwise. A spawn that
+    // names an instrument keeps it.
     const voice: InstrumentId = instrument
-      ?? (chosenSeat === 'drums' ? 'DrumKit' : chosenSeat === 'bass' ? 'MembraneSynth' : styleRow(rowStyle).instrument);
+      ?? (chosenSeat === 'drums' || chosenSeat === 'bass'
+        ? SEAT_PRESETS[chosenSeat]
+        : styleRow(rowStyle).instrument);
 
     // THE FIRST BOT COLOURS AN UNSET ROOM. A new room opened on jazz and eight styles sat one click from
     // nobody; when nobody has chosen a vibe, the bot that arrives sets it, so the drums and bass follow the
@@ -1335,7 +1342,7 @@ export class JamRoom implements DurableObject {
       name: role === 'drummer' ? 'Drummer' : 'Bass',
       kind: 'agent',
       // The client builds a drum KIT for this name: a kick, a snare and a hat are three voices
-      instrument: role === 'drummer' ? 'DrumKit' : 'PolySynth',
+      instrument: role === 'drummer' ? 'drum-kit' : 'electric-piano',
       color,
     };
 

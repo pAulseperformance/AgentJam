@@ -47,12 +47,13 @@ describe('the instrument on a part', () => {
     expect(spawned.length).toBe(1);
     expect(spawned[0]!.peer?.instrument).toBe(latin.instrument);
     // And the row is not the fallback voice, or this case would pass on a dead field.
-    expect(latin.instrument).not.toBe('PolySynth');
+    expect(latin.instrument).not.toBe('electric-piano');
   });
 
-  it('plays the voice the spawn asks for, whatever the row names', async () => {
-    const { spawned } = await spawnAndRead({ style: 'latin', instrument: 'FMSynth' });
-    expect(spawned[0]!.peer?.instrument).toBe('FMSynth');
+  it('plays the instrument the spawn asks for, whatever the row names', async () => {
+    // A PRESET, not a synth class: the row for latin is a marimba, and this asks for the rubber bass.
+    const { spawned } = await spawnAndRead({ style: 'latin', instrument: 'rubber-bass' });
+    expect(spawned[0]!.peer?.instrument).toBe('rubber-bass');
   });
 
   it('refuses a voice the engine does not implement', () => {

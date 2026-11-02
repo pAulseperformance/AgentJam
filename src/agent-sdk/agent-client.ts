@@ -122,7 +122,7 @@ export class JamRoomAgentClient {
         type: 'join_room',
         name: this.options.name,
         kind: 'agent',
-        instrument: this.options.instrument ?? 'PolySynth',
+        instrument: this.options.instrument ?? 'electric-piano',
       }));
     };
 

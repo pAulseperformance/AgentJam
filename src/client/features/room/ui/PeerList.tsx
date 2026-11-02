@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import type { Peer } from '@/shared/protocol';
 import type { AudioEngine } from '@/client/features/synth';
 import { STYLE_ROWS } from '@/shared/music/styles';
-import { INSTRUMENT_LIST } from '@/client/features/synth';
+import { INSTRUMENT_GROUPS } from '@/client/features/synth';
 
 interface PeerMixState {
   volume: number;
@@ -155,8 +155,14 @@ export function PeerList({ peers, engine, localPeerId, agentParts, onChangePart,
                     onChange={event => onChangePart(peer.peerId, { instrument: event.target.value })}
                     style={{ fontSize: 11 }}
                   >
-                    {INSTRUMENT_LIST.map(entry => (
-                      <option key={entry.value} value={entry.value}>{entry.icon} {entry.label}</option>
+                    {/* GROUPED BY FAMILY, because twelve patches in one list is a list; keys, pads, leads,
+                        basses and plucks is a catalogue a person can find their instrument in. */}
+                    {INSTRUMENT_GROUPS.map(group => (
+                      <optgroup key={group.family} label={group.family}>
+                        {group.entries.map(entry => (
+                          <option key={entry.value} value={entry.value}>{entry.icon} {entry.label}</option>
+                        ))}
+                      </optgroup>
                     ))}
                   </select>
                   <select

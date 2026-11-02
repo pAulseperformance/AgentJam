@@ -35,8 +35,8 @@ describe('what an agent hears', () => {
     await runInDurableObject(room, async (instance: JamRoom) => {
       const internals = instance as unknown as Internals & { sectionLine: () => string | undefined };
       internals.handleSetBacking(true, true);
-      const bass = [...internals.layers.values()].find(l => l.peer.instrument !== 'DrumKit')!;
-      const kit = [...internals.layers.values()].find(l => l.peer.instrument === 'DrumKit')!;
+      const bass = [...internals.layers.values()].find(l => l.peer.instrument !== 'drum-kit')!;
+      const kit = [...internals.layers.values()].find(l => l.peer.instrument === 'drum-kit')!;
 
       internals.recordEvent({ type: 'note_on', peerId: bass.peer.peerId, pitch: 'C2', beatTime: 0, velocity: 90, timestamp: Date.now() });
       internals.recordEvent({ type: 'note_on', peerId: kit.peer.peerId, pitch: 'A5', beatTime: 0, velocity: 58, timestamp: Date.now() });

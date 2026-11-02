@@ -33,7 +33,11 @@ export const BACKFILL_WINDOW_MS = 10_000;
 
 export const DEFAULT_BPM = 120;
 export const DEFAULT_KEY = 'C major';
-export const DEFAULT_INSTRUMENT = 'PolySynth';
+/**
+ * ONE SOURCE FOR THE FALLBACK INSTRUMENT. This used to be a second literal, 'PolySynth', so the protocol
+ * and the preset table could disagree about what a player gets when nobody chooses: the table owns it.
+ */
+export { DEFAULT_INSTRUMENT } from '@/shared/music/instruments';
 
 // ─── Peer Colors ─────────────────────────────────────────────────────────────
 

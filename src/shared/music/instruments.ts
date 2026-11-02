@@ -1,20 +1,20 @@
 /**
- * THE VOICES THE ENGINE IMPLEMENTS, named once.
+ * THE PLAYER'S INSTRUMENT IS A PRESET PATCH, named once.
  *
- * The union used to live in the client's audio engine, so the server could not validate an instrument
- * and a style row could not name one: every row said `PolySynth` because nothing read the field. Shared
- * code cannot import from the client, so the list lives here and the engine derives its own type from it.
+ * This module used to hold six synth CLASSES (PolySynth, AMSynth, FMSynth, DrumKit, PluckSynth,
+ * MembraneSynth), which is the engine's vocabulary and not a player's: two bots on "PolySynth" were the
+ * same instrument as far as anyone could tell. The list now comes from the preset table, where a patch
+ * carries its oscillator stack, envelope, filter and movement, so an instrument is something a listener
+ * can name and a card can show.
  *
- * A voice is not a style. A style is how a part is composed; a voice is what it sounds like. A pla from
- * a PluckSynth is the same notes as a pla from a PolySynth, heard differently, which is why the two are
- * separate fields on separate objects.
+ * Shared code cannot import from the client, so the list lives here and both the server's validation and
+ * the browser's audio engine derive from it: an id the engine cannot build is refused at spawn.
  */
-// MembraneSynth is implemented by the engine (it is the voice the room's own bass and kick use) and has
-// no entry in the panel's list, so it is a legal spawn voice that a listener cannot pick by hand. The list
-// and the union are the same set, which is what lets the server refuse a voice the engine cannot play.
-export const INSTRUMENT_IDS = ['PolySynth', 'AMSynth', 'FMSynth', 'DrumKit', 'PluckSynth', 'MembraneSynth'] as const;
+import { PRESET_IDS, type PresetId } from './presets';
 
-export type InstrumentId = (typeof INSTRUMENT_IDS)[number];
+export const INSTRUMENT_IDS = PRESET_IDS;
 
-/** The voice a bot plays when neither it nor its style row names one. */
-export const DEFAULT_INSTRUMENT: InstrumentId = 'PolySynth';
+export type InstrumentId = PresetId;
+
+/** The instrument a player gets when neither the spawn nor the seat names one. */
+export const DEFAULT_INSTRUMENT: InstrumentId = 'electric-piano';

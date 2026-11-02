@@ -87,7 +87,7 @@ const ws = new WebSocket(`wss://${host}${mount}/api/room/${room}/ws`, {
 const send = (obj) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); };
 
 ws.on('open', () => {
-  send({ type: 'join_room', name: 'Probe', kind: 'human', instrument: 'PolySynth' });
+  send({ type: 'join_room', name: 'Probe', kind: 'human', instrument: 'electric-piano' });
   setTimeout(() => send({ type: 'bpm_change', bpm }), 250);
   if (backing) setTimeout(() => send({ type: 'set_backing', drummer: true, bass: true }), 350);
   // BEFORE ANY AGENT: the pair is a property of the room, so it must be on when the first bar is asked

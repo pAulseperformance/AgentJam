@@ -78,7 +78,7 @@ describe('the backing section follows the vibe', () => {
       expect(peerId).toBeTruthy();
 
       frames.length = 0;
-      send({ type: 'set_agent_part', agentPeerId: peerId, style: 'latin', instrument: 'FMSynth', seat: 'ornament' });
+      send({ type: 'set_agent_part', agentPeerId: peerId, style: 'latin', instrument: 'brass', seat: 'ornament' });
       await sleep(300);
       const update = frames.filter(f => f.type === 'agent_spawned' && f.peer?.peerId === peerId).at(-1);
       expect(update?.style).toBe('latin');

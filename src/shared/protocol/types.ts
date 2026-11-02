@@ -1,6 +1,14 @@
 import { z } from 'zod';
 import { STYLE_IDS, type AgentStyleId } from '@/shared/music/styles';
-import { INSTRUMENT_IDS, type InstrumentId } from '@/shared/music/instruments';
+import { INSTRUMENT_IDS } from '@/shared/music/instruments';
+import { LEGACY_INSTRUMENT_ALIASES } from '@/shared/music/presets';
+
+/**
+ * A player's instrument, as the wire names it: a preset patch, or one of the six synth classes the wire
+ * used before presets. The legacy names are accepted at the door and mapped, so a page loaded before the
+ * deploy still joins instead of being refused.
+ */
+const InstrumentOnWire = z.enum([...INSTRUMENT_IDS, ...Object.keys(LEGACY_INSTRUMENT_ALIASES)] as [string, ...string[]]);
 
 // ─── Peer Types ──────────────────────────────────────────────────────────────
 
@@ -94,7 +102,7 @@ export const SpawnAgentMessageSchema = z.object({
    * that names a pluck actually heard as a pluck. An id the engine does not implement is refused here
    * rather than defaulted, because a silently defaulted voice is a spawn that looks successful.
    */
-  instrument: z.enum([...INSTRUMENT_IDS] as [InstrumentId, ...InstrumentId[]]).optional().describe('Voice the bot plays; absent means the style row\'s instrument'),
+  instrument: InstrumentOnWire.optional().describe('Instrument the bot plays (a preset patch); absent means the style row\'s instrument'),
   /**
    * THE SEAT THIS BOT TAKES. Absent means the first seat the room does not already cover. The three
    * melodic seats are a PREFERENCE the phrase arc may override; the two rhythm seats hand the matching
@@ -173,7 +181,7 @@ export const SetAgentPartSchema = z.object({
   type: z.literal('set_agent_part').describe('Message discriminator: change one agent\'s style, voice or seat'),
   agentPeerId: z.string().describe('Peer id of the agent to change'),
   style: z.enum([...STYLE_IDS] as [AgentStyleId, ...AgentStyleId[]]).optional().describe('New style for this agent'),
-  instrument: z.enum([...INSTRUMENT_IDS] as [InstrumentId, ...InstrumentId[]]).optional().describe('New voice for this agent'),
+  instrument: InstrumentOnWire.optional().describe('New instrument (a preset patch) for this agent'),
   seat: z.enum(['drums', 'bass', 'lead', 'answer', 'ornament']).optional().describe('New seat for this agent'),
 });
 export type SetAgentPartMessage = z.infer<typeof SetAgentPartSchema>;

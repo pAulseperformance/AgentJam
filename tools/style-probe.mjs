@@ -58,7 +58,7 @@ async function probeStyle(style) {
       resolve({ style, room, notes, agentPeerId, bars, roomBpm });
     };
     ws.on('open', () => {
-      ws.send(JSON.stringify({ type: 'join_room', name: 'Probe', kind: 'human', instrument: 'PolySynth' }));
+      ws.send(JSON.stringify({ type: 'join_room', name: 'Probe', kind: 'human', instrument: 'electric-piano' }));
     });
     ws.on('message', (raw) => {
       let msg;

@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState, useMemo, useEffect } from 'react';
 import { useRoomSocket, PeerList, TransportBar, AgentPanel, MetricsPanel, AiDebugPanel, SessionPanel, tempoMarkOf, sessionSnapshot } from '@/client/features/room';
 import { useSynthEngine, Keyboard, useMidi, type InstrumentType } from '@/client/features/synth';
+import { DEFAULT_INSTRUMENT } from '@/shared/music/instruments';
 import { Visualizer, VisualizerDock } from '@/client/features/visualizer';
 import { panForIndex } from '@/client/features/visualizer/lib/stereo';
 import type { NoteEvent, Peer } from '@/shared/protocol';
@@ -22,7 +23,7 @@ interface JamRoomProps {
 export function JamRoom({ roomId, playerName }: JamRoomProps) {
   const { engine, startAudio } = useSynthEngine();
   const [audioStarted, setAudioStarted] = useState(false);
-  const [currentInstrument, setCurrentInstrument] = useState<InstrumentType>('PolySynth');
+  const [currentInstrument, setCurrentInstrument] = useState<InstrumentType>(DEFAULT_INSTRUMENT);
   const [isRecording, setIsRecording] = useState(false);
 
   // WHO IS PLAYING. The socket does not carry the answer to the page, so it is asked once, from the

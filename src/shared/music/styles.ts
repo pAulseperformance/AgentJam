@@ -109,7 +109,7 @@ export const STYLE_ROWS: readonly StyleRow[] = [
     grid: 'eighth',
     tempo: { min: 90, max: 220 },
     generator: 'jazz',
-    instrument: 'PolySynth',
+    instrument: 'electric-piano',
   },
   {
     id: 'funk',
@@ -138,7 +138,7 @@ export const STYLE_ROWS: readonly StyleRow[] = [
     grid: 'sixteenth',
     tempo: { min: 90, max: 130 },
     generator: 'funk',
-    instrument: 'PluckSynth',
+    instrument: 'reed-piano',
   },
   {
     id: 'ambient',
@@ -157,7 +157,7 @@ export const STYLE_ROWS: readonly StyleRow[] = [
     grid: 'eighth',
     tempo: { min: 50, max: 90 },
     generator: 'ambient',
-    instrument: 'AMSynth',
+    instrument: 'juno-pad',
   },
   {
     id: 'latin',
@@ -183,7 +183,7 @@ export const STYLE_ROWS: readonly StyleRow[] = [
     grid: 'eighth',
     tempo: { min: 80, max: 120 },
     generator: 'jazz',
-    instrument: 'PluckSynth',
+    instrument: 'marimba',
   },
   {
     id: 'afrobeat',
@@ -212,7 +212,7 @@ export const STYLE_ROWS: readonly StyleRow[] = [
     grid: 'sixteenth',
     tempo: { min: 100, max: 125 },
     generator: 'funk',
-    instrument: 'PluckSynth',
+    instrument: 'nylon-pluck',
   },
   {
     id: 'house',
@@ -242,7 +242,7 @@ export const STYLE_ROWS: readonly StyleRow[] = [
     grid: 'offbeat',
     tempo: { min: 118, max: 128 },
     generator: 'funk',
-    instrument: 'PolySynth',
+    instrument: 'square-lead',
   },
   {
     id: 'lofi',
@@ -267,7 +267,7 @@ export const STYLE_ROWS: readonly StyleRow[] = [
     grid: 'eighth',
     tempo: { min: 70, max: 90 },
     generator: 'jazz',
-    instrument: 'AMSynth',
+    instrument: 'reed-piano',
   },
   {
     id: 'cinematic',
@@ -286,7 +286,7 @@ export const STYLE_ROWS: readonly StyleRow[] = [
     grid: 'eighth',
     tempo: { min: 60, max: 90 },
     generator: 'ambient',
-    instrument: 'AMSynth',
+    instrument: 'glass-pad',
   },
   {
     id: 'random',
@@ -308,7 +308,7 @@ export const STYLE_ROWS: readonly StyleRow[] = [
     grid: 'eighth',
     tempo: { min: 60, max: 200 },
     generator: 'random',
-    instrument: 'PolySynth',
+    instrument: 'string-machine',
     rotates: ['jazz', 'funk', 'ambient'],
   },
 ];

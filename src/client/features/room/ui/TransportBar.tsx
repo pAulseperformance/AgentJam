@@ -1,6 +1,7 @@
 import type { RoomState } from '@/shared/protocol';
 import { STYLE_ROWS } from '@/shared/music/styles';
 import { INSTRUMENT_LIST, type InstrumentType } from '@/client/features/synth';
+import { DEFAULT_INSTRUMENT } from '@/shared/music/instruments';
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
 
@@ -33,7 +34,7 @@ export function TransportBar({
   onKeyChange,
   onInstrumentChange,
   onVibeChange,
-  currentInstrument = 'PolySynth',
+  currentInstrument = DEFAULT_INSTRUMENT,
   isRecording = false,
   onToggleRecording,
 }: TransportBarProps) {

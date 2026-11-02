@@ -3,24 +3,33 @@ import { PLAYOUT_DELAY_MS, MAX_NOTE_HOLD_S } from '@/shared/protocol/constants';
 
 // ── Instrument Definitions ────────────────────────────────────────────────
 
-import type { InstrumentId } from '@/shared/music/instruments';
+import { DEFAULT_INSTRUMENT, type InstrumentId } from '@/shared/music/instruments';
+import { PRESETS, presetById, presetsByFamily, type PresetPatch } from '@/shared/music/presets';
 import { meterFromSpectrum } from './meter';
 
 // THE VOICE LIST IS SHARED. It lives in shared/music/instruments so the SERVER can validate a spawn and a
 // style row can name its own voice; this type is the engine's view of the same five ids.
 export type InstrumentType = InstrumentId;
 
-export const INSTRUMENT_LIST: { value: InstrumentType; label: string; icon: string }[] = [
-  { value: 'PolySynth', label: 'Classic', icon: '🎹' },
-  { value: 'AMSynth', label: 'AM Synth', icon: '🔔' },
-  { value: 'FMSynth', label: 'FM Synth', icon: '🎸' },
-  { value: 'DrumKit', label: 'Drums', icon: '🥁' },
-  { value: 'PluckSynth', label: 'Pluck', icon: '🪕' },
-  // THE BASS SEAT'S OWN VOICE. It was a legal spawn voice with no entry on this list, so a bass bot's card
-  // showed the first option instead of what the bot actually plays: nothing on the page could say "this
-  // one is a bass" while the bass was the thing being chosen.
-  { value: 'MembraneSynth', label: 'Sub Bass', icon: '🎸' },
-];
+/**
+ * THE CARD'S INSTRUMENT LIST IS THE PRESET TABLE, grouped by family.
+ *
+ * It used to be six hand-written engines ("Classic", "AM Synth"), so a bot born into any style read as
+ * the same instrument. A preset is a whole patch: oscillator stack, envelope, filter and movement.
+ */
+export const INSTRUMENT_LIST: { value: InstrumentType; label: string; icon: string; family: string }[] =
+  PRESETS.map(preset => ({ value: preset.id, label: preset.label, icon: preset.icon, family: preset.family }));
+
+/** The same list in the groups the picker shows. */
+export const INSTRUMENT_GROUPS = presetsByFamily().map(group => ({
+  family: group.family,
+  entries: group.presets.map(preset => ({ value: preset.id as InstrumentType, label: preset.label, icon: preset.icon })),
+}));
+
+/** Whether a player's instrument is the room's own drum map rather than a pitched synth. */
+export function isKitPreset(id: string): boolean {
+  return presetById(id)?.synth === 'kit';
+}
 
 /**
  * A REAL DRUM KIT, not a pitched synth pretending.
@@ -84,45 +93,56 @@ function createDrumKit(output: Tone.InputNode): DrumVoice {
   };
 }
 
-function createInstrumentSynth(type: InstrumentType, output: Tone.InputNode): Tone.PolySynth {
-  switch (type) {
-    case 'AMSynth':
-      return new Tone.PolySynth(Tone.AMSynth, {
-        harmonicity: 2.5,
-        oscillator: { type: 'sine' },
-        envelope: { attack: 0.05, decay: 0.3, sustain: 0.5, release: 1.0 },
-        modulation: { type: 'square' },
-        modulationEnvelope: { attack: 0.2, decay: 0.01, sustain: 0.5, release: 0.5 },
-      }).connect(output);
-    case 'FMSynth':
-      return new Tone.PolySynth(Tone.FMSynth, {
-        harmonicity: 3,
-        modulationIndex: 10,
-        oscillator: { type: 'sine' },
-        envelope: { attack: 0.01, decay: 0.2, sustain: 0.3, release: 0.6 },
-        modulation: { type: 'triangle' },
-        modulationEnvelope: { attack: 0.2, decay: 0.3, sustain: 0.2, release: 0.5 },
-      }).connect(output);
-    case 'MembraneSynth':
-      return new Tone.PolySynth(Tone.MembraneSynth, {
-        pitchDecay: 0.05,
-        octaves: 4,
-        oscillator: { type: 'sine' },
-        envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 1.4 },
-      }).connect(output);
-    case 'PluckSynth':
-      // PluckSynth can't be used in PolySynth, create a PolySynth with pluck-like settings
-      return new Tone.PolySynth(Tone.Synth, {
-        oscillator: { type: 'sawtooth' },
-        envelope: { attack: 0.001, decay: 0.5, sustain: 0.0, release: 0.3 },
-      }).connect(output);
-    case 'PolySynth':
-    default:
-      return new Tone.PolySynth(Tone.Synth, {
-        oscillator: { type: 'triangle8' },
-        envelope: { attack: 0.02, decay: 0.3, sustain: 0.4, release: 0.8 },
-      }).connect(output);
+/** The Tone.js class each preset's synth kind is built on. */
+const SYNTH_CLASS = {
+  Synth: Tone.Synth,
+  AMSynth: Tone.AMSynth,
+  FMSynth: Tone.FMSynth,
+  MembraneSynth: Tone.MembraneSynth,
+  PluckSynth: Tone.Synth,
+} as const;
+
+/**
+ * THE EFFECTS A PATCH CARRIES, kept beside the synth so replacing a voice can dispose them.
+ *
+ * A PolySynth alone can only sound like its oscillator. The patch's character is the filter that opens
+ * over a pad, the chorus that widens an electric piano and the vibrato on a reed: without disposing them
+ * a player who changes instrument three times leaves three chains running into the master bus, which is
+ * the leak this map exists to close.
+ */
+const CHAINS = new WeakMap<Tone.PolySynth, Tone.ToneAudioNode[]>();
+
+function createInstrumentSynth(id: InstrumentType, output: Tone.InputNode): Tone.PolySynth {
+  const preset: PresetPatch = presetById(id) ?? presetById('electric-piano')!;
+  const SynthClass = SYNTH_CLASS[preset.synth === 'kit' ? 'Synth' : preset.synth];
+  const synth = new Tone.PolySynth(SynthClass as typeof Tone.Synth, preset.options as never);
+  if (preset.volume !== undefined) synth.volume.value = preset.volume;
+
+  // the chain, in the order a signal meets it: drive, then tone, then movement
+  const chain: Tone.ToneAudioNode[] = [];
+  if (preset.distortion) chain.push(new Tone.Distortion(preset.distortion));
+  if (preset.filter) chain.push(new Tone.Filter({ ...preset.filter, type: preset.filter.type }));
+  if (preset.chorus) chain.push(new Tone.Chorus({ ...preset.chorus }).start());
+  if (preset.vibrato) chain.push(new Tone.Vibrato(preset.vibrato));
+
+  let node: Tone.ToneAudioNode = synth;
+  for (const effect of chain) {
+    node.connect(effect);
+    node = effect;
   }
+  node.connect(output);
+  CHAINS.set(synth, chain);
+  return synth;
+}
+
+/** Replace or drop a voice without leaking its effects into the master bus. */
+function disposeInstrument(synth: Tone.PolySynth): void {
+  const chain = CHAINS.get(synth);
+  if (chain) {
+    for (const effect of chain) effect.dispose();
+    CHAINS.delete(synth);
+  }
+  synth.dispose();
 }
 
 /**
@@ -139,7 +159,7 @@ export class AudioEngine {
   private activeNotes: Map<string, { releaseTimer: ReturnType<typeof setTimeout> }> = new Map();
   private clockOffset = 0;
   private started = false;
-  private currentInstrument: InstrumentType = 'PolySynth';
+  private currentInstrument: InstrumentType = DEFAULT_INSTRUMENT;
 
   /** Per-peer synth instances keyed by peerId, different instruments per peer */
   private peerSynths: Map<string, Tone.PolySynth> = new Map();
@@ -192,7 +212,7 @@ export class AudioEngine {
     // of one buffer per channel.
     this.scope = new Tone.Analyser({ type: 'waveform', size: 512, channels: 2 });
     this.masterGain.connect(this.scope);
-    if (this.currentInstrument === 'DrumKit') {
+    if (isKitPreset(this.currentInstrument)) {
       this.localKit = createDrumKit(this.masterGain);
     } else {
       this.synth = createInstrumentSynth(this.currentInstrument, this.masterGain);
@@ -205,7 +225,7 @@ export class AudioEngine {
   dispose(): void {
     if (this.synth) {
       this.synth.releaseAll();
-      this.synth.dispose();
+      disposeInstrument(this.synth);
       this.synth = null;
     }
     for (const [, synth] of this.peerSynths) {
@@ -398,12 +418,12 @@ export class AudioEngine {
     // Release all active notes, swap synth
     if (this.synth) {
       this.synth.releaseAll();
-      this.synth.dispose();
+      disposeInstrument(this.synth);
       this.synth = null;
     }
     // Switching to drums swaps the melodic synth for a kit, and back again
     if (this.localKit) { this.localKit.dispose(); this.localKit = null; }
-    if (instrument === 'DrumKit') {
+    if (isKitPreset(instrument)) {
       this.localKit = createDrumKit(this.masterGain);
       return;
     }
@@ -419,7 +439,7 @@ export class AudioEngine {
     const kit = this.peerKits.get(peerId);
     if (kit) { kit.dispose(); this.peerKits.delete(peerId); }
     const synth = this.peerSynths.get(peerId);
-    if (synth) { synth.releaseAll(); synth.dispose(); this.peerSynths.delete(peerId); }
+    if (synth) { synth.releaseAll(); disposeInstrument(synth); this.peerSynths.delete(peerId); }
     const gain = this.peerGains.get(peerId);
     if (gain) { gain.dispose(); this.peerGains.delete(peerId); }
     this.peerInstruments.delete(peerId);
@@ -444,9 +464,9 @@ export class AudioEngine {
     const kit = this.peerKits.get(peerId);
     if (kit) { kit.dispose(); this.peerKits.delete(peerId); }
 
-    if (instrument === 'DrumKit') {
+    if (isKitPreset(instrument)) {
       const existing = this.peerSynths.get(peerId);
-      if (existing) { existing.releaseAll(); existing.dispose(); this.peerSynths.delete(peerId); }
+      if (existing) { existing.releaseAll(); disposeInstrument(existing); this.peerSynths.delete(peerId); }
       this.peerKits.set(peerId, createDrumKit(this.getOrCreatePeerGain(peerId)));
       this.peerInstruments.set(peerId, instrument);
       return;
@@ -469,7 +489,7 @@ export class AudioEngine {
     let synth = this.peerSynths.get(peerId);
     if (!synth) {
       const gain = this.getOrCreatePeerGain(peerId);
-      synth = createInstrumentSynth('PolySynth', gain);
+      synth = createInstrumentSynth(DEFAULT_INSTRUMENT, gain);
       synth.maxPolyphony = 8;
       this.peerSynths.set(peerId, synth);
     }
