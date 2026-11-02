@@ -901,6 +901,16 @@ export class JamRoom implements DurableObject {
     const rowStyle = style ?? ((this.roomState.vibe as AgentStyle | undefined) ?? 'jazz');
     const voice: InstrumentId = instrument ?? styleRow(rowStyle).instrument;
 
+    // THE FIRST BOT COLOURS AN UNSET ROOM. A new room opened on jazz and eight styles sat one click from
+    // nobody; when nobody has chosen a vibe, the bot that arrives sets it, so the drums and bass follow the
+    // band that is actually playing. A vibe set by hand still wins, and this only runs while it is unset.
+    if (!this.roomState.vibe) {
+      this.roomState.vibe = rowStyle;
+      this.roomState.serverTime = Date.now();
+      void this.ctx.storage.put('roomState', this.roomState);
+      this.broadcastAll(this.roomStateFrame());
+    }
+
     const peer: Peer = {
       peerId: crypto.randomUUID(),
       name,
@@ -1538,11 +1548,20 @@ export class JamRoom implements DurableObject {
    * which is the incoherence the setting exists to remove and a second call for a bar already written
    * (measured: 13 of 26 bars were paid individually, every one a refresh).
    */
+  /**
+   * WHETHER ONE CALL WRITES FOUR BARS. The field is optional and ABSENT MEANS ON, as of the palette pass:
+   * a style's character lives in its phrase, and a per-bar ask delivers an idiom one bar at a time. A room
+   * that has set it off keeps it off, so this default only applies where nobody has chosen.
+   */
+  private phraseAskOn(): boolean {
+    return this.roomState.phraseAsk !== false;
+  }
+
   private refillAgentBar(agent: InProcessAgent, allowRefresh = true): void {
     const bar = this.barIndexOf(Date.now());
     const stride = this.strideFor(agent);
     const depth = stride > 1 ? 1 : 2;
-    const lead = this.roomState.phraseAsk === true
+    const lead = this.phraseAskOn()
       ? phraseLead(Math.max(agent.renderCostMs, agent.renderTailMs), this.barMs())
       : 0;
     const queuedMax = agent.queue.reduce((max, q) => Math.max(max, q.bar), bar);
@@ -1550,7 +1569,7 @@ export class JamRoom implements DurableObject {
       void this.renderAgentBar(agent);
       return;
     }
-    if (allowRefresh && this.roomState.phraseAsk !== true) this.maybeRefreshHead(agent);
+    if (allowRefresh && !this.phraseAskOn()) this.maybeRefreshHead(agent);
   }
 
   private armAgentBar(agent: InProcessAgent): void {
@@ -2284,7 +2303,7 @@ export class JamRoom implements DurableObject {
       // THE PHRASE ASK, WHEN THE ROOM HAS TURNED IT ON: asked once on the bar that opens the phrase,
       // and its four bars are queued here. A phrase that comes back unusable falls through to the
       // per-bar ask below, so the setting can cost a worse answer but never a silent one.
-      if (this.roomState.phraseAsk === true && barInPhrase === 0) {
+      if (this.phraseAskOn() && barInPhrase === 0) {
         const answer = await generatePhraseWithAi(
           this.env.AI,
           ctx,

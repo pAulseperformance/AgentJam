@@ -167,6 +167,9 @@ describe('a late answer in a real room', () => {
 
     try {
       ws.send(JSON.stringify({ type: 'join_room', name: 'LatePeer', kind: 'human' }));
+      // PINNED PER-BAR: this case asserts the one-bar ask, which is a supported room setting
+      // rather than the absent-means-phrases default the room now ships.
+      ws.send(JSON.stringify({ type: 'set_phrase_ask', enabled: false }));
       await sleep(40);
       ws.send(JSON.stringify({ type: 'spawn_agent', name: 'Late Bot', style: 'jazz' }));
       await sleep(80);

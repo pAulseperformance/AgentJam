@@ -56,6 +56,9 @@ async function withAgent(phraseAsk: boolean, run: (stub: ReturnType<typeof room>
   ws.accept();
   await sleep(40);
   ws.send(JSON.stringify({ type: 'join_room', name: 'PhrasePeer', kind: 'human' }));
+  // PINNED PER-BAR: this case asserts the one-bar ask, which is a supported room setting
+  // rather than the absent-means-phrases default the room now ships.
+  ws.send(JSON.stringify({ type: 'set_phrase_ask', enabled: false }));
   await sleep(40);
   if (phraseAsk) {
     ws.send(JSON.stringify({ type: 'set_phrase_ask', enabled: true }));
@@ -119,6 +122,9 @@ describe('the phrase ask', () => {
     });
     await sleep(40);
     ws.send(JSON.stringify({ type: 'join_room', name: 'TogglePeer', kind: 'human' }));
+    // PINNED PER-BAR: this case asserts the one-bar ask, which is a supported room setting
+    // rather than the absent-means-phrases default the room now ships.
+    ws.send(JSON.stringify({ type: 'set_phrase_ask', enabled: false }));
     await sleep(80);
     frames.length = 0;
     ws.send(JSON.stringify({ type: 'set_phrase_ask', enabled: true }));

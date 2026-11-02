@@ -7,8 +7,13 @@ import { JamRoom } from './pages/JamRoom';
  */
 export function App() {
   const [joined, setJoined] = useState(false);
-  const [playerName, setPlayerName] = useState('');
-  const [roomId, setRoomId] = useState('default-room');
+  const [playerName, setPlayerName] = useState(() => new URLSearchParams(window.location.search).get('name') ?? '');
+  // A LINK CAN NAME THE ROOM. `?room=style-latin` fills the field, so eight styles are eight links rather
+  // than eight ids to type; the name rides along the same way when it is there.
+  const [roomId, setRoomId] = useState(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get('room');
+    return fromUrl && fromUrl.trim() ? fromUrl.trim().slice(0, 64) : 'default-room';
+  });
 
   if (joined) {
     return <JamRoom roomId={roomId} playerName={playerName || 'Anonymous'} />;

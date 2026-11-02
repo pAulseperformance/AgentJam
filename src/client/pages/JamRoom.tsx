@@ -256,7 +256,8 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
   // ONE CALL, FOUR BARS. Off by default: the room asks for one bar at a time, which is the shape every
   // measurement in this repo was taken against. On, the agent is asked for a whole phrase on the bar
   // that opens it, so it is heard as one idea and costs a quarter of the calls.
-  const phraseAsk = roomState?.phraseAsk === true;
+  // ABSENT MEANS ON, the same rule the server applies: a room that has never chosen is asked for phrases.
+  const phraseAsk = roomState ? roomState.phraseAsk !== false : true;
   const handlePhraseAskChange = useCallback((enabled: boolean) => {
     sendMessage(JSON.stringify({ type: 'set_phrase_ask', enabled }));
   }, [sendMessage]);

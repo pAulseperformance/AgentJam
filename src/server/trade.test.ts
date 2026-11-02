@@ -144,6 +144,12 @@ const openRoom = async (agentNames: string[]): Promise<{
   await installModel(stub);
 
   ws.send(JSON.stringify({ type: 'join_room', name: 'TradePeer', kind: 'human' }));
+
+  // PINNED PER-BAR: this case asserts the one-bar ask, which is a supported room setting
+
+  // rather than the absent-means-phrases default the room now ships.
+
+  ws.send(JSON.stringify({ type: 'set_phrase_ask', enabled: false }));
   await sleep(40);
   for (const name of agentNames) {
     ws.send(JSON.stringify({ type: 'spawn_agent', name, style: 'jazz' }));

@@ -130,6 +130,9 @@ describe('JamRoom Durable Object', () => {
     it('announces one bar when the bar line fires twice in the same bar', async () => {
       const { stub, ws } = await openSocket();
       ws.send(JSON.stringify({ type: 'join_room', name: 'BarPeer', kind: 'human' }));
+      // PINNED PER-BAR: this case asserts the one-bar ask, which is a supported room setting
+      // rather than the absent-means-phrases default the room now ships.
+      ws.send(JSON.stringify({ type: 'set_phrase_ask', enabled: false }));
       ws.send(JSON.stringify({ type: 'spawn_agent', name: 'Bar Bot', style: 'jazz' }));
       await new Promise(r => setTimeout(r, 60));
 
@@ -161,6 +164,9 @@ describe('JamRoom Durable Object', () => {
     it('does not let the room drummer count as a player', async () => {
       const { stub, ws } = await openSocket();
       ws.send(JSON.stringify({ type: 'join_room', name: 'DrumPeer', kind: 'human' }));
+      // PINNED PER-BAR: this case asserts the one-bar ask, which is a supported room setting
+      // rather than the absent-means-phrases default the room now ships.
+      ws.send(JSON.stringify({ type: 'set_phrase_ask', enabled: false }));
       await new Promise(r => setTimeout(r, 40));
       ws.send(JSON.stringify({ type: 'set_backing', drummer: true, bass: false }));
       await new Promise(r => setTimeout(r, 80));
@@ -207,6 +213,9 @@ describe('JamRoom Durable Object', () => {
     it('lets the tail decide the stride, where the mean keeps one bar per bar', async () => {
       const { stub, ws } = await openSocket();
       ws.send(JSON.stringify({ type: 'join_room', name: 'TailPeer', kind: 'human' }));
+      // PINNED PER-BAR: this case asserts the one-bar ask, which is a supported room setting
+      // rather than the absent-means-phrases default the room now ships.
+      ws.send(JSON.stringify({ type: 'set_phrase_ask', enabled: false }));
       await new Promise(r => setTimeout(r, 30));
       ws.send(JSON.stringify({ type: 'bpm_change', bpm: 160 }));
       ws.send(JSON.stringify({ type: 'spawn_agent', name: 'Tail Bot', style: 'jazz' }));
@@ -272,6 +281,9 @@ describe('JamRoom Durable Object', () => {
 
       try {
         ws.send(JSON.stringify({ type: 'join_room', name: 'WarmPeer', kind: 'human' }));
+        // PINNED PER-BAR: this case asserts the one-bar ask, which is a supported room setting
+        // rather than the absent-means-phrases default the room now ships.
+        ws.send(JSON.stringify({ type: 'set_phrase_ask', enabled: false }));
         await new Promise(r => setTimeout(r, 40));
 
         // ONE WARM, ASKED AS THE ROOM OPENS, for the model this room's agents will spend on.
@@ -295,6 +307,9 @@ describe('JamRoom Durable Object', () => {
 
         // ONE PER ROOM: a second join buys no second warm, and the count stays exactly one.
         ws.send(JSON.stringify({ type: 'join_room', name: 'SecondPeer', kind: 'human' }));
+        // PINNED PER-BAR: this case asserts the one-bar ask, which is a supported room setting
+        // rather than the absent-means-phrases default the room now ships.
+        ws.send(JSON.stringify({ type: 'set_phrase_ask', enabled: false }));
         await new Promise(r => setTimeout(r, 40));
         expect(calls.filter(c => c.warm).length).toBe(1);
       } finally {
@@ -308,6 +323,9 @@ describe('JamRoom Durable Object', () => {
     it('refuses a tempo the grid cannot use, and keeps the room where it was', async () => {
       const { stub, ws } = await openSocket();
       ws.send(JSON.stringify({ type: 'join_room', name: 'TempoPeer', kind: 'human' }));
+      // PINNED PER-BAR: this case asserts the one-bar ask, which is a supported room setting
+      // rather than the absent-means-phrases default the room now ships.
+      ws.send(JSON.stringify({ type: 'set_phrase_ask', enabled: false }));
       await new Promise(r => setTimeout(r, 30));
       ws.send(JSON.stringify({ type: 'bpm_change', bpm: 0 }));
       await new Promise(r => setTimeout(r, 50));
@@ -402,6 +420,12 @@ describe('JamRoom Durable Object', () => {
         await installModel(stub, asks);
 
         ws.send(JSON.stringify({ type: 'join_room', name: 'HedgeOffPeer', kind: 'human' }));
+
+        // PINNED PER-BAR: this case asserts the one-bar ask, which is a supported room setting
+
+        // rather than the absent-means-phrases default the room now ships.
+
+        ws.send(JSON.stringify({ type: 'set_phrase_ask', enabled: false }));
         await new Promise(r => setTimeout(r, 40));
         ws.send(JSON.stringify({ type: 'spawn_agent', name: 'Hedge Off Bot', style: 'jazz' }));
         await new Promise(r => setTimeout(r, 120));
@@ -450,6 +474,12 @@ describe('JamRoom Durable Object', () => {
         await installModel(stub, asks);
 
         ws.send(JSON.stringify({ type: 'join_room', name: 'HedgePeer', kind: 'human' }));
+
+        // PINNED PER-BAR: this case asserts the one-bar ask, which is a supported room setting
+
+        // rather than the absent-means-phrases default the room now ships.
+
+        ws.send(JSON.stringify({ type: 'set_phrase_ask', enabled: false }));
         await new Promise(r => setTimeout(r, 40));
         ws.send(JSON.stringify({ type: 'spawn_agent', name: 'Hedge Bot', style: 'jazz' }));
         await new Promise(r => setTimeout(r, 120));
@@ -537,6 +567,9 @@ describe('JamRoom Durable Object', () => {
         const stub = getRoomStub(`bank-${crypto.randomUUID()}`);
         const ws = await open(stub);
         ws.send(JSON.stringify({ type: 'join_room', name: 'BankPeer', kind: 'human' }));
+        // PINNED PER-BAR: this case asserts the one-bar ask, which is a supported room setting
+        // rather than the absent-means-phrases default the room now ships.
+        ws.send(JSON.stringify({ type: 'set_phrase_ask', enabled: false }));
         await tick(40);
         ws.send(JSON.stringify({ type: 'spawn_agent', name: 'Bank Bot', style: 'jazz' }));
         await tick(80);
@@ -586,6 +619,9 @@ describe('JamRoom Durable Object', () => {
         });
         const first = await open(stub);
         first.send(JSON.stringify({ type: 'join_room', name: 'FirstPeer', kind: 'human' }));
+        // PINNED PER-BAR: this case asserts the one-bar ask, which is a supported room setting
+        // rather than the absent-means-phrases default the room now ships.
+        first.send(JSON.stringify({ type: 'set_phrase_ask', enabled: false }));
         await tick(40);
         first.send(JSON.stringify({ type: 'spawn_agent', name: 'Bank Bot', style: 'jazz' }));
         await tick(80);
