@@ -41,6 +41,7 @@ export function StereoPane({ engine, width = 800, height = 200 }: StereoPaneProp
       const correlation = correlationOf(left, right);
       const { mid, side } = stereoEnergy(left, right);
       element.dataset.correlation = correlation.toFixed(3);
+      element.dataset.channels = String(snapshot?.channels ?? 0);
       element.dataset.side = side.toFixed(3);
       element.dataset.armed = engine?.isStarted() ? 'yes' : 'no';
 

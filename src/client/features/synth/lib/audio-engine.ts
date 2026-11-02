@@ -309,23 +309,31 @@ export class AudioEngine {
     wave: Float32Array<ArrayBufferLike>;
     left: Float32Array<ArrayBufferLike>;
     right: Float32Array<ArrayBufferLike>;
+    /** how many buffers the analyser answered, so a reader can tell a mono tap from a stereo one */
+    channels: number;
   } | null {
     if (!this.analyser) return null;
     const fft = this.analyser.getValue();
     const spectrum = Array.isArray(fft) ? (fft[0] ?? new Float32Array(0)) : fft;
     let left: Float32Array<ArrayBufferLike> = new Float32Array(0);
     let right: Float32Array<ArrayBufferLike> = new Float32Array(0);
+    let channels = 1;
     if (this.scope) {
-      const time = this.scope.getValue();
+      const time = this.scope.getValue() as unknown;
+      // TONE DOES NOT GUARANTEE THE SHAPE, so it is read rather than assumed: a mono analyser answers a
+      // Float32Array, a multi-channel one answers an ARRAY OF THEM, and both have been seen. Treating
+      // the mono shape as stereo returns the SAME buffer twice, which is how the goniometer reported a
+      // perfect correlation in a room that was panned.
       if (Array.isArray(time)) {
-        left = time[0] ?? new Float32Array(0);
-        right = time[1] ?? left;
-      } else {
+        channels = time.length;
+        left = (time[0] as Float32Array<ArrayBufferLike>) ?? new Float32Array(0);
+        right = (time[1] as Float32Array<ArrayBufferLike>) ?? left;
+      } else if (time instanceof Float32Array) {
         left = time;
         right = time;
       }
     }
-    return { spectrum, wave: left, left, right };
+    return { spectrum, wave: left, left, right, channels };
   }
 
   meterLevels(bars = 16): number[] {
