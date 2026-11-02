@@ -33,7 +33,11 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
   // midnight, and applied to the engine's bus the moment it exists.
   const [masterVolume, setMasterVolume] = useState<number>(() => {
     try {
-      const stored = Number(window.localStorage.getItem('agentjam:master'));
+      const raw = window.localStorage.getItem('agentjam:master');
+      // AN ABSENT KEY IS NOT ZERO. `Number(null)` is 0, which is finite and in range, so a room with nothing
+      // stored opened MUTED: measured on 2026-11-02, the gate's own meter read zero while the band played.
+      if (raw === null) return 0.8;
+      const stored = Number(raw);
       return Number.isFinite(stored) && stored >= 0 && stored <= 1 ? stored : 0.8;
     } catch { return 0.8; }
   });
