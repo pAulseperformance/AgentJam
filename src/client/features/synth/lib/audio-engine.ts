@@ -16,6 +16,10 @@ export const INSTRUMENT_LIST: { value: InstrumentType; label: string; icon: stri
   { value: 'FMSynth', label: 'FM Synth', icon: '🎸' },
   { value: 'DrumKit', label: 'Drums', icon: '🥁' },
   { value: 'PluckSynth', label: 'Pluck', icon: '🪕' },
+  // THE BASS SEAT'S OWN VOICE. It was a legal spawn voice with no entry on this list, so a bass bot's card
+  // showed the first option instead of what the bot actually plays: nothing on the page could say "this
+  // one is a bass" while the bass was the thing being chosen.
+  { value: 'MembraneSynth', label: 'Sub Bass', icon: '🎸' },
 ];
 
 /**

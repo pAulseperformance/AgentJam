@@ -55,20 +55,23 @@ export function AgentPanel({ sendMessage, peers, roomVibe, agentParts }: AgentPa
   }, [agentPeers, agentParts, hasDrummer, hasBass]);
 
 
-  /** Add a bot into a named seat: the same message the button sends, with that seat. */
-  const addSeat = useCallback((seat: 'drums' | 'bass', name: string) => {
-    sendMessage(JSON.stringify({ type: 'spawn_agent', name, style: roomVibe ?? 'jazz', seat }));
-  }, [sendMessage, roomVibe]);
-
-  /** Remove the bot holding that seat, by the peer id the room knows it by. */
-  const removeSeat = useCallback((seat: 'drums' | 'bass') => {
-    for (const [peerId, part] of agentParts ?? new Map<string, { seat: string }>()) {
-      if (part.seat === seat) {
-        sendMessage(JSON.stringify({ type: 'despawn_agent', agentPeerId: peerId }));
-        return;
-      }
+  /**
+   * ONE PRESS, ONE DECISION, MADE AT PRESS TIME.
+   *
+   * This was two callbacks with the choice taken from a captured boolean, and pressing the drummer
+   * button sent nothing at all on the live page while the bass button beside it worked: the label said
+   * "off" while the handler behaved as if the seat were taken. The decision is now read from the current
+   * roster inside the handler, so the label and the press cannot disagree.
+   */
+  const toggleSeat = useCallback((seat: 'drums' | 'bass', name: string) => {
+    const holder = Array.from(agentParts ?? new Map<string, { style: string; seat: string }>())
+      .find(([, part]) => part.seat === seat);
+    if (holder) {
+      sendMessage(JSON.stringify({ type: 'despawn_agent', agentPeerId: holder[0] }));
+      return;
     }
-  }, [sendMessage, agentParts]);
+    sendMessage(JSON.stringify({ type: 'spawn_agent', name, style: roomVibe ?? 'jazz', seat }));
+  }, [sendMessage, agentParts, roomVibe]);
 
   const handleSpawn = useCallback(() => {
     const seat = nextSeat();
@@ -136,7 +139,7 @@ export function AgentPanel({ sendMessage, peers, roomVibe, agentParts }: AgentPa
         <button
           className={`agent-panel__style-btn ${hasDrummer ? 'agent-panel__style-btn--active' : ''}`}
           data-seat-add="drums"
-          onClick={() => (hasDrummer ? removeSeat('drums') : addSeat('drums', 'Drummer'))}
+          onClick={() => toggleSeat('drums', 'Drummer')}
           title="A drummer counts the room in and keeps the groove. It plays the room's own kit pattern, free."
         >
           🥁 Drummer {hasDrummer ? 'on' : 'off'}
@@ -144,7 +147,7 @@ export function AgentPanel({ sendMessage, peers, roomVibe, agentParts }: AgentPa
         <button
           className={`agent-panel__style-btn ${hasBass ? 'agent-panel__style-btn--active' : ''}`}
           data-seat-add="bass"
-          onClick={() => (hasBass ? removeSeat('bass') : addSeat('bass', 'Bass'))}
+          onClick={() => toggleSeat('bass', 'Bass')}
           title="A bass holds the low end under everyone. It plays the room's own bass pattern, free."
         >
           🎸 Bass {hasBass ? 'on' : 'off'}
