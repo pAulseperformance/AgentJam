@@ -566,7 +566,8 @@ body {
 
 .keyboard {
   width: 100%;
-  max-width: 840px;
+  /* WIDER KEYS, because this is the thing a person actually touches: three octaves at 840 was a toy. */
+  max-width: 1180px;
 }
 
 .keyboard__octave {
@@ -594,7 +595,7 @@ body {
 .keyboard__key--white {
   background: linear-gradient(180deg, #f0f0f5, #d8d8e5);
   flex: 1;
-  height: 140px;
+  height: 200px;
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   border: 1px solid var(--border);
   z-index: 1;
@@ -606,14 +607,14 @@ body {
 .keyboard-wrap { display: flex; flex-direction: column; gap: 4px; }
 .keyboard__readout {
   display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap;
-  font-size: 12px; color: var(--text-secondary); padding: 2px 2px 0;
+  font-size: 14px; color: var(--text-secondary); padding: 2px 2px 0;
 }
 .keyboard__readout-key { font-weight: 600; color: var(--text-primary, inherit); }
 .keyboard__readout-note { font-variant-numeric: tabular-nums; }
 .keyboard__readout-held { opacity: .7; }
 .keyboard__letter {
-  position: absolute; bottom: 6px; left: 0; right: 0;
-  font-size: 10px; font-weight: 700; letter-spacing: .04em; opacity: .55; pointer-events: none;
+  position: absolute; bottom: 9px; left: 0; right: 0;
+  font-size: 13px; font-weight: 700; letter-spacing: .04em; opacity: .55; pointer-events: none;
 }
 .keyboard__key--black .keyboard__letter { bottom: 4px; color: #e0e7ff; }
 .keyboard__key--down { outline: 2px solid var(--accent-indigo); outline-offset: -2px; transform: translateY(2px); }
@@ -624,8 +625,8 @@ body {
 
 .keyboard__key--black {
   background: linear-gradient(180deg, #2a2a3e, #1a1a2e);
-  width: 8%;
-  height: 90px;
+  width: 9%;
+  height: 130px;
   position: absolute;
   top: 0;
   border-radius: 0 0 4px 4px;
@@ -637,7 +638,7 @@ body {
 .keyboard__key--black:active { background: var(--accent-violet); transform: translateY(2px); }
 
 .keyboard__label {
-  font-size: 0.6rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
   pointer-events: none;
 }

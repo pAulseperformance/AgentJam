@@ -433,7 +433,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
               panes under the keys: roll 321 to 585, keyboard 689 to 829, dock 853 to 1090, so the keys
               were cut off and the dock began below the fold. The roll keeps its place and its size; the
               dock sits beside it and the keys stay under both. */}
-          <Visualizer width={800} height={170} notesRef={visualizerNotesRef} />
+          <Visualizer width={800} height={120} notesRef={visualizerNotesRef} />
 
           {engine && (
             <Keyboard
@@ -451,7 +451,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
             notesRef={visualizerNotesRef as unknown as React.RefObject<import('@/client/features/visualizer/ui/BandViewPane').BandNote[]>}
             names={new Map(peers.map(peer => [peer.peerId, peer.name]))}
             width={800}
-            height={190}
+            height={170}
           />
         </div>
       </div>
