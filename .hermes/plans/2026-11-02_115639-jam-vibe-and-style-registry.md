@@ -238,6 +238,24 @@ A person creates a BOT through the agent panel: a name, a style picked from the 
 
 **Run:** `grep -c 'AnalyserNode\|Tone.Analyser' src/client/features/synth/lib/audio-engine.ts` prints at least 1, then `node tools/browser-smoke.mjs` prints a meter line whose peak is above zero at the bar and whose note roll reading is unchanged, and the whole suite still prints 360 passed.
 
+
+## Status
+
+Landed on 2026-11-02, live at https://zpe.vc/jam/ on version 35fc54f5:
+
+- Task 1: the registry, with the four existing rows carrying the numbers the switches held.
+- Task 2: `AgentStyle` and the `spawn_agent` enum derive from `STYLE_IDS`.
+- Task 3: the drummer and the bass read their row. The 8 groove tests pass unchanged.
+- Task 4: the melody plan and the cell shape read their row. The 28 melody and 10 reaction tests pass unchanged.
+- Task 5: the prompt carries the row's verbs instead of a three-genre parenthetical.
+- Task 7: room state carries an optional vibe, all room_state broadcasts go through one builder that carries peers, the backing section follows the vibe, and a bot with no style is born into it.
+- Task 8: the vibe select in the transport bar, built from the registry, with the spawn form defaulting to it.
+- Task 12: the audio visualizer, an analyser on the master gain drawn at 30 frames a second, gated by the smoke's peak reading.
+
+Open: Task 6 (five new rows), Task 9 (an instrument on the part), Task 10 (the seat), Task 11 (the style probe).
+
+**The ladder below is rebased on the runner, not on the forecast.** The forecast in each task assumed a 337 baseline; a parallel commit landed 6 tests while this plan was being written, so the real baseline was 343. The suite stands at 359 with the floor at 359, taken from the runner in this pass: 343 plus 4 registry cases, 2 enum cases, 2 prompt cases and 4 vibe cases, plus 4 meter cases that Task 12 added before the registry landed. Each remaining task's Run line names its own count from that total rather than from the forecast.
+
 ## Verification
 
 - `python3 ~/.hermes/skills/software-development/plan/scripts/check_plan.py .hermes/plans/2026-11-02_115639-jam-vibe-and-style-registry.md --repo .` prints every rule passed.
