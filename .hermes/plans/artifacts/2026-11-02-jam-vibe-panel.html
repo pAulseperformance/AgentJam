@@ -1,0 +1,82 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Jam vibe and style registry: the screen</title>
+<style>
+  body { font: 15px/1.5 ui-sans-serif, system-ui, sans-serif; margin: 24px; color: currentColor; background: transparent; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h2 { font-size: 14px; margin: 28px 0 8px; text-transform: uppercase; letter-spacing: .08em; }
+  .state { border: 1px solid currentColor; padding: 14px; margin: 0 0 18px; }
+  .bar { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; padding: 10px 0; border-bottom: 1px solid currentColor; }
+  .bar:last-child { border-bottom: 0; }
+  .field { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+  select, button { font: inherit; color: inherit; background: transparent; border: 1px solid currentColor; padding: 3px 6px; }
+  .note { font-size: 13px; opacity: .75; }
+  .rows { list-style: none; padding: 0; margin: 8px 0 0; }
+  .rows li { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid currentColor; font-size: 13px; }
+  .swatch { width: 10px; height: 10px; border: 1px solid currentColor; border-radius: 50%; }
+  .tag { font-size: 11px; border: 1px solid currentColor; padding: 1px 5px; border-radius: 9px; }
+  .fail { border-left: 3px solid currentColor; padding-left: 10px; }
+</style>
+<h1>Jam room: the vibe bar, the style row, the instrument</h1>
+<p class="note">Structural drawing only: no colour literals, no network references, no script. It shows the shape and the five states a listener meets, not the shipped palette.</p>
+
+<h2>empty</h2>
+<div class="state" data-state="empty">
+  <div class="bar">
+    <span class="field">Vibe <select><option>Jazz</option><option>Funk</option><option>Ambient</option><option>Latin</option><option>Afrobeat</option><option>House</option><option>Lo-fi</option><option>Cinematic</option></select></span>
+    <span class="field">Key <select><option>C minor</option></select></span>
+    <span class="field">Tempo <select><option>125 BPM</option></select></span>
+  </div>
+  <p class="note">No bots yet. The vibe is the default every new bot is born into: none playing, the room is yours.</p>
+</div>
+
+<h2>one</h2>
+<div class="state" data-state="one">
+  <div class="bar">
+    <span class="field">Vibe <select><option>Funk</option></select></span>
+    <span class="field">Key <select><option>C minor</option></select></span>
+    <span class="field">Tempo <select><option>125 BPM</option></select></span>
+  </div>
+  <ul class="rows">
+    <li><span class="swatch"></span> <strong>Clav</strong> <span class="tag">funk</span> <span class="tag">Pluck</span> <span class="note">lead, 3 to 5 notes a bar, off the beat</span></li>
+  </ul>
+  <p class="note">One bot in, born funk, playing a plucked riff. Changing the vibe now leaves Clav funk until you say otherwise.</p>
+</div>
+
+<h2>many</h2>
+<div class="state" data-state="many">
+  <div class="bar">
+    <span class="field">Vibe <select><option>Afrobeat</option></select></span>
+    <span class="field">Key <select><option>F minor</option></select></span>
+    <span class="field">Tempo <select><option>112 BPM</option></select></span>
+  </div>
+  <ul class="rows">
+    <li><span class="swatch"></span> <strong>Clav</strong> <span class="tag">funk</span> <span class="tag">Pluck</span> <span class="note">kept funk: a part overrides the room</span></li>
+    <li><span class="swatch"></span> <strong>Shekere</strong> <span class="tag">afrobeat</span> <span class="tag">DrumKit</span> <span class="note">born after the change, follows the room</span></li>
+    <li><span class="swatch"></span> <strong>Drums</strong> <span class="tag">backing</span> <span class="tag">DrumKit</span> <span class="note">the section follows the vibe, not the first bot</span></li>
+    <li><span class="swatch"></span> <strong>Bass</strong> <span class="tag">backing</span> <span class="tag">MembraneSynth</span> <span class="note">clave pattern, low end</span></li>
+  </ul>
+  <p class="note">Each row carries its own style and instrument. A bot already playing keeps its part when the vibe moves, and nothing on this page restyles it in place.</p>
+</div>
+
+<h2>error</h2>
+<div class="state" data-state="error">
+  <div class="bar">
+    <span class="field">Vibe <select><option>Cinematic</option></select></span>
+    <span class="field">Key <select><option>D minor</option></select></span>
+  </div>
+  <ul class="rows">
+    <li><span class="swatch"></span> <strong>Pad</strong> <span class="tag">cinematic</span> <span class="tag">AM Synth</span> <span class="note">model call failed, the room is filling this bar</span></li>
+  </ul>
+  <p class="fail">This bar is the room's own fill, not the bot's. The band keeps time; you will hear the style come back on the next bar.</p>
+</div>
+
+<h2>signed out</h2>
+<div class="state" data-state="signed out">
+  <div class="bar">
+    <span class="field">Vibe <select disabled><option>Jazz</option></select></span>
+    <span class="field">Key <select disabled><option>C minor</option></select></span>
+    <span class="field">Tempo <select disabled><option>125 BPM</option></select></span>
+  </div>
+  <p class="note">A guest hears the room and cannot restyle it: the controls are drawn and disabled, and the door is one link away.</p>
+</div>
