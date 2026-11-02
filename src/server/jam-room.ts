@@ -161,6 +161,9 @@ interface InProcessAgent {
   style: AgentStyle;
   /** where this bot sits in the band; see AgentSeat */
   seat: AgentSeat;
+  /** bars this agent has played from the groove itself, which is what varies the pattern and the count-in */
+  grooveBars: number;
+
   model: string;
   /** who spawned it: a public agent renders notes, a signed-in agent is judged by Jev first */
   tier: Tier;
@@ -902,7 +905,10 @@ export class JamRoom implements DurableObject {
 
     // THE VOICE: what the bot asked for, else what its style row names.
     const rowStyle = style ?? ((this.roomState.vibe as AgentStyle | undefined) ?? 'jazz');
-    const voice: InstrumentId = instrument ?? styleRow(rowStyle).instrument;
+    // A SEAT IMPLIES ITS VOICE: a drummer is a kit and a bass is a membrane, whatever the style row
+    // says, unless the spawn names a voice outright.
+    const voice: InstrumentId = instrument
+      ?? (chosenSeat === 'drums' ? 'DrumKit' : chosenSeat === 'bass' ? 'MembraneSynth' : styleRow(rowStyle).instrument);
 
     // THE FIRST BOT COLOURS AN UNSET ROOM. A new room opened on jazz and eight styles sat one click from
     // nobody; when nobody has chosen a vibe, the bot that arrives sets it, so the drums and bass follow the
@@ -927,6 +933,7 @@ export class JamRoom implements DurableObject {
       // THE ROOM'S VIBE IS THE DEFAULT, and a part that names its own style keeps it.
       style: rowStyle,
       seat: chosenSeat,
+      grooveBars: 0,
       model: tier === 'signed' ? SIGNED_MODEL : FREE_MODEL,
       tier,
       busy: false,
@@ -1641,6 +1648,20 @@ export class JamRoom implements DurableObject {
 
   /** One bar boundary: publish the bar that was prepared, then render the next one. */
   private onAgentBar(agent: InProcessAgent): void {
+    // A GROOVE SEAT PUBLISHES THE PART ITSELF AND NOTHING ELSE TAKES THE BAR.
+    //
+    // This is the bar line: the model's queued bar, a reaction cell, or the generator's cover when the
+    // queue came up empty. For a drummer or a bass all three are wrong, because the part is the room's
+    // own pattern in the room's key and style. Gating only the render path was not enough: measured on
+    // 2026-11-02 in a bass-seated room, the bar line still played the generator's melody over it, which
+    // is the note that sat two octaves above the bass line.
+    if (agent.seat === 'drums' || agent.seat === 'bass') {
+      this.emitGrooveBar(agent);
+      // THE BAR LINE IS ALSO THE RE-ARM. A groove seat that returned without arming played exactly one
+      // bar and then went silent, which is the other half of a band that cannot hold time.
+      this.armAgentBar(agent);
+      return;
+    }
     agent.barTimer = null;
     if (!this.agents.has(agent.peer.peerId)) return;
 
@@ -1829,6 +1850,32 @@ export class JamRoom implements DurableObject {
         this.recordEvent({ type: 'note_off', peerId: peer.peerId, pitch: note.pitch, beatTime: note.beatTime, velocity: 0, timestamp: Date.now() });
       }, Math.max(0, onDelay + note.duration * beatMs));
     }
+  }
+
+  /**
+   * ONE BAR OF THE PART A GROOVE SEAT PLAYS: the room's kit or bass pattern, in the room's key and
+   * style, with the drummer counting the room in on its first bar. No model call, no queue, no generator.
+   */
+  private emitGrooveBar(agent: InProcessAgent): void {
+    const bar = this.barIndexOf(Date.now());
+    const beatMs = (60 / this.roomState.bpm) * 1000;
+    const quietSince = Date.now() - this.barMs() * 4;
+    const roomAlreadyPlaying = this.noteRing.some(n => n.timestamp >= quietSince)
+      || [...this.layers.values()].some(l => l.bars > 0);
+    const notes = agent.seat === 'drums' && agent.grooveBars === 0 && !roomAlreadyPlaying
+      ? countInBar(agent.style)
+      : agent.seat === 'drums'
+        ? drumBar(agent.style, bar)
+        : bassBar(agent.style, this.roomState.key, bar);
+    agent.grooveBars += 1;
+    this.emitAgentBar(agent, notes, bar, beatMs);
+    this.broadcastAll(JSON.stringify({
+      type: 'ai_debug',
+      agentPeerId: agent.peer.peerId,
+      agentName: agent.peer.name,
+      bar,
+      meta: { source: 'pattern', reason: `a ${agent.seat} seat plays the room's own part` },
+    }));
   }
 
   private emitAgentBar(agent: InProcessAgent, notes: GeneratedNote[], bar: number, beatMs: number): void {
@@ -2213,6 +2260,24 @@ export class JamRoom implements DurableObject {
     agent.busy = true;
 
     try {
+      // A DRUMMER AND A BASS PLAY THEIR PART, THEY DO NOT ASK A MODEL FOR IT.
+      //
+      // The seat decides this, not a separate kind of player: a bot seated on drums or bass reads the
+      // same groove patterns the room's own section reads, in the room's key and style, and spends no
+      // model call. Before this, choosing "bass" on a card only changed a label and the bot answered
+      // with a melody, which is the defect the owner reported on 2026-11-02.
+      if (agent.seat === 'drums' || agent.seat === 'bass') {
+        const grooveBar = targetBar ?? this.barIndexOf(Date.now());
+        const beatMs = (60 / this.roomState.bpm) * 1000;
+        const notes = agent.seat === 'drums'
+          ? (agent.grooveBars === 0 ? countInBar(agent.style) : drumBar(agent.style, grooveBar))
+          : bassBar(agent.style, this.roomState.key, grooveBar);
+        agent.grooveBars += 1;
+        this.emitAgentBar(agent, notes, grooveBar, beatMs);
+        agent.renderCostMs = 0;
+        return;
+      }
+
       // THE MODEL'S LOAD IS NOT PAID INSIDE A BAR. A render that starts while the model is still
       // loading spends its own budget on the load: measured 2026-10-31 at 160 BPM, a fresh room's
       // first model call died on `AI call exceeded 1359ms` while every later call took 515-1519 ms.

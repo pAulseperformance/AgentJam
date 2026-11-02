@@ -33,12 +33,8 @@ export function AgentPanel({ sendMessage, peers, roomVibe, agentParts }: AgentPa
 
   // THE RHYTHM SECTION: a drummer and a bass player are room layers, not models. They are on when a
   // peer of that name is in the room, so a second visitor sees the same state without asking.
-  const hasDrummer = peers.some(p => p.kind === 'agent' && p.name === 'Drummer');
-  const hasBass = peers.some(p => p.kind === 'agent' && p.name === 'Bass');
-  const toggleBacking = useCallback((drummer: boolean, bass: boolean) => {
-    sendMessage(JSON.stringify({ type: 'set_backing', drummer, bass }));
-  }, [sendMessage]);
-
+  const hasDrummer = Array.from((agentParts ?? new Map()).values()).some(part => part.seat === 'drums');
+  const hasBass = Array.from((agentParts ?? new Map()).values()).some(part => part.seat === 'bass');
   const agentPeers = peers.filter(p => p.kind === 'agent' && p.name !== 'Drummer' && p.name !== 'Bass');
   const canSpawn = agentPeers.length < MAX_AGENTS;
 
@@ -57,6 +53,22 @@ export function AgentPanel({ sendMessage, peers, roomVibe, agentParts }: AgentPa
     if (hasBass) taken.add('bass');
     return SEATS.find(seat => !taken.has(seat)) ?? 'ornament';
   }, [agentPeers, agentParts, hasDrummer, hasBass]);
+
+
+  /** Add a bot into a named seat: the same message the button sends, with that seat. */
+  const addSeat = useCallback((seat: 'drums' | 'bass', name: string) => {
+    sendMessage(JSON.stringify({ type: 'spawn_agent', name, style: roomVibe ?? 'jazz', seat }));
+  }, [sendMessage, roomVibe]);
+
+  /** Remove the bot holding that seat, by the peer id the room knows it by. */
+  const removeSeat = useCallback((seat: 'drums' | 'bass') => {
+    for (const [peerId, part] of agentParts ?? new Map<string, { seat: string }>()) {
+      if (part.seat === seat) {
+        sendMessage(JSON.stringify({ type: 'despawn_agent', agentPeerId: peerId }));
+        return;
+      }
+    }
+  }, [sendMessage, agentParts]);
 
   const handleSpawn = useCallback(() => {
     const seat = nextSeat();
@@ -115,20 +127,25 @@ export function AgentPanel({ sendMessage, peers, roomVibe, agentParts }: AgentPa
       {/* THE AGENT CARDS LIVE IN THE PEERS PANEL. A bot's style, voice and seat sit on its own
           card there, with its volume, which is where a person looks for a player. */}
 
-      {/* The rhythm section: instant, free, and the thing that sets the tempo */}
+      {/* THE RHYTHM SECTION IS MADE OF THE SAME AGENTS AS EVERYTHING ELSE. A drummer and a bass are
+          bots seated on drums and bass, not a separate kind of player the room keeps privately: they
+          appear in the peer list with their own card, they take a model-free groove, and they are
+          removed the same way as any other bot. */}
       <h3 className="agent-panel__title" style={{ marginTop: '1rem' }}>🥁 Rhythm section</h3>
       <div className="agent-panel__style-grid">
         <button
           className={`agent-panel__style-btn ${hasDrummer ? 'agent-panel__style-btn--active' : ''}`}
-          onClick={() => toggleBacking(!hasDrummer, hasBass)}
-          title="A drummer that counts the room in and keeps the groove. It sets the tempo."
+          data-seat-add="drums"
+          onClick={() => (hasDrummer ? removeSeat('drums') : addSeat('drums', 'Drummer'))}
+          title="A drummer counts the room in and keeps the groove. It plays the room's own kit pattern, free."
         >
           🥁 Drummer {hasDrummer ? 'on' : 'off'}
         </button>
         <button
           className={`agent-panel__style-btn ${hasBass ? 'agent-panel__style-btn--active' : ''}`}
-          onClick={() => toggleBacking(hasDrummer, !hasBass)}
-          title="A bass player holding the harmony underneath everyone."
+          data-seat-add="bass"
+          onClick={() => (hasBass ? removeSeat('bass') : addSeat('bass', 'Bass'))}
+          title="A bass holds the low end under everyone. It plays the room's own bass pattern, free."
         >
           🎸 Bass {hasBass ? 'on' : 'off'}
         </button>
