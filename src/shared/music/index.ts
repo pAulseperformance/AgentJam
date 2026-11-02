@@ -11,3 +11,6 @@ export {
   snapPitchToKey,
 } from './pattern-generator';
 export type { GeneratedNote, AgentStyle } from './pattern-generator';
+// THE STYLE REGISTRY. One row per style: what it means, what it plays, and what the model is told.
+export { STYLE_ROWS, STYLE_IDS, styleRow, rowForBar } from './styles';
+export type { StyleRow, AgentStyleId, DrumHit, BassHit } from './styles';

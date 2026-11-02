@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { STYLE_IDS, type AgentStyleId } from '@/shared/music/styles';
 
 // ─── Peer Types ──────────────────────────────────────────────────────────────
 
@@ -79,7 +80,7 @@ export type ClockSyncPing = z.infer<typeof ClockSyncPingSchema>;
 export const SpawnAgentMessageSchema = z.object({
   type: z.literal('spawn_agent').describe('Message discriminator'),
   name: z.string().describe('Display name for the agent that will be spawned'),
-  style: z.enum(['jazz', 'ambient', 'funk', 'random']).describe('Generation style that determines the musical character of the agent'),
+  style: z.enum(STYLE_IDS as [AgentStyleId, ...AgentStyleId[]]).describe('Generation style that determines the musical character of the agent'),
 });
 export type SpawnAgentMessage = z.infer<typeof SpawnAgentMessageSchema>;
 

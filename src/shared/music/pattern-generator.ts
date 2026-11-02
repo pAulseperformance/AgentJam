@@ -120,7 +120,11 @@ export interface GeneratedNote {
   duration: number;
 }
 
-export type AgentStyle = 'jazz' | 'ambient' | 'funk' | 'random';
+// THE STYLE UNION IS THE REGISTRY'S KEYS, derived rather than retyped: a row that exists but is not in
+// this type, or a type member with no row, is the drift the registry exists to remove.
+export type AgentStyle = AgentStyleId;
+// The union above comes from the registry; this import is what makes that true rather than a comment.
+import type { AgentStyleId } from './styles';
 
 /**
  * A LINE, NOT A LOTTERY. Every pattern used to pick a pitch with `Math.random() * scaleNotes.length`,

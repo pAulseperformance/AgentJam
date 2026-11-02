@@ -11,10 +11,13 @@
  * model would be late, inconsistent bar to bar and would cost a call per bar. A drummer is a
  * fixed set of patterns and a clock, so it is the one part that should never be a model.
  *
+ * THE PATTERNS ARE DATA. They live in the style registry, one row per style, so a new genre is a row
+ * rather than a fifth case in a switch. This file only reads them.
+ *
  * Drum pitches are codes, not notes: the client renders them with a membrane voice.
  */
 
-import { getScaleNotes, type AgentStyle, type GeneratedNote } from '@/shared/music';
+import { getScaleNotes, rowForBar, type AgentStyle, type GeneratedNote } from '@/shared/music';
 
 /** The drum codes. The client maps these onto percussion voices. */
 export const DRUM = {
@@ -23,8 +26,6 @@ export const DRUM = {
   hat: 'A5',
   tom: 'G2',
 } as const;
-
-const VELOCITY = { kick: 100, snare: 88, hat: 58, tom: 92 } as const;
 
 /** A small deterministic hash, so a pattern varies by bar without Math.random (same bar, same feel). */
 function jitter(seed: number, salt: number): number {
@@ -37,91 +38,57 @@ function hit(pitch: string, beatTime: number, velocity: number, duration = 0.25)
 }
 
 /**
- * One bar of drums. The patterns are the conventions a player would recognise per style:
- * jazz swings the offbeat, funk is straight sixteenths with a pushed kick, ambient is almost empty.
+ * Whether a hit plays on this bar. `even` and `odd` are how a row says "a heartbeat, every other bar"
+ * without a branch of its own, and the default is every bar.
+ */
+function playsOnBar(when: 'every' | 'even' | 'odd' | undefined, barIndex: number): boolean {
+  if (!when || when === 'every') return true;
+  return when === 'even' ? barIndex % 2 === 0 : barIndex % 2 !== 0;
+}
+
+/**
+ * One bar of drums, read off the style's row. The shapes are the conventions a player would recognise
+ * per style: jazz swings the offbeat, funk is straight sixteenths with a pushed kick, ambient is
+ * almost empty.
  */
 export function drumBar(style: AgentStyle, barIndex: number): GeneratedNote[] {
+  const row = rowForBar(style, barIndex);
   const notes: GeneratedNote[] = [];
-  const style_ = style === 'random' ? (['jazz', 'funk', 'ambient'][barIndex % 3] as AgentStyle) : style;
-
-  switch (style_) {
-    case 'funk': {
-      // four on the floor with a pushed kick, snare on 2 and 4, sixteenth hats
-      notes.push(hit(DRUM.kick, 0, VELOCITY.kick));
-      notes.push(hit(DRUM.kick, 0.75, VELOCITY.kick));
-      notes.push(hit(DRUM.kick, 2, VELOCITY.kick));
-      notes.push(hit(DRUM.snare, 1, VELOCITY.snare));
-      notes.push(hit(DRUM.snare, 3, VELOCITY.snare));
-      for (let b = 0; b < 4; b += 0.25) {
-        notes.push(hit(DRUM.hat, b, VELOCITY.hat, 0.15));
+  for (const entry of row.drums) {
+    if (!playsOnBar(entry.bars, barIndex)) continue;
+    if (entry.chance !== undefined && !(jitter(barIndex, entry.salt ?? 1) > entry.chance)) continue;
+    if (entry.repeatTo !== undefined) {
+      const step = entry.repeatStep ?? 0.25;
+      for (let beat = entry.beat; beat < entry.repeatTo; beat += step) {
+        notes.push(hit(DRUM[entry.voice], beat, entry.velocity, entry.duration ?? 0.25));
       }
-      if (jitter(barIndex, 1) > 0.6) notes.push(hit(DRUM.tom, 3.5, VELOCITY.tom));
-      break;
+      continue;
     }
-    case 'jazz': {
-      // swing: kick on 1, snare comps on 3, hats on the swung offbeats
-      notes.push(hit(DRUM.kick, 0, VELOCITY.kick));
-      notes.push(hit(DRUM.snare, 2, VELOCITY.snare));
-      for (const b of [0, 1.5, 2, 3.5]) notes.push(hit(DRUM.hat, b, VELOCITY.hat, 0.2));
-      if (jitter(barIndex, 2) > 0.5) notes.push(hit(DRUM.snare, 3.5, VELOCITY.snare, 0.15));
-      break;
-    }
-    case 'ambient': {
-      // a heartbeat, nothing more
-      if (barIndex % 2 === 0) notes.push(hit(DRUM.kick, 0, 70, 0.4));
-      notes.push(hit(DRUM.hat, 2, 40, 0.3));
-      break;
-    }
-    default: {
-      notes.push(hit(DRUM.kick, 0, VELOCITY.kick));
-      notes.push(hit(DRUM.snare, 2, VELOCITY.snare));
-      break;
-    }
+    notes.push(hit(DRUM[entry.voice], entry.beat, entry.velocity, entry.duration ?? 0.25));
   }
-
   return notes;
 }
 
 /**
- * One bar of bass. It holds the harmony under the others: root on the downbeat, the fifth on the
- * back half, and a pickup where the style wants movement. Register is low on purpose (octaves 2-3).
+ * One bar of bass, read off the style's row. It holds the harmony under the others: root on the
+ * downbeat, the fifth on the back half, and a pickup where the style wants movement. Register is low
+ * on purpose (octaves 2-3).
  */
 export function bassBar(style: AgentStyle, key: string, barIndex: number): GeneratedNote[] {
   const scale = getScaleNotes(key, [2, 3]);
   if (scale.length < 3) return [];
 
-  // the low octave of the tonic, which is the first scale note of the lowest octave
-  const root = scale[0]!;
-  const fifth = scale[Math.min(4, scale.length - 1)]!;
-  const seventh = scale[Math.min(6, scale.length - 1)]!;
-  const style_ = style === 'random' ? (['jazz', 'funk', 'ambient'][barIndex % 3] as AgentStyle) : style;
+  const degrees = {
+    root: scale[0]!,
+    fifth: scale[Math.min(4, scale.length - 1)]!,
+    seventh: scale[Math.min(6, scale.length - 1)]!,
+  };
+  const row = rowForBar(style, barIndex);
   const notes: GeneratedNote[] = [];
-
-  switch (style_) {
-    case 'funk': {
-      notes.push(hit(root, 0, 95, 0.4));
-      notes.push(hit(root, 0.75, 80, 0.2));
-      notes.push(hit(fifth, 1.5, 85, 0.3));
-      notes.push(hit(root, 2.5, 80, 0.3));
-      break;
-    }
-    case 'jazz': {
-      // a two-note walk: root, then the fifth or seventh, alternating by bar
-      notes.push(hit(root, 0, 92, 0.9));
-      notes.push(hit(barIndex % 2 === 0 ? fifth : seventh, 2, 88, 0.9));
-      break;
-    }
-    case 'ambient': {
-      notes.push(hit(root, 0, 70, 2));
-      break;
-    }
-    default: {
-      notes.push(hit(root, 0, 90, 1));
-      notes.push(hit(fifth, 2, 85, 1));
-      break;
-    }
+  for (const entry of row.bass) {
+    if (!playsOnBar(entry.bars, barIndex)) continue;
+    notes.push(hit(degrees[entry.degree], entry.beat, entry.velocity, entry.duration ?? 0.25));
   }
-
   return notes;
 }
 
@@ -133,8 +100,9 @@ export function countInBar(style: AgentStyle): GeneratedNote[] {
   const notes: GeneratedNote[] = [];
   for (let b = 0; b < 4; b++) {
     const accent = b === 0 ? 1 : 0.8;
-    notes.push(hit(b === 3 ? DRUM.tom : DRUM.kick, b, Math.round(VELOCITY.kick * accent), 0.2));
+    notes.push(hit(b === 3 ? DRUM.tom : DRUM.kick, b, Math.round(100 * accent), 0.2));
   }
-  if (style === 'jazz') notes.push(hit(DRUM.hat, 1.5, 50, 0.15));
+  const row = rowForBar(style, 0);
+  if (row.grid === 'eighth' && row.id === 'jazz') notes.push(hit(DRUM.hat, 1.5, 50, 0.15));
   return notes;
 }

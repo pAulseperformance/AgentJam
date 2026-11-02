@@ -21,6 +21,7 @@ import {
   noteNameFromMidi,
   scalePitchClasses,
   snapPitchToKey,
+  styleRow,
   type AgentStyle,
   type GeneratedNote,
 } from '@/shared/music';
@@ -79,9 +80,10 @@ interface CellShape {
  * room, so the same number means the same music at any tempo.
  */
 function cellShape(style: AgentStyle): CellShape {
-  if (style === 'funk') return { notesPerCell: 2, duration: 0.28 };
-  if (style === 'ambient') return { notesPerCell: 1, duration: 0.9 };
-  return { notesPerCell: 2, duration: 0.4 };
+  // THE ROOM'S OWN FIGURE IS THE ROW'S. Three branches became one lookup, so a new style states its
+  // cell in the registry instead of adding a fourth case here.
+  const cell = styleRow(style).cell;
+  return { notesPerCell: cell.notesPerCell, duration: cell.duration };
 }
 
 /**

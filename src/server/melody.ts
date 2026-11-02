@@ -18,6 +18,7 @@ import {
   noteNameFromMidi,
   scalePitchClasses,
 } from '../shared/music/pattern-generator';
+import { styleRow } from '@/shared/music/styles';
 import type { Motif } from './listener';
 import type { DecisionBrief } from './llm-planner';
 
@@ -55,18 +56,21 @@ export function melodyPlan(bar: number, style: string, hasMotif: boolean): Melod
   // bar, all of them joined up) because funk was mapped to "more notes", and a recorded session of one
   // funk agent ran 47 notes in 16 seconds at velocities between 40 and 93: a wash, not a riff. A funk
   // part is a SHORT shape with space around it, so this style asks for fewer notes than a ballad.
-  const base = style === 'ambient' ? 5 : style === 'funk' ? 4 : 6;
-  const fewest = style === 'funk' ? 3 : 5;
+  // THE DENSITY IS THE ROW'S, not a ternary chain: a style says how many notes its statement bar wants
+  // and how few any bar may fall to, and the arc decides which of the two applies.
+  const row = styleRow(style);
+  const base = row.notes.state;
+  const fewest = row.notes.fewest;
   // A PHRASE HAS A BEGINNING AND AN END. A recorded 20-bar session had 5 to 7 notes in EVERY bar, no
   // bar under four and no silence anywhere, which is why nothing it plays sounds finished. The
   // statement is the longest bar, the development reaches, and the cadence LANDS: two or three notes
   // and the rest of the bar left open, so the next phrase has somewhere to start.
   const wantNotes = position === 'cadence'
-    ? 3
-    : Math.max(fewest, position === 'state' ? base : base + 1);
+    ? row.notes.cadence
+    : Math.max(fewest, position === 'state' ? base : row.notes.develop);
 
   const instruction = [
-    style === 'funk'
+    row.verbStyle === 'riff'
       ? `PLAY A RIFF, not a melody: ${wantNotes} short notes with silence between them, landing on the off-beats, one shape a listener could clap back.`
       : `PLAY A MELODY, not a chord: ${wantNotes} notes in one line, moving ${contour === 'arch' ? 'up then down' : contour === 'rising' ? 'upward' : contour === 'falling' ? 'downward' : 'in waves'}.`,
     position === 'state'
