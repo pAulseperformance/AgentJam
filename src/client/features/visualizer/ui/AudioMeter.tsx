@@ -46,7 +46,10 @@ export function AudioMeter({ engine, bars = 16, width = 800, height = 56 }: Audi
       const levels = engine ? engine.meterLevels(bars) : new Array<number>(bars).fill(0);
       const peak = levels.reduce((max, level) => Math.max(max, level), 0);
       canvasEl.dataset.peak = peak.toFixed(3);
-      canvasEl.dataset.armed = engine ? 'yes' : 'no';
+      // ARMED MEANS THE ANALYSER EXISTS, not that an engine object does: the hook creates the engine
+      // on mount, so `engine != null` said yes on a page where the audio overlay had never been
+      // answered and every reading was a zero that looked like a silent room.
+      canvasEl.dataset.armed = engine?.isStarted() ? 'yes' : 'no';
 
       context.fillStyle = '#0a0a0f';
       context.fillRect(0, 0, width, height);

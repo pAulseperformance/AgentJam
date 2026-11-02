@@ -220,6 +220,11 @@ try {
   // THE AUDIO OVERLAY IS A REAL USER-GESTURE GATE and it covers the page, so click it the way a
   // listener does. If the engine cannot start under a headless audio device, take the overlay down and
   // say so rather than failing the socket reading, which is what this run is here for.
+  // WAIT FOR THE BUTTON, THEN CLICK IT. A click on a selector that is not on the page yet throws and
+  // was swallowed here, which left the audio context unstarted, the analyser absent and every meter
+  // reading a flat zero that looked like a silent room.
+  await page.waitForSelector('#start-audio', { state: 'visible', timeout: Math.min(remaining(), 4000) })
+    .catch(() => {});
   await page.click('#start-audio', { timeout: Math.min(remaining(), 3000) }).catch(() => {});
   await page.waitForSelector('.jam-room__overlay', { state: 'detached', timeout: Math.min(remaining(), 2000) })
     .catch(() => {});
