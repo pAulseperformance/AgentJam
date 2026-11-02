@@ -262,6 +262,8 @@ export class AudioEngine {
   /** Master volume as a plain number (0-1), applied as velocity multiplier */
   private masterVolumeLevel = 1;
   private masterMutedState = false;
+  /** how many times the output bus has been built: more than one means a stale bus is carrying audio */
+  private masterBusSeq = 0;
 
   async start(): Promise<void> {
     if (this.started) return;
@@ -274,7 +276,16 @@ export class AudioEngine {
     // three-voice pad, a membrane kick at +2 dB and a saw lead arrive on the same millisecond and the sum
     // passes 1.0, which the hardware turns into a click. A limiter at -1 dB makes that arithmetically
     // impossible, and it is the only place in the graph where that can be guaranteed.
-    this.masterGain = new Tone.Gain(1);
+    // THE BUS IS BUILT ONCE, AND AT THE LEVEL THE FADER ALREADY SHOWS.
+    //
+    // The fader is applied on mount, before audio starts, so a bus built at 1 threw the saved value away.
+    // And it must never be REBUILT: the players already hold a connection to it, so a second bus leaves
+    // the audio flowing through the first one, which is a fader that moves a number and not the sound.
+    // Measured on 2026-11-02 with two players playing and the fader at zero: the meter still read 0.68.
+    if (!this.masterGain) {
+      this.masterBusSeq += 1;
+      this.masterGain = new Tone.Gain(this.masterVolumeLevel);
+    }
     this.masterLimiter = new Tone.Limiter(-1).toDestination();
     this.masterGain.connect(this.masterLimiter);
     // THE BUS MUST NOT COLLAPSE TO MONO. A gain node upmixes whatever arrives to its own channel count,
@@ -467,11 +478,16 @@ export class AudioEngine {
     this.masterVolumeLevel = Math.max(0, Math.min(1, volume));
     // THE FADER MOVES THE BUS, not the velocity of the notes this page happens to send: scaling velocity
     // silenced your own keys and left every agent exactly as loud, which is the opposite of a master fader.
-    this.masterGain?.gain.rampTo(this.masterVolumeLevel, 0.05);
+    if (this.masterGain) {
+      const gain = this.masterGain.gain;
+      gain.cancelScheduledValues(0);
+      gain.rampTo(this.masterVolumeLevel, 0.05);
+    }
     // THE READING THE PANEL AND THE GATE CHECK. A fader that stores a number and does not move the bus
     // looks identical on screen, so the value it actually set is published where a probe can read it.
     if (typeof document !== 'undefined') {
       document.body.dataset.masterGain = String(this.masterGain ? Number(this.masterGain.gain.value.toFixed(3)) : 'no-bus');
+      document.body.dataset.masterBus = String(this.masterBusSeq);
     }
   }
 
