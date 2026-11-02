@@ -76,6 +76,8 @@ export function useRoomSocket({
   const [aiDebugEntries, setAiDebugEntries] = useState<any[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
+  /** messages pressed before the socket opened; flushed on open, never dropped */
+  const pendingSends = useRef<string[]>([]);
   const reconnectAttempt = useRef(0);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onNoteEventRef = useRef(onNoteEvent);
@@ -120,6 +122,11 @@ export function useRoomSocket({
 
       // Start clock sync ping cycle for RTT measurement
       startClockSync(ws);
+
+      // ANYTHING PRESSED WHILE THE ROOM WAS STILL CONNECTING GOES NOW, in the order it was pressed.
+      const held = pendingSends.current;
+      pendingSends.current = [];
+      for (const message of held) ws.send(message);
     };
 
     ws.onmessage = (event: MessageEvent) => {
@@ -274,10 +281,23 @@ export function useRoomSocket({
     }, delay);
   }, [connect]);
 
+  /**
+   * A PRESS IS NEVER SWALLOWED while the room is still connecting.
+   *
+   * The audio unlock clears the overlay before the socket has finished opening, so for the first second a
+   * page looks ready and every send is dropped in silence. Measured on 2026-11-02 at four delays after the
+   * overlay cleared: at 300 and 600 ms pressing "Add an agent" sent nothing and no bot ever arrived (0 of
+   * 2); at 1500 and 3000 ms it always worked (2 of 2). The button even read "Adding..." while it did so.
+   *
+   * A message that cannot go now is held and flushed the moment the socket opens, so the press lands late
+   * rather than never. The cap is small: a queue is for a connecting socket, not a place to pile up work.
+   */
   const sendMessage = useCallback((message: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(message);
+      return;
     }
+    if (pendingSends.current.length < 20) pendingSends.current.push(message);
   }, []);
 
   const sendNoteEvent = useCallback((event: NoteEvent) => {
