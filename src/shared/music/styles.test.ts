@@ -29,7 +29,7 @@ describe('the style registry', () => {
   });
 
   it('answers jazz for an unknown or absent style, so an older room still plays', () => {
-    expect(styleRow('afrobeat').id).toBe('jazz');
+    expect(styleRow('polka').id).toBe('jazz');
     expect(styleRow(undefined).id).toBe('jazz');
     expect(styleRow('funk').id).toBe('funk');
   });

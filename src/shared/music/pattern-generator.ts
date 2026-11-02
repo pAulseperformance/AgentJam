@@ -124,6 +124,7 @@ export interface GeneratedNote {
 // this type, or a type member with no row, is the drift the registry exists to remove.
 export type AgentStyle = AgentStyleId;
 // The union above comes from the registry; this import is what makes that true rather than a comment.
+import { styleRow } from './styles';
 import type { AgentStyleId } from './styles';
 
 /**
@@ -222,7 +223,12 @@ function generateRandomPattern(scaleNotes: string[], _bpm: number): GeneratedNot
   return notes;
 }
 
-const GENERATORS: Record<AgentStyle, typeof generateJazzPattern> = {
+/**
+ * THE BASE GENERATORS, by the id a row NAMES. A row's `generator` field points here, so a new style
+ * reuses a base pattern rather than requiring a fourth function: the row's numbers decide density and
+ * shape, and this map only decides which of the four deterministic patterns fills a late bar.
+ */
+const GENERATORS: Record<'jazz' | 'ambient' | 'funk' | 'random', typeof generateJazzPattern> = {
   jazz: generateJazzPattern,
   ambient: generateAmbientPattern,
   funk: generateFunkPattern,
@@ -232,6 +238,6 @@ const GENERATORS: Record<AgentStyle, typeof generateJazzPattern> = {
 /** Generate a measure's worth of notes for the given style and key */
 export function generateMeasure(style: AgentStyle, key: string, bpm: number): GeneratedNote[] {
   const scaleNotes = getScaleNotes(key);
-  const generator = GENERATORS[style] ?? generateJazzPattern;
+  const generator = GENERATORS[styleRow(style).generator] ?? generateJazzPattern;
   return generator(scaleNotes, bpm);
 }

@@ -12,7 +12,19 @@
  */
 
 /** The styles the room ships. Derived from the table below, never retyped. */
-export type AgentStyleId = 'jazz' | 'funk' | 'ambient' | 'random';
+/** The four deterministic patterns the room can fill a bar from. */
+export type GeneratorId = 'jazz' | 'ambient' | 'funk' | 'random';
+
+export type AgentStyleId =
+  | 'jazz'
+  | 'funk'
+  | 'ambient'
+  | 'latin'
+  | 'afrobeat'
+  | 'house'
+  | 'lofi'
+  | 'cinematic'
+  | 'random';
 
 /** One hit in the kit. A repeat expands to a run of hits on the same voice. */
 export interface DrumHit {
@@ -58,8 +70,8 @@ export interface StyleRow {
   velocity: { min: number; max: number };
   grid: 'eighth' | 'offbeat' | 'sixteenth';
   tempo: { min: number; max: number };
-  /** The deterministic generator a late model falls back to. */
-  generator: AgentStyleId;
+  /** The deterministic generator a late model falls back to: one of the four base patterns. */
+  generator: GeneratorId;
   /** The voice a bot in this style is born with. */
   instrument: string;
   /** A style that rotates through others by bar rather than having a shape of its own. */
@@ -142,6 +154,135 @@ export const STYLE_ROWS: readonly StyleRow[] = [
     velocity: { min: 25, max: 90 },
     grid: 'eighth',
     tempo: { min: 50, max: 90 },
+    generator: 'ambient',
+    instrument: 'AMSynth',
+  },
+  {
+    id: 'latin',
+    label: 'Latin',
+    icon: '🪘',
+    verbs: 'a clave feel, short answers around a two bar pattern, leave the downbeat to the drums',
+    notes: { state: 5, develop: 6, cadence: 3, fewest: 4 },
+    verbStyle: 'riff',
+    drums: [
+      { voice: 'kick', beat: 0, velocity: 92 },
+      { voice: 'kick', beat: 1.5, velocity: 84 },
+      { voice: 'snare', beat: 2.5, velocity: 80, duration: 0.15 },
+      { voice: 'hat', beat: 0, velocity: 50, duration: 0.14, repeatTo: 4, repeatStep: 0.5 },
+      { voice: 'tom', beat: 3, velocity: 86, chance: 0.45, salt: 4 },
+    ],
+    bass: [
+      { degree: 'root', beat: 0, velocity: 92, duration: 0.5 },
+      { degree: 'fifth', beat: 1.5, velocity: 84, duration: 0.4 },
+      { degree: 'root', beat: 2.5, velocity: 80, duration: 0.4 },
+    ],
+    cell: { notesPerCell: 2, duration: 0.35 },
+    velocity: { min: 40, max: 108 },
+    grid: 'eighth',
+    tempo: { min: 80, max: 120 },
+    generator: 'jazz',
+    instrument: 'PluckSynth',
+  },
+  {
+    id: 'afrobeat',
+    label: 'Afrobeat',
+    icon: '🥁',
+    verbs: 'interlocking short phrases against the drums, two beats on and two off, never all at once',
+    notes: { state: 4, develop: 5, cadence: 3, fewest: 3 },
+    verbStyle: 'riff',
+    drums: [
+      { voice: 'kick', beat: 0, velocity: 100 },
+      { voice: 'kick', beat: 0.75, velocity: 96 },
+      { voice: 'kick', beat: 2.5, velocity: 96 },
+      { voice: 'snare', beat: 1, velocity: 86 },
+      { voice: 'snare', beat: 3, velocity: 86 },
+      { voice: 'hat', beat: 0, velocity: 52, duration: 0.13, repeatTo: 4, repeatStep: 0.25 },
+      { voice: 'tom', beat: 3.5, velocity: 90, chance: 0.5, salt: 5 },
+    ],
+    bass: [
+      { degree: 'root', beat: 0, velocity: 96, duration: 0.35 },
+      { degree: 'root', beat: 1.5, velocity: 82, duration: 0.25 },
+      { degree: 'fifth', beat: 2.5, velocity: 88, duration: 0.3 },
+      { degree: 'seventh', beat: 3.5, velocity: 78, duration: 0.2 },
+    ],
+    cell: { notesPerCell: 2, duration: 0.3 },
+    velocity: { min: 45, max: 112 },
+    grid: 'sixteenth',
+    tempo: { min: 100, max: 125 },
+    generator: 'funk',
+    instrument: 'PluckSynth',
+  },
+  {
+    id: 'house',
+    label: 'House',
+    icon: '🎛️',
+    verbs: 'one held chord stab on the offbeats, sparse, let the kick carry the bar',
+    notes: { state: 3, develop: 4, cadence: 2, fewest: 3 },
+    verbStyle: 'riff',
+    drums: [
+      { voice: 'kick', beat: 0, velocity: 104 },
+      { voice: 'kick', beat: 1, velocity: 104 },
+      { voice: 'kick', beat: 2, velocity: 104 },
+      { voice: 'kick', beat: 3, velocity: 104 },
+      { voice: 'hat', beat: 0.5, velocity: 58, duration: 0.12 },
+      { voice: 'hat', beat: 1.5, velocity: 58, duration: 0.12 },
+      { voice: 'hat', beat: 2.5, velocity: 58, duration: 0.12 },
+      { voice: 'hat', beat: 3.5, velocity: 58, duration: 0.12 },
+    ],
+    bass: [
+      { degree: 'root', beat: 0.5, velocity: 90, duration: 0.4 },
+      { degree: 'root', beat: 1.5, velocity: 86, duration: 0.4 },
+      { degree: 'fifth', beat: 2.5, velocity: 86, duration: 0.4 },
+      { degree: 'root', beat: 3.5, velocity: 86, duration: 0.4 },
+    ],
+    cell: { notesPerCell: 1, duration: 0.25 },
+    velocity: { min: 40, max: 110 },
+    grid: 'offbeat',
+    tempo: { min: 118, max: 128 },
+    generator: 'funk',
+    instrument: 'PolySynth',
+  },
+  {
+    id: 'lofi',
+    label: 'Lo-fi',
+    icon: '📻',
+    verbs: 'behind the beat, soft, two or three notes and a rest, never a full bar of them',
+    notes: { state: 4, develop: 5, cadence: 3, fewest: 4 },
+    verbStyle: 'melody',
+    drums: [
+      { voice: 'kick', beat: 0, velocity: 88 },
+      { voice: 'kick', beat: 2.5, velocity: 80 },
+      { voice: 'snare', beat: 1, velocity: 74, duration: 0.18 },
+      { voice: 'snare', beat: 3, velocity: 74, duration: 0.18 },
+      { voice: 'hat', beat: 0, velocity: 40, duration: 0.2, repeatTo: 4, repeatStep: 0.5 },
+    ],
+    bass: [
+      { degree: 'root', beat: 0, velocity: 80, duration: 1.2 },
+      { degree: 'fifth', beat: 2.5, velocity: 72, duration: 0.8 },
+    ],
+    cell: { notesPerCell: 2, duration: 0.5 },
+    velocity: { min: 30, max: 88 },
+    grid: 'eighth',
+    tempo: { min: 70, max: 90 },
+    generator: 'jazz',
+    instrument: 'AMSynth',
+  },
+  {
+    id: 'cinematic',
+    label: 'Cinematic',
+    icon: '🎬',
+    verbs: 'long lines that resolve slowly, one idea per phrase, more space than notes',
+    notes: { state: 3, develop: 4, cadence: 2, fewest: 3 },
+    verbStyle: 'melody',
+    drums: [
+      { voice: 'kick', beat: 0, velocity: 64, duration: 0.5, bars: 'even' },
+      { voice: 'tom', beat: 2, velocity: 58, duration: 0.4, bars: 'odd' },
+    ],
+    bass: [{ degree: 'root', beat: 0, velocity: 62, duration: 3.5 }],
+    cell: { notesPerCell: 1, duration: 1.2 },
+    velocity: { min: 25, max: 80 },
+    grid: 'eighth',
+    tempo: { min: 60, max: 90 },
     generator: 'ambient',
     instrument: 'AMSynth',
   },

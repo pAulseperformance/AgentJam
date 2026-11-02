@@ -63,7 +63,15 @@ export function BandViewPane({ engine, notesRef, names, width = 800, height = 20
       const notes = notesRef.current ?? [];
       const snapshot = engine?.analyserSnapshot() ?? null;
       const bands = snapshot ? bandsFromSpectrum(snapshot.spectrum) : { bass: 0, mid: 0, treble: 0 };
-      const peers = [...new Set(notes.map(note => note.peerId))].slice(-6);
+      // INDEXED ONCE PER FRAME. Scanning the whole buffer per lane is peers times notes per frame, and
+      // the buffer only recently started being pruned, so the cheap shape is the one to keep.
+      const byPeer = new Map<string, BandNote[]>();
+      for (const note of notes) {
+        const lane = byPeer.get(note.peerId);
+        if (lane) lane.push(note);
+        else byPeer.set(note.peerId, [note]);
+      }
+      const peers = [...byPeer.keys()].slice(-6);
       const laneH = Math.max(10, Math.floor((height - 30) / Math.max(1, peers.length)));
       const t = performance.now();
       const from = t - windowMs;
@@ -92,8 +100,7 @@ export function BandViewPane({ engine, notesRef, names, width = 800, height = 20
         context.font = '10px ui-sans-serif, system-ui, sans-serif';
         context.fillText(label, 3, y + laneH - 3);
 
-        for (const note of notes) {
-          if (note.peerId !== peerId) continue;
+        for (const note of byPeer.get(peerId) ?? []) {
           const started = Math.max(note.startTime, from);
           const ended = Math.min(note.endTime ?? t, t);
           if (ended < from) continue;

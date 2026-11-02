@@ -56,7 +56,7 @@ describe('the room vibe', () => {
   });
 
   it('refuses a vibe that is not a style row', () => {
-    expect(ClientMessageSchema.safeParse({ type: 'set_vibe', vibe: 'afrobeat' }).success).toBe(false);
+    expect(ClientMessageSchema.safeParse({ type: 'set_vibe', vibe: 'polka' }).success).toBe(false);
     expect(ClientMessageSchema.safeParse({ type: 'set_vibe', vibe: 'funk' }).success).toBe(true);
   });
 

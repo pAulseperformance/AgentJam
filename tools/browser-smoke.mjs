@@ -286,7 +286,9 @@ try {
   // analyser on the master gain, so a peak above zero is the only reading that says the page can hear
   // the room. A meter that stays at zero while notes play is drawing the event stream again.
   const meterPeak = async () => page.evaluate(() => {
-    const canvas = document.querySelector('canvas.audio-meter');
+    // THE DEFAULT PANE IS THE SPECTRUM, and it is the only loudness reading on the page now: the
+    // separate meter under the roll was removed because the Meters pane answers the same question.
+    const canvas = document.querySelector('canvas.spectrum-pane');
     if (!(canvas instanceof HTMLCanvasElement)) return null;
     return { peak: Number(canvas.dataset.peak ?? '0'), armed: canvas.dataset.armed === 'yes' };
   });
@@ -418,7 +420,7 @@ console.log(vibeBefore === null
 console.log(meterAtBar
   ? `audio meter ${meterAtBar.armed ? 'armed' : 'NOT ARMED'}: peak ${meterAtBar.peak} at the bar, ` +
     `${meterLater ? meterLater.peak : 'n/a'} 1.5 s later`
-  : 'audio meter not on the page (no canvas.audio-meter)');
+  : 'audio meter not on the page (no canvas.spectrum-pane)');
 console.log(`visualizer bright pixels ${canvasAtBar ?? 'n/a'} at the bar, ${canvasLater ?? 'n/a'} 1.2 s later` +
   `${canvasAtBar === null ? ' (no canvas.visualizer on the page)' : ''}`);
 console.log(toggle

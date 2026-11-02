@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, useMemo, useEffect } from 'react';
 import { useRoomSocket, PeerList, TransportBar, AgentPanel, MetricsPanel, AiDebugPanel, SessionPanel, tempoMarkOf, sessionSnapshot } from '@/client/features/room';
 import { useSynthEngine, Keyboard, useMidi, type InstrumentType } from '@/client/features/synth';
-import { AudioMeter, Visualizer, VisualizerDock } from '@/client/features/visualizer';
+import { Visualizer, VisualizerDock } from '@/client/features/visualizer';
 import { panForIndex } from '@/client/features/visualizer/lib/stereo';
 import type { NoteEvent, Peer } from '@/shared/protocol';
 import { slotDelayMs } from '@/client/features/room/lib/note-clock';
@@ -111,6 +111,16 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
           break;
         }
       }
+    }
+
+    // THE BUFFER IS A WINDOW, NOT A LOG. Nothing pruned it, and both note views scan it every frame: a
+    // recorded session of 198 s carried 2,943 events, so an hour is about 53,000 entries read once per
+    // peer per frame, which is where a pane starts dropping frames late in a set. Pruned once per event
+    // rather than per note-off loop, and only when the buffer has actually grown.
+    if (notes.length > 512) {
+      const cutoff = performance.now() - 12000;
+      const keepFrom = notes.findIndex(entry => (entry.endTime ?? entry.startTime) >= cutoff);
+      if (keepFrom > 0) notes.splice(0, keepFrom);
     }
   }, [engine]);
 
@@ -416,9 +426,20 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
         </aside>
 
         <div className="jam-room__content">
-          <Visualizer width={800} height={250} notesRef={visualizerNotesRef} />
-          {/* THE ROOM'S EARS. The roll above is a score; this reads the master output. */}
-          <AudioMeter engine={engine ?? null} width={800} height={56} />
+          {/* SIDE BY SIDE, because stacked they do not fit. Measured at a 1280 by 800 viewport with the
+              panes under the keys: roll 321 to 585, keyboard 689 to 829, dock 853 to 1090, so the keys
+              were cut off and the dock began below the fold. The roll keeps its place and its size; the
+              dock sits beside it and the keys stay under both. */}
+          <div className="jam-room__stage" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)', gap: 12, alignItems: 'start' }}>
+            <Visualizer width={800} height={250} notesRef={visualizerNotesRef} />
+            <VisualizerDock
+              engine={engine ?? null}
+              notesRef={visualizerNotesRef as unknown as React.RefObject<import('@/client/features/visualizer/ui/BandViewPane').BandNote[]>}
+              names={new Map(peers.map(peer => [peer.peerId, peer.name]))}
+              width={520}
+              height={208}
+            />
+          </div>
 
           {engine && (
             <Keyboard
@@ -427,14 +448,6 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
               onNoteEvent={handleLocalNoteEvent}
             />
           )}
-
-          {/* THE DOCK, BELOW THE KEYS. The roll above the keyboard stays as it is; these panes answer
-              the questions it cannot: who played what, the frequencies, the signal, the mood. */}
-          <VisualizerDock
-            engine={engine ?? null}
-            notesRef={visualizerNotesRef as unknown as React.RefObject<import('@/client/features/visualizer/ui/BandViewPane').BandNote[]>}
-            names={new Map(peers.map(peer => [peer.peerId, peer.name]))}
-          />
         </div>
       </div>
 
