@@ -103,6 +103,10 @@ export function useRoomSocket({
     wsRef.current = ws;
 
     ws.onopen = () => {
+      // A LATE OPEN FROM A SOCKET NOBODY USES ANY MORE MUST NOT LAND. The effect re-runs when the
+      // instrument resolves, so a first socket can open after its replacement is already the live one;
+      // announcing it would also join the room twice.
+      if (wsRef.current !== ws) return;
       setStatus('connected');
       reconnectAttempt.current = 0;
 
@@ -214,7 +218,14 @@ export function useRoomSocket({
       }
     };
 
+    // ONLY THE LIVE SOCKET'S CLOSE COUNTS. This line used to null the ref unconditionally, so when the
+    // effect re-ran (the instrument prop settling from undefined to PolySynth) the FIRST socket's close
+    // wiped the ref of the SECOND, which was open and working: every send then hit `readyState === OPEN`
+    // on a null ref and did nothing, while clock pings sent on the captured socket proved the room was
+    // alive. Measured on 2026-11-02: pressing Add an agent changed the button to "Adding..." and no frame
+    // ever left the page, at random, depending on whether the stale close had fired yet.
     ws.onclose = () => {
+      if (wsRef.current !== ws) return;
       setStatus('disconnected');
       wsRef.current = null;
       scheduleReconnect();
