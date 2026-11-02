@@ -479,9 +479,10 @@ export class AudioEngine {
     // THE FADER MOVES THE BUS, not the velocity of the notes this page happens to send: scaling velocity
     // silenced your own keys and left every agent exactly as loud, which is the opposite of a master fader.
     if (this.masterGain) {
-      const gain = this.masterGain.gain;
-      gain.cancelScheduledValues(0);
-      gain.rampTo(this.masterVolumeLevel, 0.05);
+      // A DIRECT SET, measured: `rampTo` left the param reading 1 while the fader said zero, so the
+      // published reading and the sound disagreed and the meter still showed the band at full mute. A
+      // Param's value assignment is immediate and cannot be lost in a cancelled timeline.
+      this.masterGain.gain.value = this.masterVolumeLevel;
     }
     // THE READING THE PANEL AND THE GATE CHECK. A fader that stores a number and does not move the bus
     // looks identical on screen, so the value it actually set is published where a probe can read it.
