@@ -21,7 +21,8 @@ interface PatchPanelProps {
   /** whose voice this is, so the panel says what it is editing */
   name: string;
   patch: Patch;
-  onChange: (patch: Patch) => void;
+  /** a FUNCTION of the freshest patch: three controls moved in one frame must not overwrite each other */
+  onChange: (updater: (prev: Patch) => Patch) => void;
   /** false when the selected card is not a bot, so the panel can say why it is inert */
   editable: boolean;
 }
@@ -126,8 +127,8 @@ function filterPath(patch: Patch, width: number, height: number): string {
 
 export function PatchPanel({ name, patch, onChange, editable }: PatchPanelProps) {
   const set = useCallback(<K extends keyof Patch>(key: K, value: Patch[K]) => {
-    onChange({ ...patch, [key]: value });
-  }, [patch, onChange]);
+    onChange(prev => ({ ...prev, [key]: value }));
+  }, [onChange]);
 
   return (
     <div className="patch" style={{ display: 'grid', gap: 10, opacity: editable ? 1 : 0.55 }}>
@@ -145,7 +146,7 @@ export function PatchPanel({ name, patch, onChange, editable }: PatchPanelProps)
             data-preset={preset.id}
             disabled={!editable}
             title={`Start from ${preset.label}`}
-            onClick={() => onChange({ ...patch, base: preset.id })}
+            onClick={() => onChange(prev => ({ ...prev, base: preset.id }))}
             style={{ fontSize: 10, padding: '2px 6px' }}
           >
             {preset.icon} {preset.label}
@@ -185,10 +186,10 @@ export function PatchPanel({ name, patch, onChange, editable }: PatchPanelProps)
         <path d={envelopePath(patch, 240, 40)} stroke="currentColor" strokeWidth="1.6" fill="none" />
       </svg>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
-        <Knob label="Attack" value={patch.env.attack} min={0.001} max={4} step={0.01} format={v => `${v.toFixed(2)}s`} disabled={!editable} onChange={v => set('env', { ...patch.env, attack: v })} />
-        <Knob label="Decay" value={patch.env.decay} min={0.01} max={4} step={0.01} format={v => `${v.toFixed(2)}s`} disabled={!editable} onChange={v => set('env', { ...patch.env, decay: v })} />
-        <Knob label="Sustain" value={patch.env.sustain} min={0} max={1} step={0.01} format={v => v.toFixed(2)} disabled={!editable} onChange={v => set('env', { ...patch.env, sustain: v })} />
-        <Knob label="Release" value={patch.env.release} min={0.01} max={6} step={0.01} format={v => `${v.toFixed(2)}s`} disabled={!editable} onChange={v => set('env', { ...patch.env, release: v })} />
+        <Knob label="Attack" value={patch.env.attack} min={0.001} max={4} step={0.01} format={v => `${v.toFixed(2)}s`} disabled={!editable} onChange={v => onChange(prev => ({ ...prev, env: { ...prev.env, attack: v } }))} />
+        <Knob label="Decay" value={patch.env.decay} min={0.01} max={4} step={0.01} format={v => `${v.toFixed(2)}s`} disabled={!editable} onChange={v => onChange(prev => ({ ...prev, env: { ...prev.env, decay: v } }))} />
+        <Knob label="Sustain" value={patch.env.sustain} min={0} max={1} step={0.01} format={v => v.toFixed(2)} disabled={!editable} onChange={v => onChange(prev => ({ ...prev, env: { ...prev.env, sustain: v } }))} />
+        <Knob label="Release" value={patch.env.release} min={0.01} max={6} step={0.01} format={v => `${v.toFixed(2)}s`} disabled={!editable} onChange={v => onChange(prev => ({ ...prev, env: { ...prev.env, release: v } }))} />
       </div>
 
       <svg width="100%" height="34" viewBox="0 0 240 34" preserveAspectRatio="none" aria-label="filter">
@@ -203,19 +204,19 @@ export function PatchPanel({ name, patch, onChange, editable }: PatchPanelProps)
             disabled={!editable}
             aria-label="filter type"
             data-patch="filter type"
-            onChange={event => set('filter', { ...patch.filter, type: event.target.value as Patch['filter']['type'] })}
+            onChange={event => onChange(prev => ({ ...prev, filter: { ...prev.filter, type: event.target.value as Patch['filter']['type'] } }))}
             style={{ fontSize: 11 }}
           >
             {FILTER_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
           </select>
         </label>
-        <Knob label="Cutoff" value={patch.filter.cutoff} min={80} max={12000} step={10} format={v => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}Hz`)} disabled={!editable} onChange={v => set('filter', { ...patch.filter, cutoff: v })} />
-        <Knob label="Resonance" value={patch.filter.resonance} min={0} max={12} step={0.1} format={v => v.toFixed(1)} disabled={!editable} onChange={v => set('filter', { ...patch.filter, resonance: v })} />
+        <Knob label="Cutoff" value={patch.filter.cutoff} min={80} max={12000} step={10} format={v => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}Hz`)} disabled={!editable} onChange={v => onChange(prev => ({ ...prev, filter: { ...prev.filter, cutoff: v } }))} />
+        <Knob label="Resonance" value={patch.filter.resonance} min={0} max={12} step={0.1} format={v => v.toFixed(1)} disabled={!editable} onChange={v => onChange(prev => ({ ...prev, filter: { ...prev.filter, resonance: v } }))} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 8 }}>
-        <Knob label="LFO rate" value={patch.lfo.rate} min={0.05} max={14} step={0.05} format={v => `${v.toFixed(1)}Hz`} disabled={!editable} onChange={v => set('lfo', { ...patch.lfo, rate: v })} />
-        <Knob label="LFO depth" value={patch.lfo.depth} min={0} max={1} step={0.01} format={v => v.toFixed(2)} disabled={!editable} onChange={v => set('lfo', { ...patch.lfo, depth: v })} />
+        <Knob label="LFO rate" value={patch.lfo.rate} min={0.05} max={14} step={0.05} format={v => `${v.toFixed(1)}Hz`} disabled={!editable} onChange={v => onChange(prev => ({ ...prev, lfo: { ...prev.lfo, rate: v } }))} />
+        <Knob label="LFO depth" value={patch.lfo.depth} min={0} max={1} step={0.01} format={v => v.toFixed(2)} disabled={!editable} onChange={v => onChange(prev => ({ ...prev, lfo: { ...prev.lfo, depth: v } }))} />
         <Knob label="Chorus" value={patch.chorus} min={0} max={1} step={0.01} format={v => v.toFixed(2)} disabled={!editable} onChange={v => set('chorus', v)} />
         <Knob label="Drive" value={patch.drive} min={0} max={1} step={0.01} format={v => v.toFixed(2)} disabled={!editable} onChange={v => set('drive', v)} />
         <Knob label="Level" value={patch.level} min={-30} max={0} step={0.5} format={v => `${v.toFixed(1)}dB`} disabled={!editable} onChange={v => set('level', v)} />

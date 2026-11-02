@@ -33,6 +33,8 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
   const patchSendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** what the engine already holds per peer, so a repeated frame does not cut a held note */
   const appliedPatchesRef = useRef<Map<string, string>>(new Map());
+  /** the draft as it stands right now, so a fast drag never reads a stale render */
+  const patchDraftRef = useRef<Map<string, Patch>>(new Map());
   const [isRecording, setIsRecording] = useState(false);
 
   // WHO IS PLAYING. The socket does not carry the answer to the page, so it is asked once, from the
@@ -303,17 +305,25 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
    * A SLIDER MOVES THE ROOM, NOT ONLY THE PAGE. The draft is applied locally at once so the control feels
    * direct, and the message to the server rides a short trailing timer so a sweep is one send.
    */
-  const handlePatchChange = useCallback((patch: Patch) => {
+  const handlePatchChange = useCallback((updater: (prev: Patch) => Patch) => {
     const peerId = selectedPeer?.peerId;
     if (!peerId) return;
-    setDraftPatches(prev => new Map(prev).set(peerId, patch));
-    appliedPatchesRef.current.set(peerId, JSON.stringify(patch));
-    engine?.setPeerPatch(peerId, patch);
+    // THE FRESHEST VALUE, not the one this render closed over: dragging three controls in one frame used
+    // to apply each change to the patch as it stood before the others, so the last write won and the
+    // waveform snapped back to what it was.
+    const current = patchDraftRef.current.get(peerId)
+      ?? patches.get(peerId)
+      ?? defaultPatchFor((selectedPeer?.instrument ?? DEFAULT_INSTRUMENT) as InstrumentType);
+    const next = updater(current);
+    patchDraftRef.current.set(peerId, next);
+    setDraftPatches(prev => new Map(prev).set(peerId, next));
+    appliedPatchesRef.current.set(peerId, JSON.stringify(next));
+    engine?.setPeerPatch(peerId, next);
     if (patchSendTimer.current) clearTimeout(patchSendTimer.current);
     patchSendTimer.current = setTimeout(() => {
-      sendMessage(JSON.stringify({ type: 'set_agent_patch', agentPeerId: peerId, patch }));
+      sendMessage(JSON.stringify({ type: 'set_agent_patch', agentPeerId: peerId, patch: next }));
     }, 140);
-  }, [selectedPeer, engine, sendMessage]);
+  }, [selectedPeer, patches, engine, sendMessage]);
 
   const handleInstrumentChange = useCallback((instrument: InstrumentType) => {
     setCurrentInstrument(instrument);
