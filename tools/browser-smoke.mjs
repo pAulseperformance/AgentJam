@@ -463,13 +463,19 @@ try {
   await page.waitForTimeout(350);
   patchPanel.after.wave = await page.evaluate(() => document.querySelector('[data-patch-wave]')?.getAttribute('data-patch-wave') ?? null);
   // THE MASTER FADER, because a room needs one control for the whole band.
-  patchPanel.master = await page.evaluate(() => {
+  patchPanel.master = await page.evaluate(async () => {
     const el = document.querySelector('#master-volume');
     if (!el) return null;
     const before = el.getAttribute('data-master-volume');
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, '0.35');
     el.dispatchEvent(new Event('input', { bubbles: true }));
-    return { before, after: el.getAttribute('data-master-volume') };
+    await new Promise(resolve => setTimeout(resolve, 250));
+    return {
+      before,
+      after: el.getAttribute('data-master-volume'),
+      // THE BUS, not the number: a fader that stores 35 and leaves the gain at 1 looks identical on screen.
+      gain: document.body.dataset.masterGain ?? null,
+    };
   });
   await page.click('[data-pane-tab="spectrum"]', { timeout: 1500 }).catch(() => {});
 
@@ -563,7 +569,7 @@ console.log(meterAtBar
   : 'audio meter not on the page (no canvas.spectrum-pane)');
 console.log(`visualizer bright pixels ${canvasAtBar ?? 'n/a'} at the bar, ${canvasLater ?? 'n/a'} 1.2 s later` +
   `${canvasAtBar === null ? ' (no canvas.visualizer on the page)' : ''}`);
-console.log(`patch      ${patchPanel?.presets ?? 0} presets, ${patchPanel?.waves ?? 0} waves, ${patchPanel?.knobs ?? 0} knobs in ${patchPanel?.sections ?? 0} sections, ${patchPanel?.modTargets ?? 0} modulator destinations; pad loaded as ${patchPanel?.preset?.base ?? '?'} at ${patchPanel?.preset?.cutoff ?? '?'}Hz / ${patchPanel?.preset?.voices ?? '?'} voices; knob to ${patchPanel?.after?.cutoff ?? '?'}Hz, wave ${patchPanel?.after?.wave ?? '?'}; master ${patchPanel?.master?.before ?? '?'} to ${patchPanel?.master?.after ?? '?'}`);
+console.log(`patch      ${patchPanel?.presets ?? 0} presets, ${patchPanel?.waves ?? 0} waves, ${patchPanel?.knobs ?? 0} knobs in ${patchPanel?.sections ?? 0} sections, ${patchPanel?.modTargets ?? 0} modulator destinations; pad loaded as ${patchPanel?.preset?.base ?? '?'} at ${patchPanel?.preset?.cutoff ?? '?'}Hz / ${patchPanel?.preset?.voices ?? '?'} voices; knob to ${patchPanel?.after?.cutoff ?? '?'}Hz, wave ${patchPanel?.after?.wave ?? '?'}; master ${patchPanel?.master?.before ?? '?'} to ${patchPanel?.master?.after ?? '?'} (bus ${patchPanel?.master?.gain ?? '?'})`);
 console.log(`voices     ${instruments?.options ?? 0} instruments in ${instruments?.groups ?? 0} groups, this bot plays ${instruments?.chosen ?? 'nothing'}`);
 console.log(`piano      ${piano?.whites ?? 0} white keys with a ${piano?.maxGap ?? 'n/a'} px worst gap, ${piano?.blacks ?? 0} black keys off their seam by at most ${piano?.maxSeamError ?? 'n/a'} px`);
 console.log(`keyboard   ${keyboardLetters} letters drawn, ${keysOutside} keys marked outside the room's key, readout "${keyboardReadout ?? ''}"`);
@@ -634,6 +640,8 @@ if (!failure) {
     failure = `the waveform reads ${patchPanel.after?.wave ?? 'nothing'} after choosing sawtooth`;
   } else if (!patchPanel.master || patchPanel.master.after !== '35') {
     failure = `the master fader reads ${patchPanel.master?.after ?? 'nothing'} after being set to 35`;
+  } else if (patchPanel.master.gain !== '0.35') {
+    failure = `the master fader reads 35 and set the bus to ${patchPanel.master.gain ?? 'nothing'}: a fader that does not move the bus is a number`;
   } else if (!instruments || instruments.options < 10 || instruments.groups < 4) {
     failure = `a bot's card offers ${instruments?.options ?? 0} instruments in ${instruments?.groups ?? 0} groups, and every bot should arrive with a patch`;
   } else if (!instruments.chosen || /^Classic$/.test(instruments.chosen)) {
