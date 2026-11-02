@@ -2,6 +2,7 @@ import { useCallback, useRef, useState, useMemo, useEffect } from 'react';
 import { useRoomSocket, PeerList, TransportBar, AgentPanel, MetricsPanel, AiDebugPanel, SessionPanel, tempoMarkOf, sessionSnapshot } from '@/client/features/room';
 import { useSynthEngine, Keyboard, useMidi, type InstrumentType } from '@/client/features/synth';
 import { AudioMeter, Visualizer, VisualizerDock } from '@/client/features/visualizer';
+import { panForIndex } from '@/client/features/visualizer/lib/stereo';
 import type { NoteEvent, Peer } from '@/shared/protocol';
 import { slotDelayMs } from '@/client/features/room/lib/note-clock';
 
@@ -160,6 +161,12 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     for (const peer of peers) {
       if (peer.instrument) engine.setPeerInstrument(peer.peerId, peer.instrument as InstrumentType);
     }
+    // THE BAND GETS A FIELD. Each peer is placed by its seat at the table, so the same band is laid out
+    // the same way on every listener's machine and a bot that takes a lane sounds like it stands there.
+    const order = [...peers].sort((a, b) => (a.peerId < b.peerId ? -1 : 1));
+    order.forEach((peer, index) => {
+      engine.setPeerPan(peer.peerId, panForIndex(index, order.length));
+    });
   }, [peers, engine]);
 
   // Derive local peerId, the peer whose name matches ours

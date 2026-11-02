@@ -144,6 +144,9 @@ export class AudioEngine {
   private peerInstruments: Map<string, InstrumentType> = new Map();
   /** Per-peer volume nodes: peerId → Gain */
   private peerGains: Map<string, Tone.Gain> = new Map();
+  /** Per-peer pan position, and the node that applies it once the voice exists */
+  private peerPans: Map<string, number> = new Map();
+  private peerPanners: Map<string, Tone.Panner> = new Map();
   /** Master volume for local player */
   private masterGain: Tone.Gain | null = null;
   /**
@@ -156,6 +159,10 @@ export class AudioEngine {
   private analyser: Tone.Analyser | null = null;
   /** The time-domain twin. A spectrum says which frequencies, a scope says the shape of the wave. */
   private scope: Tone.Analyser | null = null;
+  /** The right channel's own scope, so the goniometer has two independent signals to plot. */
+  private rightScope: Tone.Analyser | null = null;
+  /** Splits the master into the two channels the stereo panes read. */
+  private split: Tone.Split | null = null;
   /** Muted peers set */
   private mutedPeers: Set<string> = new Set();
   /** Master volume as a plain number (0-1), applied as velocity multiplier */
@@ -171,8 +178,15 @@ export class AudioEngine {
     // 64 bins is enough for 16 bars and cheap enough to read every frame at 30 fps.
     this.analyser = new Tone.Analyser('fft', 128);
     this.masterGain.connect(this.analyser);
+    // TWO CHANNELS, because the room now has a stereo field: every peer is panned by its seat, so a
+    // goniometer and a width meter read something real instead of a mono line. A single analyser's
+    // channel count is fixed at construction in Tone 14, so the bus is split and measured twice.
+    this.split = new Tone.Split();
+    this.masterGain.connect(this.split);
     this.scope = new Tone.Analyser('waveform', 512);
-    this.masterGain.connect(this.scope);
+    this.rightScope = new Tone.Analyser('waveform', 512);
+    this.split.connect(this.scope, 0, 0);
+    this.split.connect(this.rightScope, 1, 0);
     if (this.currentInstrument === 'DrumKit') {
       this.localKit = createDrumKit(this.masterGain);
     } else {
@@ -248,10 +262,30 @@ export class AudioEngine {
   private getOrCreatePeerGain(peerId: string): Tone.Gain {
     let gain = this.peerGains.get(peerId);
     if (!gain) {
-      gain = new Tone.Gain(1).connect(this.outputBus());
+      const panner = new Tone.Panner(this.peerPans.get(peerId) ?? 0);
+      gain = new Tone.Gain(1).connect(panner);
+      panner.connect(this.outputBus());
+      this.peerPans.set(peerId, panner.pan.value as number);
+      this.peerPanners.set(peerId, panner);
       this.peerGains.set(peerId, gain);
     }
     return gain;
+  }
+
+  /**
+   * WHERE A PEER SITS IN THE FIELD, from -1 to +1. The page assigns this by SEAT, so the same band is
+   * laid out the same way on every listener's machine, and a bot that takes a lane sounds like it is
+   * standing there rather than on top of everyone else.
+   */
+  setPeerPan(peerId: string, pan: number): void {
+    const clamped = Math.max(-1, Math.min(1, pan));
+    this.peerPans.set(peerId, clamped);
+    const existing = this.peerPanners.get(peerId);
+    if (existing) {
+      existing.pan.value = clamped;
+      return;
+    }
+    // A panner that arrives before the voice is remembered and applied when the gain is built.
   }
 
   /** Set volume for a specific peer (0-1 range) */
@@ -277,16 +311,26 @@ export class AudioEngine {
    * samples. Null before the audio overlay is answered, which is the honest answer for a page that has
    * not been armed.
    */
-  analyserSnapshot(): { spectrum: Float32Array<ArrayBufferLike>; wave: Float32Array<ArrayBufferLike> } | null {
+  analyserSnapshot(): {
+    spectrum: Float32Array<ArrayBufferLike>;
+    wave: Float32Array<ArrayBufferLike>;
+    left: Float32Array<ArrayBufferLike>;
+    right: Float32Array<ArrayBufferLike>;
+  } | null {
     if (!this.analyser) return null;
     const fft = this.analyser.getValue();
     const spectrum = Array.isArray(fft) ? (fft[0] ?? new Float32Array(0)) : fft;
-    let wave = new Float32Array(0);
+    let left: Float32Array<ArrayBufferLike> = new Float32Array(0);
+    let right: Float32Array<ArrayBufferLike> = new Float32Array(0);
     if (this.scope) {
       const time = this.scope.getValue();
-      wave = Array.isArray(time) ? (time[0] ?? new Float32Array(0)) : time;
+      left = Array.isArray(time) ? (time[0] ?? new Float32Array(0)) : time;
     }
-    return { spectrum, wave };
+    if (this.rightScope) {
+      const time = this.rightScope.getValue();
+      right = Array.isArray(time) ? (time[0] ?? new Float32Array(0)) : time;
+    }
+    return { spectrum, wave: left, left, right };
   }
 
   meterLevels(bars = 16): number[] {

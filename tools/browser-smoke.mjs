@@ -304,12 +304,30 @@ try {
   // AND THE DOCK: four panes, each of which must paint when it is picked. The note roll above the
   // keyboard is untouched, so this is additive and the readings below are per pane rather than one.
   dockReadings = {};
-  for (const tab of ['band', 'spectrum', 'meters', 'atmos']) {
+  for (const tab of ['spectrum', 'band', 'meters', 'stereo', 'atmos']) {
     await page.click(`[data-pane-tab="${tab}"]`, { timeout: Math.max(400, Math.min(remaining(), 2500)) }).catch(() => {});
     await page.waitForTimeout(900);
     dockReadings[tab] = await page.evaluate((pane) => {
-      const canvas = document.querySelector(`.${pane === 'band' ? 'band-view-pane' : pane === 'atmos' ? 'atmos-pane' : pane === 'meters' ? 'meters-pane' : 'spectrum-pane'}`);
+      const className = {
+        band: 'band-view-pane',
+        spectrum: 'spectrum-pane',
+        meters: 'meters-pane',
+        stereo: 'stereo-pane',
+        atmos: 'atmos-gl-pane',
+      }[pane];
+      const canvas = document.querySelector(`.${className}`);
       if (!(canvas instanceof HTMLCanvasElement)) return { drawn: null };
+      // A WEBGL CANVAS CANNOT BE READ WITH getImageData, so the shader pane counts its own frames in
+      // data-painted and this reading asks it, rather than sampling pixels it does not expose.
+      const painted = canvas.dataset.painted;
+      if (painted !== undefined) {
+        return {
+          drawn: Number(painted) > 0 ? Number(painted) : null,
+          frames: painted,
+          preset: canvas.dataset.preset ?? null,
+          dock: document.querySelector('.visualizer-dock')?.getAttribute('data-pane') ?? null,
+        };
+      }
       const ctx = canvas.getContext('2d');
       if (!ctx) return { drawn: null };
       const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -319,13 +337,14 @@ try {
         drawn: bright,
         lanes: canvas.dataset.lanes ?? null,
         peak: canvas.dataset.peak ?? null,
+        correlation: canvas.dataset.correlation ?? null,
         bass: canvas.dataset.bass ?? null,
         dock: document.querySelector('.visualizer-dock')?.getAttribute('data-pane') ?? null,
       };
     }, tab);
   }
   // back to the roll's neighbour so the last pane is not the one left on screen
-  await page.click('[data-pane-tab="band"]', { timeout: 1500 }).catch(() => {});
+  await page.click('[data-pane-tab="spectrum"]', { timeout: 1500 }).catch(() => {});
 
   const errorsBefore = pageErrors.length;
   await page.click('#phrase-ask', { timeout: Math.max(500, Math.min(remaining(), 4000)) });
@@ -389,7 +408,7 @@ if (llmBars.length) {
 console.log(panelDrawn
   ? `panel drawn, state "${panelState ?? 'unknown'}"${panelState === 'signed out' ? ' (a guest: the panel draws its guest state and no rows)' : ''}`
   : 'panel not drawn (no .session-panel on the page)');
-console.log('dock       ' + Object.entries(dockReadings).map(([pane, read]) => `${pane} ${read.drawn === null ? 'NO CANVAS' : `${read.drawn}px`}`).join(', '));
+console.log('dock       ' + Object.entries(dockReadings).map(([pane, read]) => `${pane} ${read.drawn === null ? 'NO CANVAS' : (read.frames !== undefined ? `${read.frames} frames (${read.preset})` : `${read.drawn}px`)}`).join(', '));
 console.log(vibeBefore === null
   ? 'vibe       no #vibe-select on the page'
   : `vibe       read ${vibeBefore}, picked funk, now reads ${vibeAfter}`);
@@ -424,8 +443,8 @@ if (!failure) {
       `${(deadlineMs / 1000).toFixed(1)} s deadline`;
   } else if (!spawnedPeers.includes('Smoke')) {
     failure = `the room never announced the one agent: agent_spawned names ${spawnedPeers.join(', ') || 'nobody'}`;
-  } else if (Object.keys(dockReadings).length !== 4) {
-    failure = `the visualizer dock offered ${Object.keys(dockReadings).length} panes, not 4`;
+  } else if (Object.keys(dockReadings).length !== 5) {
+    failure = `the visualizer dock offered ${Object.keys(dockReadings).length} panes, not 5`;
   } else if (Object.values(dockReadings).some(read => read.drawn === null)) {
     failure = 'a dock pane drew no canvas when it was picked';
   } else if (Object.values(dockReadings).some(read => (read.drawn ?? 0) < 40)) {

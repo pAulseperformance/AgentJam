@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import type { AudioEngine } from '@/client/features/synth';
-import { AtmosPane } from './AtmosPane';
+import { AtmosGLPane } from './AtmosGLPane';
 import { BandViewPane, type BandNote } from './BandViewPane';
 import { MetersPane } from './MetersPane';
 import { SpectrumPane } from './SpectrumPane';
+import { StereoPane } from './StereoPane';
 
 /**
  * THE VISUALIZER DOCK: every reading the room can give, one at a time, added BELOW the keyboard.
@@ -14,10 +15,11 @@ import { SpectrumPane } from './SpectrumPane';
  * them at once would be the "one picture that means everything" this whole pass exists to avoid.
  */
 const PANES = [
-  { id: 'band', label: 'Band', hint: 'who is playing what, lane per player' },
   { id: 'spectrum', label: 'Spectrum', hint: 'the frequencies of the room output' },
+  { id: 'band', label: 'Band', hint: 'who is playing what, lane per player' },
   { id: 'meters', label: 'Meters', hint: 'scope, spectrogram, peak and RMS' },
-  { id: 'atmos', label: 'Atmos', hint: 'the room breathing, nothing faster than the music' },
+  { id: 'stereo', label: 'Stereo', hint: 'goniometer, correlation, width and the two channels' },
+  { id: 'atmos', label: 'Atmos', hint: 'shader feedback on the room, nothing faster than the music' },
 ] as const;
 
 type PaneId = (typeof PANES)[number]['id'];
@@ -31,7 +33,9 @@ interface VisualizerDockProps {
 }
 
 export function VisualizerDock({ engine, notesRef, names, width = 800, height = 200 }: VisualizerDockProps) {
-  const [pane, setPane] = useState<PaneId>('band');
+  // SPECTRUM BY DEFAULT, because it is the pane a person expects to find and the one that answers
+  // "is the room doing anything" in a glance.
+  const [pane, setPane] = useState<PaneId>('spectrum');
 
   return (
     <section className="visualizer-dock" data-pane={pane} aria-label="Visualizers">
@@ -64,7 +68,8 @@ export function VisualizerDock({ engine, notesRef, names, width = 800, height = 
       {pane === 'band' && <BandViewPane engine={engine} notesRef={notesRef} names={names} width={width} height={height} />}
       {pane === 'spectrum' && <SpectrumPane engine={engine} width={width} height={height} />}
       {pane === 'meters' && <MetersPane engine={engine} width={width} height={height} />}
-      {pane === 'atmos' && <AtmosPane engine={engine} width={width} height={height} />}
+      {pane === 'stereo' && <StereoPane engine={engine} width={width} height={height} />}
+      {pane === 'atmos' && <AtmosGLPane engine={engine} width={width} height={height} />}
     </section>
   );
 }
