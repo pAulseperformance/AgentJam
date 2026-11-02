@@ -29,6 +29,21 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
   // THE PATCH PANEL EDITS ONE CARD AT A TIME, and the edit is optimistic: the sliders move on the frame
   // you drag them, and the send that tells the room is throttled so a sweep is one message, not sixty.
   const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
+  // THE MASTER FADER REMEMBERS. Kept in localStorage so a room does not open at full volume on a laptop at
+  // midnight, and applied to the engine's bus the moment it exists.
+  const [masterVolume, setMasterVolume] = useState<number>(() => {
+    try {
+      const stored = Number(window.localStorage.getItem('agentjam:master'));
+      return Number.isFinite(stored) && stored >= 0 && stored <= 1 ? stored : 0.8;
+    } catch { return 0.8; }
+  });
+  const handleMasterVolume = useCallback((volume: number) => {
+    const clamped = Math.max(0, Math.min(1, volume));
+    setMasterVolume(clamped);
+    engine?.setMasterVolume(clamped);
+    try { window.localStorage.setItem('agentjam:master', String(clamped)); } catch { /* storage blocked */ }
+  }, [engine]);
+  useEffect(() => { engine?.setMasterVolume(masterVolume); }, [engine, masterVolume]);
   const [draftPatches, setDraftPatches] = useState<Map<string, Patch>>(() => new Map());
   const patchSendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** what the engine already holds per peer, so a repeated frame does not cut a held note */
@@ -381,6 +396,8 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
         onVibeChange={handleVibeChange}
         isRecording={isRecording}
         onToggleRecording={handleToggleRecording}
+        masterVolume={masterVolume}
+        onMasterVolume={handleMasterVolume}
       />
 
       {/* THE CEILING, MARKED WHERE THE TEMPO IS SET. One line, the number in words: above it the room

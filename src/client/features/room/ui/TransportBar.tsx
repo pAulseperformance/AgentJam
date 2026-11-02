@@ -15,6 +15,9 @@ interface TransportBarProps {
   currentInstrument?: InstrumentType;
   isRecording?: boolean;
   onToggleRecording?: () => void;
+  /** the master fader: one control for the whole room, after the voices and before the limiter */
+  masterVolume?: number;
+  onMasterVolume?: (volume: number) => void;
 }
 
 const KEYS = [
@@ -35,6 +38,8 @@ export function TransportBar({
   onInstrumentChange,
   onVibeChange,
   currentInstrument = DEFAULT_INSTRUMENT,
+  masterVolume = 0.8,
+  onMasterVolume,
   isRecording = false,
   onToggleRecording,
 }: TransportBarProps) {
@@ -154,6 +159,36 @@ export function TransportBar({
             </option>
           ))}
         </select>
+      </div>
+
+      {/* THE MASTER. Every player has its own fader on its card; this one moves the room. It sits last in
+          the bar because it is the last thing in the signal path, and it says the number, because a fader
+          with no reading is a guess. */}
+      <div className="transport-bar__key transport-bar__master">
+        <label htmlFor="master-volume" className="transport-bar__label">Master</label>
+        <input
+          id="master-volume"
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={masterVolume}
+          data-master-volume={String(Math.round(masterVolume * 100))}
+          onChange={(event) => onMasterVolume?.(Number(event.target.value))}
+          style={{ width: 90 }}
+        />
+        <span className="transport-bar__label" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {Math.round(masterVolume * 100)}%
+        </span>
+        <button
+          className="transport-bar__mute"
+          data-master-mute={masterVolume === 0 ? 'on' : 'off'}
+          title={masterVolume === 0 ? 'Unmute the room' : 'Mute the room'}
+          onClick={() => onMasterVolume?.(masterVolume === 0 ? 0.8 : 0)}
+          style={{ fontSize: 11, padding: '1px 6px' }}
+        >
+          {masterVolume === 0 ? '🔇' : '🔊'}
+        </button>
       </div>
     </div>
   );

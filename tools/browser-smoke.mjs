@@ -424,47 +424,53 @@ try {
     }, tab);
   }
   // back to the roll's neighbour so the last pane is not the one left on screen
-  // THE SYNTH FRONT PANEL: a person must be able to open it, pick a preset, and move the waveform.
+  // THE SYNTH FRONT PANEL, as a surface rather than a form: it must open, carry sections and knobs, load a
+  // preset's own numbers, and a control on it must reach the room. The knobs are SVG sliders, so the
+  // reading is aria-valuenow and the interaction is a keyboard press, which is also the accessible path.
   await page.click('.peer-list__item:has([data-agent-part])').catch(() => {});
   await page.click('[data-pane-tab="patch"]', { timeout: 2000 }).catch(() => {});
   await page.waitForTimeout(400);
-  patchPanel = await page.evaluate(() => {
-    const presets = document.querySelectorAll('.patch__preset').length;
-    const waves = document.querySelectorAll('.patch__wave').length;
-    const knobs = document.querySelectorAll('.patch [data-patch]').length;
-    const waveSvg = document.querySelector('[data-patch-wave]')?.getAttribute('data-patch-wave') ?? null;
-    return { presets, waves, knobs, wave: waveSvg };
-  });
-  // PICKING A PRESET MUST LOAD ITS NUMBERS. Press the pad preset and require the patch to move to it.
-  // The read waits for the panel to be mounted: a reading of `null` before the panel exists would make
-  // any later value look like a change, which is a check that cannot fail.
-  // PICKING A PRESET MUST LOAD ITS NUMBERS, so the reading is the preset's OWN values rather than a
-  // before-and-after: a missing control would read as a change and pass, and the preset is a fixed
-  // target anyway (the pad is 1400 Hz and a three-voice bank).
-  await page.click('.patch__preset[data-preset="juno-pad"]', { timeout: 3000 }).catch(() => {});
-  await page.waitForTimeout(450);
-  const presetReading = await page.evaluate(() => ({
-    cutoff: document.querySelector('[data-patch="cutoff"]')?.value ?? null,
-    voices: document.querySelector('[data-patch="voices"]')?.value ?? null,
-    base: document.querySelector('.patch__preset--on')?.getAttribute('data-preset') ?? null,
-  }));
-  if (patchPanel) patchPanel.preset = presetReading;
-  await page.evaluate(() => {
-    const cutoff = document.querySelector('.patch [data-patch="cutoff"]');
-    if (cutoff) {
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-      setter?.call(cutoff, '640');
-      cutoff.dispatchEvent(new Event('input', { bubbles: true }));
-      cutoff.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-    const saw = document.querySelector('.patch [data-wave="sawtooth"]');
-    saw?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-  });
-  await page.waitForTimeout(500);
-  patchPanel.after = await page.evaluate(() => ({
+  patchPanel = await page.evaluate(() => ({
+    presets: document.querySelectorAll('.patch__preset, .patch__chip[data-preset]').length,
+    waves: document.querySelectorAll('.patch__btn[data-wave]').length,
+    knobs: document.querySelectorAll('[data-knob]').length,
+    sections: document.querySelectorAll('[data-section]').length,
+    modTargets: document.querySelectorAll('[data-mod-target]').length,
+    eqCurve: Boolean(document.querySelector('[data-eq-curve]')),
     wave: document.querySelector('[data-patch-wave]')?.getAttribute('data-patch-wave') ?? null,
-    cutoff: document.querySelector('.patch [data-patch="cutoff"]')?.value ?? null,
   }));
+  const readKnob = async (name) => {
+    for (let attempt = 0; attempt < 25; attempt += 1) {
+      const value = await page.evaluate(sel => document.querySelector(sel)?.getAttribute('aria-valuenow') ?? null, `[data-patch="${name}"]`);
+      if (value !== null) return value;
+      await page.waitForTimeout(100);
+    }
+    return null;
+  };
+  await page.click('.patch__chip[data-preset="juno-pad"]', { timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(450);
+  patchPanel.preset = {
+    base: await page.evaluate(() => document.querySelector('.patch__chip--on')?.getAttribute('data-preset') ?? null),
+    cutoff: await readKnob('cutoff'),
+    voices: await readKnob('voices'),
+  };
+  // A KNOB MOVES BY KEYBOARD, and the patch and the drawing follow it.
+  await page.evaluate(() => document.querySelector('[data-patch="cutoff"]')?.focus());
+  await page.keyboard.press('Home');
+  await page.waitForTimeout(200);
+  patchPanel.after = { cutoff: await readKnob('cutoff') };
+  await page.click('.patch__btn[data-wave="sawtooth"]', { timeout: 2000 }).catch(() => {});
+  await page.waitForTimeout(350);
+  patchPanel.after.wave = await page.evaluate(() => document.querySelector('[data-patch-wave]')?.getAttribute('data-patch-wave') ?? null);
+  // THE MASTER FADER, because a room needs one control for the whole band.
+  patchPanel.master = await page.evaluate(() => {
+    const el = document.querySelector('#master-volume');
+    if (!el) return null;
+    const before = el.getAttribute('data-master-volume');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, '0.35');
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    return { before, after: el.getAttribute('data-master-volume') };
+  });
   await page.click('[data-pane-tab="spectrum"]', { timeout: 1500 }).catch(() => {});
 
   // THE SWITCH STARTS ON, because a room that has never chosen is asked for phrases: a style lives in its
@@ -557,7 +563,7 @@ console.log(meterAtBar
   : 'audio meter not on the page (no canvas.spectrum-pane)');
 console.log(`visualizer bright pixels ${canvasAtBar ?? 'n/a'} at the bar, ${canvasLater ?? 'n/a'} 1.2 s later` +
   `${canvasAtBar === null ? ' (no canvas.visualizer on the page)' : ''}`);
-console.log(`patch      ${patchPanel?.presets ?? 0} presets, ${patchPanel?.waves ?? 0} waves, ${patchPanel?.knobs ?? 0} controls; pad preset loaded as ${patchPanel?.preset?.base ?? '?'} at ${patchPanel?.preset?.cutoff ?? '?'}Hz with ${patchPanel?.preset?.voices ?? '?'} voices; set ${patchPanel?.after?.wave ?? 'nothing'} at ${patchPanel?.after?.cutoff ?? 'n/a'}Hz`);
+console.log(`patch      ${patchPanel?.presets ?? 0} presets, ${patchPanel?.waves ?? 0} waves, ${patchPanel?.knobs ?? 0} knobs in ${patchPanel?.sections ?? 0} sections, ${patchPanel?.modTargets ?? 0} modulator destinations; pad loaded as ${patchPanel?.preset?.base ?? '?'} at ${patchPanel?.preset?.cutoff ?? '?'}Hz / ${patchPanel?.preset?.voices ?? '?'} voices; knob to ${patchPanel?.after?.cutoff ?? '?'}Hz, wave ${patchPanel?.after?.wave ?? '?'}; master ${patchPanel?.master?.before ?? '?'} to ${patchPanel?.master?.after ?? '?'}`);
 console.log(`voices     ${instruments?.options ?? 0} instruments in ${instruments?.groups ?? 0} groups, this bot plays ${instruments?.chosen ?? 'nothing'}`);
 console.log(`piano      ${piano?.whites ?? 0} white keys with a ${piano?.maxGap ?? 'n/a'} px worst gap, ${piano?.blacks ?? 0} black keys off their seam by at most ${piano?.maxSeamError ?? 'n/a'} px`);
 console.log(`keyboard   ${keyboardLetters} letters drawn, ${keysOutside} keys marked outside the room's key, readout "${keyboardReadout ?? ''}"`);
@@ -616,12 +622,18 @@ if (!failure) {
     failure = 'the "four bars per call" switch was never pressed (no #phrase-ask on the page)';
   } else if (!spawnLabel || !/^➕ Add a /.test(spawnLabel)) {
     failure = `the spawn button reads "${spawnLabel}", not the seat it will fill`;
-  } else if (!patchPanel || patchPanel.presets < 10 || patchPanel.waves < 5 || patchPanel.knobs < 10) {
-    failure = `the synth panel offers ${patchPanel?.presets ?? 0} presets, ${patchPanel?.waves ?? 0} waves and ${patchPanel?.knobs ?? 0} controls, and it should offer the whole surface`;
+  } else if (!patchPanel || patchPanel.presets < 10 || patchPanel.waves < 5 || patchPanel.knobs < 20) {
+    failure = `the synth panel offers ${patchPanel?.presets ?? 0} presets, ${patchPanel?.waves ?? 0} waves and ${patchPanel?.knobs ?? 0} knobs, and it should offer the whole surface`;
+  } else if (patchPanel.sections < 6 || patchPanel.modTargets !== 2 || !patchPanel.eqCurve) {
+    failure = `the panel has ${patchPanel.sections} sections, ${patchPanel.modTargets} modulator destinations and ${patchPanel.eqCurve ? '' : 'no '}EQ curve, and a synth panel has all of them`;
   } else if (patchPanel.preset?.base !== 'juno-pad' || patchPanel.preset?.cutoff !== '1400' || patchPanel.preset?.voices !== '3') {
     failure = `pressing the pad preset left the panel on ${patchPanel.preset?.base ?? 'nothing'} at ${patchPanel.preset?.cutoff ?? 'n/a'}Hz and ${patchPanel.preset?.voices ?? 'n/a'} voices: a preset is a sound, not a label`;
-  } else if (patchPanel.after?.wave !== 'sawtooth' || patchPanel.after?.cutoff !== '640') {
-    failure = `moving the panel left it reading ${patchPanel.after?.wave ?? 'nothing'} at ${patchPanel.after?.cutoff ?? 'n/a'}Hz`;
+  } else if (patchPanel.after?.cutoff === patchPanel.preset?.cutoff) {
+    failure = `a knob press left the cutoff at ${patchPanel.after?.cutoff ?? 'n/a'}: the panel is not connected to the patch`;
+  } else if (patchPanel.after?.wave !== 'sawtooth') {
+    failure = `the waveform reads ${patchPanel.after?.wave ?? 'nothing'} after choosing sawtooth`;
+  } else if (!patchPanel.master || patchPanel.master.after !== '35') {
+    failure = `the master fader reads ${patchPanel.master?.after ?? 'nothing'} after being set to 35`;
   } else if (!instruments || instruments.options < 10 || instruments.groups < 4) {
     failure = `a bot's card offers ${instruments?.options ?? 0} instruments in ${instruments?.groups ?? 0} groups, and every bot should arrive with a patch`;
   } else if (!instruments.chosen || /^Classic$/.test(instruments.chosen)) {

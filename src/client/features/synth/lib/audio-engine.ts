@@ -5,7 +5,7 @@ import { PLAYOUT_DELAY_MS, MAX_NOTE_HOLD_S } from '@/shared/protocol/constants';
 
 import { DEFAULT_INSTRUMENT, type InstrumentId } from '@/shared/music/instruments';
 import { PRESETS, presetById, presetsByFamily, type PresetPatch } from '@/shared/music/presets';
-import { polyOptionsOf, type Patch } from '@/shared/music/patch';
+import { normalizePatch, polyOptionsOf, type Patch } from '@/shared/music/patch';
 import { meterFromSpectrum } from './meter';
 
 // THE VOICE LIST IS SHARED. It lives in shared/music/instruments so the SERVER can validate a spawn and a
@@ -94,6 +94,9 @@ function createDrumKit(output: Tone.InputNode): DrumVoice {
   };
 }
 
+/** Each player's starting gain, so a full room sums close to unity rather than far past it. */
+const VOICE_TRIM = 0.6;
+
 /** The Tone.js class each preset's synth kind is built on. */
 const SYNTH_CLASS = {
   Synth: Tone.Synth,
@@ -143,14 +146,51 @@ function createInstrumentSynth(id: InstrumentType, output: Tone.InputNode): Tone
  * the patch the player is dragging, so what the panel shows IS what the engine plays.
  */
 function createPatchSynth(patch: Patch, output: Tone.InputNode): Tone.PolySynth {
+  const full = normalizePatch(patch);
   const synth = new Tone.PolySynth(Tone.Synth, polyOptionsOf(patch) as never);
   synth.volume.value = patch.level;
 
   const chain: Tone.ToneAudioNode[] = [];
   if (patch.drive > 0.01) chain.push(new Tone.Distortion({ distortion: patch.drive, wet: patch.drive }));
-  chain.push(new Tone.Filter({ type: patch.filter.type, frequency: patch.filter.cutoff, Q: patch.filter.resonance }));
+
+  // THE EQUALISER, and it is a real three band one: low shelf, bell, high shelf, each with its own gain and
+  // the two crossovers the panel draws. Flat EQ is skipped entirely so a clean patch costs no node.
+  const eq = full.eq;
+  const eqActive = Math.abs(eq.low) > 0.1 || Math.abs(eq.mid) > 0.1 || Math.abs(eq.high) > 0.1;
+  if (eqActive) {
+    chain.push(new Tone.Filter({ type: 'lowshelf', frequency: eq.lowFreq, gain: eq.low }));
+    chain.push(new Tone.Filter({ type: 'peaking', frequency: Math.sqrt(eq.lowFreq * eq.highFreq), Q: 1, gain: eq.mid }));
+    chain.push(new Tone.Filter({ type: 'highshelf', frequency: eq.highFreq, gain: eq.high }));
+  }
+
+  const filter = new Tone.Filter({ type: patch.filter.type, frequency: patch.filter.cutoff, Q: patch.filter.resonance });
+  chain.push(filter);
+
+  // TWO MODULATORS, EACH SENDING WHERE THE PATCH SAYS. Pitch is a vibrato, level a tremolo, and filter an
+  // LFO on the cutoff between a quarter and four times it, which is how a synth sweep is actually made.
+  const mods = full.mods;
+  const mods3: Tone.ToneAudioNode[] = [];
+  const [pitchMod, filterMod, levelMod] = [
+    mods.find(mod => mod.target === 'pitch' && mod.depth > 0.001),
+    mods.find(mod => mod.target === 'filter' && mod.depth > 0.001),
+    mods.find(mod => mod.target === 'level' && mod.depth > 0.001),
+  ];
+  if (pitchMod) mods3.push(new Tone.Vibrato({ frequency: pitchMod.rate, depth: Math.min(0.95, pitchMod.depth) }));
+  if (levelMod) mods3.push(new Tone.Tremolo({ frequency: levelMod.rate, depth: Math.min(0.95, levelMod.depth), spread: 60 }).start());
+  if (filterMod) {
+    const lfo = new Tone.LFO({
+      frequency: filterMod.rate,
+      min: Math.max(80, patch.filter.cutoff * 0.25),
+      max: Math.min(12000, patch.filter.cutoff * 4),
+    });
+    lfo.connect(filter.frequency);
+    lfo.start();
+    mods3.push(lfo as unknown as Tone.ToneAudioNode);
+  }
+  chain.push(...mods3);
+
   if (patch.chorus > 0.01) chain.push(new Tone.Chorus({ frequency: 0.8, delayTime: 3.5, depth: 0.6, wet: patch.chorus }).start());
-  if (patch.lfo.depth > 0.01) chain.push(new Tone.Vibrato({ frequency: patch.lfo.rate, depth: patch.lfo.depth }));
+  if (full.sub > 0.01) chain.push(new Tone.Gain(1 + full.sub * 0.4));
 
   let node: Tone.ToneAudioNode = synth;
   for (const effect of chain) {
@@ -205,6 +245,8 @@ export class AudioEngine {
   private peerPanners: Map<string, Tone.Panner> = new Map();
   /** Master volume for local player */
   private masterGain: Tone.Gain | null = null;
+  /** nothing reaches the speakers above -1 dBFS, whatever the voices add up to */
+  private masterLimiter: Tone.Limiter | null = null;
   /**
    * AN ANALYSER ON THE OUTPUT, so the meter shows what the room SOUNDS like.
    *
@@ -226,7 +268,15 @@ export class AudioEngine {
 
     await Tone.start();
 
-    this.masterGain = new Tone.Gain(1).toDestination();
+    // THE MASTER CHAIN ENDS IN A LIMITER, and that is the answer to "I can hear clipping from agents".
+    //
+    // Four players on a PolySynth each summed to the destination with nothing holding the sum down: a
+    // three-voice pad, a membrane kick at +2 dB and a saw lead arrive on the same millisecond and the sum
+    // passes 1.0, which the hardware turns into a click. A limiter at -1 dB makes that arithmetically
+    // impossible, and it is the only place in the graph where that can be guaranteed.
+    this.masterGain = new Tone.Gain(1);
+    this.masterLimiter = new Tone.Limiter(-1).toDestination();
+    this.masterGain.connect(this.masterLimiter);
     // THE BUS MUST NOT COLLAPSE TO MONO. A gain node upmixes whatever arrives to its own channel count,
     // and with an explicit mono count every panned voice arrives identical on both channels: the room
     // reported a perfect correlation with the band spread across the field.
@@ -317,7 +367,10 @@ export class AudioEngine {
     let gain = this.peerGains.get(peerId);
     if (!gain) {
       const panner = new Tone.Panner(this.peerPans.get(peerId) ?? 0);
-      gain = new Tone.Gain(1).connect(panner);
+      // HEADROOM PER VOICE. Each player starts a little under unity, because a room is a SUM: four
+      // players at 1.0 is 4.0 before the limiter has to rescue it, and a limiter working that hard is
+      // audible as pumping. The individual fader on the card sits on top of this.
+      gain = new Tone.Gain(VOICE_TRIM).connect(panner);
       panner.connect(this.outputBus());
       this.peerPans.set(peerId, panner.pan.value as number);
       this.peerPanners.set(peerId, panner);
@@ -406,8 +459,15 @@ export class AudioEngine {
     return meterFromSpectrum(spectrum, bars);
   }
 
+  /**
+   * THE MASTER FADER. It scales the sum AFTER the voices, so one slider moves the whole room and the
+   * limiter still stands between the room and the speakers.
+   */
   setMasterVolume(volume: number): void {
     this.masterVolumeLevel = Math.max(0, Math.min(1, volume));
+    // THE FADER MOVES THE BUS, not the velocity of the notes this page happens to send: scaling velocity
+    // silenced your own keys and left every agent exactly as loud, which is the opposite of a master fader.
+    this.masterGain?.gain.rampTo(this.masterVolumeLevel, 0.05);
   }
 
   /** Get master volume */
@@ -583,10 +643,10 @@ export class AudioEngine {
       this.getOrCreatePeerSynth(peerId).triggerAttack(pitch, when, normalizedVelocity * peerVol);
     } else {
       if (this.localKit) {
-        this.localKit.trigger(pitch, when, normalizedVelocity * this.masterVolumeLevel);
+        this.localKit.trigger(pitch, when, normalizedVelocity);
         return;
       }
-      this.synth?.triggerAttack(pitch, when, normalizedVelocity * this.masterVolumeLevel);
+      this.synth?.triggerAttack(pitch, when, normalizedVelocity);
     }
 
     const releaseTimer = setTimeout(() => {

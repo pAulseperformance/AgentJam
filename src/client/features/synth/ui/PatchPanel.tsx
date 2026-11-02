@@ -1,229 +1,354 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { PRESETS } from '@/shared/music/presets';
 import {
   FILTER_TYPES,
+  FLAT_EQ,
+  MOD_SHAPES,
+  MOD_TARGETS,
   WAVE_SHAPES,
+  normalizePatch,
   patchFromPreset,
   type Patch,
   type WaveShape,
 } from '@/shared/music/patch';
+import { deletePatch, savePatch, savedPatches, type SavedPatch } from '@/client/features/synth/lib/patch-store';
+import { Knob } from './Knob';
 
 /**
  * THE SYNTH'S FRONT PANEL.
  *
- * The room had presets and nothing to move on them: a listener could choose "Juno Pad" and could not
- * change a cutoff. This is the surface a synth has, in the order a person learns one: pick a starting
- * preset, choose the waveform, stack it, shape the envelope, then open the filter and add movement.
+ * A room of agents is a band, and a band with one tone between them is not a band. This is the surface a
+ * synth has, section by section, in the order a person learns one: a starting patch, then the oscillator,
+ * the filter, the amplifier, the equaliser, two modulators, and the effects.
  *
- * Every control writes the whole patch back, so the sound on the page and the numbers the room plays are
- * the same object rather than two states to keep in step.
+ * It is drawn as hardware rather than as a form of sliders: a knob is read as a position, each section has
+ * its own bezel and accent, and the three displays (wave, envelope, filter and EQ response) are drawn from
+ * the SAME numbers the engine gets, so what the surface claims and what the room plays cannot drift.
  */
 interface PatchPanelProps {
   /** whose voice this is, so the panel says what it is editing */
   name: string;
   patch: Patch;
-  /** a FUNCTION of the freshest patch: three controls moved in one frame must not overwrite each other */
+  /** a FUNCTION of the freshest patch: several controls moved in one frame must not overwrite each other */
   onChange: (updater: (prev: Patch) => Patch) => void;
   /** false when the selected card is not a bot, so the panel can say why it is inert */
   editable: boolean;
 }
 
-/** One labelled control, with its reading beside the label so a value is never a mystery. */
-function Knob({
-  label,
-  value,
-  min,
-  max,
-  step,
-  format,
-  onChange,
-  disabled,
+/** One bezelled section of the panel. */
+function Section({
+  title,
+  accent,
+  children,
+  hint,
 }: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  format: (value: number) => string;
-  onChange: (value: number) => void;
-  disabled?: boolean;
+  title: string;
+  accent: string;
+  children: React.ReactNode;
+  hint?: string;
 }) {
   return (
-    <label className="patch__knob" style={{ display: 'grid', gap: 2 }}>
-      <span style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
-        <span>{label}</span>
-        <span style={{ fontVariantNumeric: 'tabular-nums', opacity: 0.75 }}>{format(value)}</span>
-      </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        disabled={disabled}
-        aria-label={label}
-        data-patch={label.toLowerCase()}
-        onChange={event => onChange(Number(event.target.value))}
-      />
-    </label>
+    <section className="patch__section" style={{ borderColor: 'var(--border)' }} data-section={title.toLowerCase()}>
+      <header className="patch__section-head">
+        <span className="patch__led" style={{ background: accent }} aria-hidden="true" />
+        <strong>{title}</strong>
+        {hint ? <span className="patch__hint">{hint}</span> : null}
+      </header>
+      <div className="patch__section-body">{children}</div>
+    </section>
   );
 }
 
-/** A wave, drawn from the same numbers the oscillator gets. */
+/** A wave, drawn from the numbers the oscillator gets. */
 function wavePath(wave: WaveShape, width: number, height: number): string {
   const points: string[] = [];
-  const cycles = 2;
   for (let x = 0; x <= width; x += 1) {
-    const t = (x / width) * Math.PI * 2 * cycles;
+    const t = (x / width) * Math.PI * 2 * 2;
     let v: number;
     switch (wave) {
       case 'sine': v = Math.sin(t); break;
       case 'triangle': v = (2 / Math.PI) * Math.asin(Math.sin(t)); break;
       case 'square':
       case 'pulse': v = Math.sin(t) >= 0 ? 1 : -1; break;
-      case 'sawtooth':
       case 'fatsawtooth':
+      case 'sawtooth':
       default: v = 2 * ((t / (Math.PI * 2)) % 1) - 1; break;
     }
-    points.push(`${x === 0 ? 'M' : 'L'}${x.toFixed(1)},${(height / 2 - (v * height) / 2.4).toFixed(1)}`);
+    points.push(`${x === 0 ? 'M' : 'L'}${x.toFixed(1)},${(height / 2 - (v * height) / 2.6).toFixed(1)}`);
   }
   return points.join(' ');
 }
 
-/** The envelope, drawn as the shape of one note. */
+/** The amplifier envelope, as the shape of one note. */
 function envelopePath(patch: Patch, width: number, height: number): string {
-  const total = patch.env.attack + patch.env.decay + 1.2 + patch.env.release;
+  const total = patch.env.attack + patch.env.decay + 1 + patch.env.release;
   const x = (seconds: number) => (seconds / total) * width;
-  const y = (level: number) => height - level * (height - 4) - 2;
+  const y = (level: number) => height - level * (height - 5) - 2.5;
   const { attack, decay, sustain, release } = patch.env;
   return [
     `M0,${y(0)}`,
     `L${x(attack).toFixed(1)},${y(1)}`,
     `L${x(attack + decay).toFixed(1)},${y(sustain)}`,
-    `L${x(attack + decay + 1.2).toFixed(1)},${y(sustain)}`,
-    `L${x(attack + decay + 1.2 + release).toFixed(1)},${y(0)}`,
+    `L${x(attack + decay + 1).toFixed(1)},${y(sustain)}`,
+    `L${x(attack + decay + 1 + release).toFixed(1)},${y(0)}`,
   ].join(' ');
 }
 
-/** The filter's response, so a cutoff is something a person can see rather than infer. */
+/** The filter's response, so a cutoff is something you see rather than infer. */
 function filterPath(patch: Patch, width: number, height: number): string {
   const points: string[] = [];
-  const cutoff = Math.log10(patch.filter.cutoff);
   for (let i = 0; i <= width; i += 2) {
-    const f = 10 ** (1.5 + (i / width) * 3.4); // 30 Hz to 10 kHz across the box
+    const f = 10 ** (1.5 + (i / width) * 3.4);
     const ratio = f / patch.filter.cutoff;
     const q = patch.filter.resonance;
     let gain = 1;
     if (patch.filter.type === 'lowpass') gain = 1 / Math.sqrt(1 + ratio ** 4);
     else if (patch.filter.type === 'highpass') gain = 1 / Math.sqrt(1 + (1 / ratio) ** 4);
     else gain = Math.exp(-((Math.log(ratio) * 1.6) ** 2));
-    // a resonance bump at the corner, which is what the Q is for
     const bump = 1 + (q / 12) * Math.exp(-((Math.log(ratio) * 4) ** 2));
     const level = Math.min(1, gain * bump);
     points.push(`${i === 0 ? 'M' : 'L'}${i},${(height - level * (height - 6) - 3).toFixed(1)}`);
   }
-  void cutoff;
+  return points.join(' ');
+}
+
+/**
+ * The equaliser as a curve: three bands summed in decibels, drawn across 40 Hz to 12 kHz. It is the same
+ * shape the three filters make, so a boosted top looks like a boosted top.
+ */
+function eqPath(patch: Patch, width: number, height: number): string {
+  const eq = normalizePatch(patch).eq;
+  const points: string[] = [];
+  for (let i = 0; i <= width; i += 2) {
+    const f = 40 * (12000 / 40) ** (i / width);
+    const lowShelf = eq.low / (1 + (f / eq.lowFreq) ** 2);
+    const highShelf = eq.high / (1 + (eq.highFreq / f) ** 2);
+    const midFreq = Math.sqrt(eq.lowFreq * eq.highFreq);
+    const bell = eq.mid * Math.exp(-((Math.log(f / midFreq) * 2.2) ** 2));
+    const db = lowShelf + bell + highShelf;
+    points.push(`${i === 0 ? 'M' : 'L'}${i},${(height / 2 - (db / 18) * (height / 2 - 3)).toFixed(1)}`);
+  }
   return points.join(' ');
 }
 
 export function PatchPanel({ name, patch, onChange, editable }: PatchPanelProps) {
+  const full = normalizePatch(patch);
+  const [library, setLibrary] = useState<SavedPatch[]>(() => savedPatches());
+  const [saveName, setSaveName] = useState('');
+
   const set = useCallback(<K extends keyof Patch>(key: K, value: Patch[K]) => {
     onChange(prev => ({ ...prev, [key]: value }));
   }, [onChange]);
 
+  const setMod = useCallback((index: 0 | 1, next: Partial<Patch['mods'] extends undefined ? never : NonNullable<Patch['mods']>[number]>) => {
+    onChange(prev => {
+      const mods = normalizePatch(prev).mods;
+      const updated = [...mods] as typeof mods;
+      updated[index] = { ...updated[index], ...next } as typeof mods[0];
+      return { ...prev, mods: updated };
+    });
+  }, [onChange]);
+
   return (
-    <div className="patch" style={{ display: 'grid', gap: 10, opacity: editable ? 1 : 0.55 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-        <strong style={{ fontSize: 12 }}>{editable ? `Voice of ${name}` : `${name} is a listener`}</strong>
-        <span style={{ fontSize: 11, opacity: 0.7 }}>{editable ? 'everyone in the room hears this' : 'pick a bot card to edit its voice'}</span>
+    <div className="patch" data-editable={editable ? 'yes' : 'no'}>
+      <div className="patch__head">
+        <div>
+          <strong className="patch__title">{editable ? `Voice of ${name}` : `${name} is a listener`}</strong>
+          <span className="patch__sub">
+            {editable ? 'everyone in the room hears every move' : 'pick a bot card to edit its voice'}
+          </span>
+        </div>
+        <div className="patch__save">
+          <input
+            className="patch__save-name"
+            value={saveName}
+            placeholder="name this patch"
+            aria-label="patch name"
+            disabled={!editable}
+            onChange={event => setSaveName(event.target.value)}
+            onKeyDown={event => {
+              if (event.key !== 'Enter' || !saveName.trim()) return;
+              setLibrary(savePatch(saveName.trim(), patch));
+              setSaveName('');
+            }}
+          />
+          <button
+            className="patch__btn"
+            data-patch-action="save"
+            disabled={!editable || !saveName.trim()}
+            onClick={() => { setLibrary(savePatch(saveName.trim(), patch)); setSaveName(''); }}
+          >
+            Save
+          </button>
+        </div>
       </div>
 
-      {/* START FROM A PRESET: the panel opens on a sound rather than on zeroes. */}
-      <div className="patch__presets" style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+      {/* FACTORY PATCHES: a whole sound, not a label. */}
+      <div className="patch__strip">
+        <span className="patch__strip-label">Factory</span>
         {PRESETS.map(preset => (
           <button
             key={preset.id}
-            className={`patch__preset ${patch.base === preset.id ? 'patch__preset--on' : ''}`}
+            className={`patch__chip ${patch.base === preset.id ? 'patch__chip--on' : ''}`}
             data-preset={preset.id}
             disabled={!editable}
-            title={`Start from ${preset.label}`}
-            // A PRESET IS A WHOLE SOUND, NOT A LABEL. This only wrote `base`, so pressing Juno Pad
-            // renamed the voice and left every number where it was: the button highlighted and nothing
-            // about the sound moved, which is the one thing the owner asked this panel to do.
+            title={`Load ${preset.label}`}
             onClick={() => onChange(() => patchFromPreset(preset.id))}
-            style={{ fontSize: 10, padding: '2px 6px' }}
           >
             {preset.icon} {preset.label}
           </button>
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 10, alignItems: 'center' }}>
-        <svg width="120" height="48" viewBox="0 0 120 48" aria-label="waveform" data-patch-wave={patch.wave}>
-          <rect x="0" y="0" width="120" height="48" rx="4" fill="rgba(255,255,255,0.04)" />
-          <path d={wavePath(patch.wave, 120, 48)} stroke="currentColor" strokeWidth="1.6" fill="none" />
-        </svg>
-        <div className="patch__waves" style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-          {WAVE_SHAPES.map(shape => (
-            <button
-              key={shape}
-              className={`patch__wave ${patch.wave === shape ? 'patch__wave--on' : ''}`}
-              data-wave={shape}
-              disabled={!editable}
-              onClick={() => set('wave', shape)}
-              style={{ fontSize: 10, padding: '2px 6px' }}
-            >
-              {shape.replace('fatsawtooth', 'super saw')}
-            </button>
+      {library.length > 0 && (
+        <div className="patch__strip">
+          <span className="patch__strip-label">Mine</span>
+          {library.map(entry => (
+            <span key={entry.name} className="patch__chip patch__chip--saved" data-saved={entry.name}>
+              <button
+                className="patch__chip-load"
+                disabled={!editable}
+                title={`Load ${entry.name}`}
+                onClick={() => onChange(() => entry.patch)}
+              >
+                {entry.name}
+              </button>
+              <button
+                className="patch__chip-x"
+                title={`Delete ${entry.name}`}
+                onClick={() => setLibrary(deletePatch(entry.name))}
+              >
+                ×
+              </button>
+            </span>
           ))}
         </div>
-      </div>
+      )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
-        <Knob label="Voices" value={patch.voices} min={1} max={5} step={1} format={v => `${v}`} disabled={!editable} onChange={v => set('voices', v)} />
-        <Knob label="Detune" value={patch.detune} min={0} max={60} step={1} format={v => `${v} ct`} disabled={!editable} onChange={v => set('detune', v)} />
-        <Knob label="Octave" value={patch.octave} min={-2} max={2} step={1} format={v => (v > 0 ? `+${v}` : `${v}`)} disabled={!editable} onChange={v => set('octave', v)} />
-      </div>
+      <div className="patch__grid">
+        <Section title="Oscillator" accent="#7dd3fc" hint="what the voice is made of">
+          <svg width="100%" height="52" viewBox="0 0 240 52" preserveAspectRatio="none" aria-label="waveform" data-patch-wave={patch.wave}>
+            <rect x="0" y="0" width="240" height="52" rx="4" fill="rgba(255,255,255,0.04)" />
+            <path d={wavePath(patch.wave, 240, 52)} stroke="#7dd3fc" strokeWidth="1.8" fill="none" />
+          </svg>
+          <div className="patch__btnrow">
+            {WAVE_SHAPES.map(shape => (
+              <button
+                key={shape}
+                className={`patch__btn ${patch.wave === shape ? 'patch__btn--on' : ''}`}
+                data-wave={shape}
+                disabled={!editable}
+                onClick={() => set('wave', shape)}
+              >
+                {shape === 'fatsawtooth' ? 'super saw' : shape}
+              </button>
+            ))}
+          </div>
+          <div className="patch__knobs">
+            <Knob label="Voices" value={patch.voices} min={1} max={5} step={1} format={v => `${v}`} resetTo={1} disabled={!editable} accent="#7dd3fc" onChange={v => set('voices', v)} />
+            <Knob label="Detune" value={patch.detune} min={0} max={60} step={1} format={v => `${Math.round(v)} ct`} resetTo={0} disabled={!editable} accent="#7dd3fc" onChange={v => set('detune', v)} />
+            <Knob label="Octave" value={patch.octave} min={-2} max={2} step={1} format={v => (v > 0 ? `+${v}` : `${v}`)} resetTo={0} disabled={!editable} accent="#7dd3fc" onChange={v => set('octave', v)} />
+            <Knob label="Sub" value={full.sub} min={0} max={1} step={0.01} format={v => `${Math.round(v * 100)}%`} resetTo={0} disabled={!editable} accent="#7dd3fc" onChange={v => set('sub', v)} />
+            <Knob label="Glide" value={full.glide} min={0} max={1} step={0.01} format={v => (v < 0.005 ? 'off' : `${v.toFixed(2)}s`)} resetTo={0} disabled={!editable} accent="#7dd3fc" onChange={v => set('glide', v)} />
+          </div>
+        </Section>
 
-      <svg width="100%" height="40" viewBox="0 0 240 40" preserveAspectRatio="none" aria-label="envelope">
-        <rect x="0" y="0" width="240" height="40" rx="4" fill="rgba(255,255,255,0.04)" />
-        <path d={envelopePath(patch, 240, 40)} stroke="currentColor" strokeWidth="1.6" fill="none" />
-      </svg>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
-        <Knob label="Attack" value={patch.env.attack} min={0.001} max={4} step={0.01} format={v => `${v.toFixed(2)}s`} disabled={!editable} onChange={v => onChange(prev => ({ ...prev, env: { ...prev.env, attack: v } }))} />
-        <Knob label="Decay" value={patch.env.decay} min={0.01} max={4} step={0.01} format={v => `${v.toFixed(2)}s`} disabled={!editable} onChange={v => onChange(prev => ({ ...prev, env: { ...prev.env, decay: v } }))} />
-        <Knob label="Sustain" value={patch.env.sustain} min={0} max={1} step={0.01} format={v => v.toFixed(2)} disabled={!editable} onChange={v => onChange(prev => ({ ...prev, env: { ...prev.env, sustain: v } }))} />
-        <Knob label="Release" value={patch.env.release} min={0.01} max={6} step={0.01} format={v => `${v.toFixed(2)}s`} disabled={!editable} onChange={v => onChange(prev => ({ ...prev, env: { ...prev.env, release: v } }))} />
-      </div>
+        <Section title="Filter" accent="#fca5a5" hint="what it keeps">
+          <svg width="100%" height="52" viewBox="0 0 240 52" preserveAspectRatio="none" aria-label="filter" data-filter-curve={patch.filter.type}>
+            <rect x="0" y="0" width="240" height="52" rx="4" fill="rgba(255,255,255,0.04)" />
+            <path d={filterPath(patch, 240, 52)} stroke="#fca5a5" strokeWidth="1.8" fill="none" />
+          </svg>
+          <div className="patch__btnrow">
+            {FILTER_TYPES.map(type => (
+              <button
+                key={type}
+                className={`patch__btn ${patch.filter.type === type ? 'patch__btn--on' : ''}`}
+                data-filter-type={type}
+                disabled={!editable}
+                onClick={() => onChange(prev => ({ ...prev, filter: { ...prev.filter, type } }))}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+          <div className="patch__knobs">
+            <Knob label="Cutoff" value={patch.filter.cutoff} min={80} max={12000} step={10} format={v => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}Hz`)} resetTo={12000} disabled={!editable} accent="#fca5a5" onChange={v => onChange(prev => ({ ...prev, filter: { ...prev.filter, cutoff: v } }))} />
+            <Knob label="Resonance" value={patch.filter.resonance} min={0} max={12} step={0.1} format={v => v.toFixed(1)} resetTo={0.7} disabled={!editable} accent="#fca5a5" onChange={v => onChange(prev => ({ ...prev, filter: { ...prev.filter, resonance: v } }))} />
+          </div>
+        </Section>
 
-      <svg width="100%" height="34" viewBox="0 0 240 34" preserveAspectRatio="none" aria-label="filter">
-        <rect x="0" y="0" width="240" height="34" rx="4" fill="rgba(255,255,255,0.04)" />
-        <path d={filterPath(patch, 240, 34)} stroke="currentColor" strokeWidth="1.6" fill="none" />
-      </svg>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
-        <label className="patch__knob" style={{ display: 'grid', gap: 2 }}>
-          <span style={{ fontSize: 11 }}>Filter</span>
-          <select
-            value={patch.filter.type}
-            disabled={!editable}
-            aria-label="filter type"
-            data-patch="filter type"
-            onChange={event => onChange(prev => ({ ...prev, filter: { ...prev.filter, type: event.target.value as Patch['filter']['type'] } }))}
-            style={{ fontSize: 11 }}
-          >
-            {FILTER_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
-          </select>
-        </label>
-        <Knob label="Cutoff" value={patch.filter.cutoff} min={80} max={12000} step={10} format={v => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}Hz`)} disabled={!editable} onChange={v => onChange(prev => ({ ...prev, filter: { ...prev.filter, cutoff: v } }))} />
-        <Knob label="Resonance" value={patch.filter.resonance} min={0} max={12} step={0.1} format={v => v.toFixed(1)} disabled={!editable} onChange={v => onChange(prev => ({ ...prev, filter: { ...prev.filter, resonance: v } }))} />
-      </div>
+        <Section title="Amplifier" accent="#fcd34d" hint="the shape of one note">
+          <svg width="100%" height="52" viewBox="0 0 240 52" preserveAspectRatio="none" aria-label="envelope" data-env-curve={`${patch.env.attack}-${patch.env.release}`}>
+            <rect x="0" y="0" width="240" height="52" rx="4" fill="rgba(255,255,255,0.04)" />
+            <path d={envelopePath(patch, 240, 52)} stroke="#fcd34d" strokeWidth="1.8" fill="none" />
+          </svg>
+          <div className="patch__knobs">
+            <Knob label="Attack" value={patch.env.attack} min={0.001} max={4} step={0.01} format={v => `${v.toFixed(2)}s`} resetTo={0.01} disabled={!editable} accent="#fcd34d" onChange={v => onChange(prev => ({ ...prev, env: { ...prev.env, attack: v } }))} />
+            <Knob label="Decay" value={patch.env.decay} min={0.01} max={4} step={0.01} format={v => `${v.toFixed(2)}s`} resetTo={0.3} disabled={!editable} accent="#fcd34d" onChange={v => onChange(prev => ({ ...prev, env: { ...prev.env, decay: v } }))} />
+            <Knob label="Sustain" value={patch.env.sustain} min={0} max={1} step={0.01} format={v => v.toFixed(2)} resetTo={0.4} disabled={!editable} accent="#fcd34d" onChange={v => onChange(prev => ({ ...prev, env: { ...prev.env, sustain: v } }))} />
+            <Knob label="Release" value={patch.env.release} min={0.01} max={6} step={0.01} format={v => `${v.toFixed(2)}s`} resetTo={0.8} disabled={!editable} accent="#fcd34d" onChange={v => onChange(prev => ({ ...prev, env: { ...prev.env, release: v } }))} />
+          </div>
+        </Section>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 8 }}>
-        <Knob label="LFO rate" value={patch.lfo.rate} min={0.05} max={14} step={0.05} format={v => `${v.toFixed(1)}Hz`} disabled={!editable} onChange={v => onChange(prev => ({ ...prev, lfo: { ...prev.lfo, rate: v } }))} />
-        <Knob label="LFO depth" value={patch.lfo.depth} min={0} max={1} step={0.01} format={v => v.toFixed(2)} disabled={!editable} onChange={v => onChange(prev => ({ ...prev, lfo: { ...prev.lfo, depth: v } }))} />
-        <Knob label="Chorus" value={patch.chorus} min={0} max={1} step={0.01} format={v => v.toFixed(2)} disabled={!editable} onChange={v => set('chorus', v)} />
-        <Knob label="Drive" value={patch.drive} min={0} max={1} step={0.01} format={v => v.toFixed(2)} disabled={!editable} onChange={v => set('drive', v)} />
-        <Knob label="Level" value={patch.level} min={-30} max={0} step={0.5} format={v => `${v.toFixed(1)}dB`} disabled={!editable} onChange={v => set('level', v)} />
+        <Section title="Equaliser" accent="#86efac" hint="where it sits in the band">
+          <svg width="100%" height="52" viewBox="0 0 240 52" preserveAspectRatio="none" aria-label="equaliser" data-eq-curve={`${full.eq.low}/${full.eq.mid}/${full.eq.high}`}>
+            <rect x="0" y="0" width="240" height="52" rx="4" fill="rgba(255,255,255,0.04)" />
+            <line x1="0" y1="26" x2="240" y2="26" stroke="rgba(255,255,255,0.18)" strokeWidth="1" strokeDasharray="3 4" />
+            <path d={eqPath({ ...patch, eq: full.eq }, 240, 52)} stroke="#86efac" strokeWidth="1.8" fill="none" />
+          </svg>
+          <div className="patch__knobs">
+            <Knob label="Low" value={full.eq.low} min={-18} max={18} step={0.5} format={v => `${v > 0 ? '+' : ''}${v.toFixed(1)}dB`} resetTo={0} disabled={!editable} accent="#86efac" onChange={v => onChange(prev => ({ ...prev, eq: { ...normalizePatch(prev).eq, low: v } }))} />
+            <Knob label="Mid" value={full.eq.mid} min={-18} max={18} step={0.5} format={v => `${v > 0 ? '+' : ''}${v.toFixed(1)}dB`} resetTo={0} disabled={!editable} accent="#86efac" onChange={v => onChange(prev => ({ ...prev, eq: { ...normalizePatch(prev).eq, mid: v } }))} />
+            <Knob label="High" value={full.eq.high} min={-18} max={18} step={0.5} format={v => `${v > 0 ? '+' : ''}${v.toFixed(1)}dB`} resetTo={0} disabled={!editable} accent="#86efac" onChange={v => onChange(prev => ({ ...prev, eq: { ...normalizePatch(prev).eq, high: v } }))} />
+            <Knob label="Low freq" value={full.eq.lowFreq} min={60} max={600} step={5} format={v => `${Math.round(v)}Hz`} resetTo={FLAT_EQ.lowFreq} disabled={!editable} accent="#86efac" onChange={v => onChange(prev => ({ ...prev, eq: { ...normalizePatch(prev).eq, lowFreq: v } }))} />
+            <Knob label="High freq" value={full.eq.highFreq} min={1200} max={8000} step={20} format={v => `${(v / 1000).toFixed(1)}k`} resetTo={FLAT_EQ.highFreq} disabled={!editable} accent="#86efac" onChange={v => onChange(prev => ({ ...prev, eq: { ...normalizePatch(prev).eq, highFreq: v } }))} />
+          </div>
+        </Section>
+
+        {([0, 1] as const).map(index => {
+          const mod = full.mods[index];
+          const accent = index === 0 ? '#c4b5fd' : '#f0abfc';
+          return (
+            <Section key={index} title={`Modulator ${index + 1}`} accent={accent} hint={`sends to ${mod.target}`}>
+              <div className="patch__btnrow">
+                {MOD_SHAPES.map(shape => (
+                  <button
+                    key={shape}
+                    className={`patch__btn ${mod.shape === shape ? 'patch__btn--on' : ''}`}
+                    data-mod={index}
+                    data-mod-shape={shape}
+                    disabled={!editable}
+                    onClick={() => setMod(index, { shape })}
+                  >
+                    {shape}
+                  </button>
+                ))}
+                <select
+                  className="patch__select"
+                  aria-label={`modulator ${index + 1} destination`}
+                  data-mod-target={index}
+                  value={mod.target}
+                  disabled={!editable}
+                  onChange={event => setMod(index, { target: event.target.value as typeof MOD_TARGETS[number] })}
+                >
+                  {MOD_TARGETS.map(target => <option key={target} value={target}>{target}</option>)}
+                </select>
+              </div>
+              <div className="patch__knobs">
+                <Knob label="Rate" value={mod.rate} min={0.02} max={16} step={0.02} format={v => `${v.toFixed(2)}Hz`} resetTo={5} disabled={!editable} accent={accent} onChange={v => setMod(index, { rate: v })} />
+                <Knob label="Depth" value={mod.depth} min={0} max={1} step={0.01} format={v => `${Math.round(v * 100)}%`} resetTo={0} disabled={!editable} accent={accent} onChange={v => setMod(index, { depth: v })} />
+              </div>
+            </Section>
+          );
+        })}
+
+        <Section title="Effects" accent="#fdba74" hint="after the voice">
+          <div className="patch__knobs">
+            <Knob label="Chorus" value={patch.chorus} min={0} max={1} step={0.01} format={v => `${Math.round(v * 100)}%`} resetTo={0} disabled={!editable} accent="#fdba74" onChange={v => set('chorus', v)} />
+            <Knob label="Drive" value={patch.drive} min={0} max={1} step={0.01} format={v => `${Math.round(v * 100)}%`} resetTo={0} disabled={!editable} accent="#fdba74" onChange={v => set('drive', v)} />
+            <Knob label="Level" value={patch.level} min={-30} max={6} step={0.5} format={v => `${v > 0 ? '+' : ''}${v.toFixed(1)}dB`} resetTo={-6} disabled={!editable} accent="#fdba74" onChange={v => set('level', v)} />
+          </div>
+        </Section>
       </div>
     </div>
   );
