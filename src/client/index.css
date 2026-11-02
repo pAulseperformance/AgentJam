@@ -240,6 +240,12 @@ body {
   border: 1px solid var(--border);
   text-decoration: none;
   white-space: nowrap;
+  /* THE HEADER IS THE ONE ROW THAT MUST NEVER PUSH THE PAGE SIDEWAYS. Measured at 390 px: this chip
+     measured 283 px and sat at right 464, so the whole page scrolled 75 px to the side and every other
+     control slid with it. */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .jam-room__tier--signed {
@@ -1039,6 +1045,12 @@ body {
   .metric-card {
     min-width: calc(50% - 0.25rem);
   }
+}
+
+@media (max-width: 560px) {
+  /* the header wraps rather than overflowing: title, room id and the tier chip stack in two rows */
+  .jam-room__header { flex-wrap: wrap; gap: 6px; padding: 0.7rem 0.9rem; }
+  .jam-room__title { font-size: 1.1rem; }
 }
 
 @media (max-width: 480px) {
