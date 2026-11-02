@@ -26,7 +26,11 @@ import {
   type GeneratedNote,
   type InstrumentId,
 } from '@/shared/music';
-import { SEAT_PRESETS, instrumentFromWire } from '@/shared/music/presets';
+import { SEAT_PRESETS, instrumentFromWire, presetById as _presetById } from '@/shared/music/presets';
+
+/** a kit is the room's own drum map, not a pitched synth: one place decides that */
+const isKitPreset = (id: string): boolean => _presetById(id)?.synth === 'kit';
+import { defaultPatchFor, type Patch } from '@/shared/music/patch';
 import { DEFAULT_INSTRUMENT as DEFAULT_PLAYER_INSTRUMENT } from '@/shared/music/instruments';
 import { repairMeasure } from './measure-repair';
 import { summarizePhrase, motifFrom, describePhrase, describeMotif, type Motif, type NoteRecord } from './listener';
@@ -165,6 +169,8 @@ interface InProcessAgent {
   seat: AgentSeat;
   /** bars this agent has played from the groove itself, which is what varies the pattern and the count-in */
   grooveBars: number;
+  /** the whole voice: what the panel edits, and what every listener's engine builds */
+  patch: Patch;
 
   model: string;
   /** who spawned it: a public agent renders notes, a signed-in agent is judged by Jev first */
@@ -536,6 +542,9 @@ export class JamRoom implements DurableObject {
         break;
       case 'despawn_agent':
         this.handleDespawnAgent(ws, msg.agentPeerId);
+        break;
+      case 'set_agent_patch':
+        this.handleSetAgentPatch(ws, msg.agentPeerId, msg.patch);
         break;
       case 'set_agent_part':
         this.handleSetAgentPart(ws, { ...msg, instrument: instrumentFromWire(msg.instrument) });
@@ -941,6 +950,7 @@ export class JamRoom implements DurableObject {
       style: rowStyle,
       seat: chosenSeat,
       grooveBars: 0,
+      patch: defaultPatchFor(voice),
       model: tier === 'signed' ? SIGNED_MODEL : FREE_MODEL,
       tier,
       busy: false,
@@ -994,7 +1004,7 @@ export class JamRoom implements DurableObject {
     // Broadcast agent_spawned + peer_joined to all WS peers
     // THE AGENT'S OWN STYLE, not the one the frame was asked with: a bot spawned with no style names
     // the room's vibe, and a frame carrying the absent argument would tell every listener "undefined".
-    this.broadcastAll(JSON.stringify({ type: 'agent_spawned', peer, style: agent.style, seat: agent.seat, tier }));
+    this.broadcastAll(JSON.stringify({ type: 'agent_spawned', peer, style: agent.style, seat: agent.seat, tier, patch: agent.patch }));
     this.broadcastAll(JSON.stringify({ type: 'peer_joined', peer }));
   }
 
@@ -1154,7 +1164,7 @@ export class JamRoom implements DurableObject {
   private isSectionPeer(peerId: string): boolean {
     for (const layer of this.layers.values()) if (layer.peer.peerId === peerId) return true;
     for (const agent of this.agents.values()) {
-      if (agent.peer.peerId === peerId) return agent.peer.instrument === 'DrumKit';
+      if (agent.peer.peerId === peerId) return isKitPreset(agent.peer.instrument);
     }
     return false;
   }
@@ -1198,6 +1208,28 @@ export class JamRoom implements DurableObject {
    * it sounds like) and a seat (where it sits). A change is heard on the next bar and keeps the agent's
    * motif unless the STYLE moves, because a new idiom means the old idea no longer belongs.
    */
+  /**
+   * A HAND-BUILT VOICE. The panel sends the whole patch, the room holds it against that agent and tells
+   * everyone, so a cutoff moved by one listener is the cutoff the room plays: a patch that stayed local
+   * would make two listeners hear two different bands.
+   */
+  private handleSetAgentPatch(ws: WebSocket, agentPeerId: string, patch: Patch): void {
+    const agent = this.agents.get(agentPeerId);
+    if (!agent) {
+      this.sendError(ws, 'that agent is not in this room');
+      return;
+    }
+    agent.patch = patch;
+    this.broadcastAll(JSON.stringify({
+      type: 'agent_spawned',
+      peer: agent.peer,
+      style: agent.style,
+      seat: agent.seat,
+      tier: agent.tier,
+      patch: agent.patch,
+    }));
+  }
+
   private handleSetAgentPart(ws: WebSocket, msg: { agentPeerId: string; style?: AgentStyle; instrument?: InstrumentId; seat?: AgentSeat }): void {
     const agent = this.agents.get(msg.agentPeerId);
     if (!agent) {
@@ -1227,11 +1259,14 @@ export class JamRoom implements DurableObject {
 
     if (msg.instrument) {
       agent.peer.instrument = msg.instrument;
+      // A NEW PRESET IS A NEW STARTING POINT. Keeping the hand-built patch over a preset the player just
+      // chose would make the card say one instrument and the room play another.
+      agent.patch = defaultPatchFor(msg.instrument);
     }
 
     // THE PEERS CARRY THE VOICE, so a room_state frame is what tells every listener to rebuild the synth.
     this.broadcastAll(this.roomStateFrame());
-    this.broadcastAll(JSON.stringify({ type: 'agent_spawned', peer: agent.peer, style: agent.style, seat: agent.seat, tier: agent.tier }));
+    this.broadcastAll(JSON.stringify({ type: 'agent_spawned', peer: agent.peer, style: agent.style, seat: agent.seat, tier: agent.tier, patch: agent.patch }));
   }
 
   private handleSetVibe(vibe: AgentStyle): void {

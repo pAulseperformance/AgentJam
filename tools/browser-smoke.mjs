@@ -215,6 +215,8 @@ let keyboardReadout = null;
 let piano = null;
 /** the instruments a bot's card offers, and the one it was born with */
 let instruments = null;
+/** the synth front panel: what it offers, and whether a control on it reaches the room */
+let patchPanel = null;
 try {
   loadStartedAt = Date.now();
   // COMMIT, NOT DOMContentLoaded. The estate bar's script (zpe-bar.js in the shell head) holds
@@ -422,6 +424,33 @@ try {
     }, tab);
   }
   // back to the roll's neighbour so the last pane is not the one left on screen
+  // THE SYNTH FRONT PANEL: a person must be able to open it, pick a preset, and move the waveform.
+  await page.click('.peer-list__item:has([data-agent-part])').catch(() => {});
+  await page.click('[data-pane-tab="patch"]', { timeout: 2000 }).catch(() => {});
+  await page.waitForTimeout(400);
+  patchPanel = await page.evaluate(() => {
+    const presets = document.querySelectorAll('.patch__preset').length;
+    const waves = document.querySelectorAll('.patch__wave').length;
+    const knobs = document.querySelectorAll('.patch [data-patch]').length;
+    const waveSvg = document.querySelector('[data-patch-wave]')?.getAttribute('data-patch-wave') ?? null;
+    return { presets, waves, knobs, wave: waveSvg };
+  });
+  await page.evaluate(() => {
+    const cutoff = document.querySelector('.patch [data-patch="cutoff"]');
+    if (cutoff) {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(cutoff, '640');
+      cutoff.dispatchEvent(new Event('input', { bubbles: true }));
+      cutoff.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    const saw = document.querySelector('.patch [data-wave="sawtooth"]');
+    saw?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  await page.waitForTimeout(500);
+  patchPanel.after = await page.evaluate(() => ({
+    wave: document.querySelector('[data-patch-wave]')?.getAttribute('data-patch-wave') ?? null,
+    cutoff: document.querySelector('.patch [data-patch="cutoff"]')?.value ?? null,
+  }));
   await page.click('[data-pane-tab="spectrum"]', { timeout: 1500 }).catch(() => {});
 
   // THE SWITCH STARTS ON, because a room that has never chosen is asked for phrases: a style lives in its
@@ -514,6 +543,7 @@ console.log(meterAtBar
   : 'audio meter not on the page (no canvas.spectrum-pane)');
 console.log(`visualizer bright pixels ${canvasAtBar ?? 'n/a'} at the bar, ${canvasLater ?? 'n/a'} 1.2 s later` +
   `${canvasAtBar === null ? ' (no canvas.visualizer on the page)' : ''}`);
+console.log(`patch      ${patchPanel?.presets ?? 0} presets, ${patchPanel?.waves ?? 0} waves, ${patchPanel?.knobs ?? 0} controls; set ${patchPanel?.after?.wave ?? 'nothing'} at ${patchPanel?.after?.cutoff ?? 'n/a'}Hz`);
 console.log(`voices     ${instruments?.options ?? 0} instruments in ${instruments?.groups ?? 0} groups, this bot plays ${instruments?.chosen ?? 'nothing'}`);
 console.log(`piano      ${piano?.whites ?? 0} white keys with a ${piano?.maxGap ?? 'n/a'} px worst gap, ${piano?.blacks ?? 0} black keys off their seam by at most ${piano?.maxSeamError ?? 'n/a'} px`);
 console.log(`keyboard   ${keyboardLetters} letters drawn, ${keysOutside} keys marked outside the room's key, readout "${keyboardReadout ?? ''}"`);
@@ -572,6 +602,10 @@ if (!failure) {
     failure = 'the "four bars per call" switch was never pressed (no #phrase-ask on the page)';
   } else if (!spawnLabel || !/^➕ Add a /.test(spawnLabel)) {
     failure = `the spawn button reads "${spawnLabel}", not the seat it will fill`;
+  } else if (!patchPanel || patchPanel.presets < 10 || patchPanel.waves < 5 || patchPanel.knobs < 10) {
+    failure = `the synth panel offers ${patchPanel?.presets ?? 0} presets, ${patchPanel?.waves ?? 0} waves and ${patchPanel?.knobs ?? 0} controls, and it should offer the whole surface`;
+  } else if (patchPanel.after?.wave !== 'sawtooth' || patchPanel.after?.cutoff !== '640') {
+    failure = `moving the panel left it reading ${patchPanel.after?.wave ?? 'nothing'} at ${patchPanel.after?.cutoff ?? 'n/a'}Hz`;
   } else if (!instruments || instruments.options < 10 || instruments.groups < 4) {
     failure = `a bot's card offers ${instruments?.options ?? 0} instruments in ${instruments?.groups ?? 0} groups, and every bot should arrive with a patch`;
   } else if (!instruments.chosen || /^Classic$/.test(instruments.chosen)) {

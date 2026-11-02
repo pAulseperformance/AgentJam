@@ -577,6 +577,32 @@ body {
   max-width: 1180px;
 }
 
+/* ── the synth front panel ───────────────────────────────────────────────────
+   A control surface, not a reading: the dock's sixth tab. Chips for presets and waves, real range
+   inputs for the numbers, and a selected card so the panel says whose voice it is editing. */
+.patch__preset, .patch__wave {
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+}
+.patch__preset--on, .patch__wave--on {
+  border-color: currentColor;
+  background: color-mix(in oklab, currentColor 12%, transparent);
+}
+.patch__knob input[type='range'] {
+  width: 100%;
+  accent-color: currentColor;
+}
+.patch__knob span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.peer-list__item--selected {
+  outline: 1px solid currentColor;
+  outline-offset: 1px;
+  border-radius: var(--radius-sm);
+}
+
 /* ONE STRIP, NO GAPS BETWEEN OCTAVES: a seam the black keys can straddle. No flex gap, because the black
    keys are positioned as a percentage of this box and a gap would shift the geometry they rely on. */
 .keyboard__keys {

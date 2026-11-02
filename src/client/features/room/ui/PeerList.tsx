@@ -21,6 +21,9 @@ interface PeerListProps {
   onChangePart?: (peerId: string, part: { style?: string; instrument?: string; seat?: string }) => void;
   /** Remove an agent */
   onDespawn?: (peerId: string) => void;
+  /** The card the patch panel is editing */
+  selectedPeerId?: string;
+  onSelect?: (peerId: string) => void;
 }
 
 const SEATS = ['lead', 'answer', 'ornament', 'drums', 'bass'] as const;
@@ -28,7 +31,7 @@ const SEATS = ['lead', 'answer', 'ornament', 'drums', 'bass'] as const;
 /**
  * Displays connected peers with per-peer volume & mute controls.
  */
-export function PeerList({ peers, engine, localPeerId, agentParts, onChangePart, onDespawn }: PeerListProps) {
+export function PeerList({ peers, engine, localPeerId, agentParts, onChangePart, onDespawn, selectedPeerId, onSelect }: PeerListProps) {
   const [mixState, setMixState] = useState<Map<string, PeerMixState>>(new Map());
   const [masterMuted, setMasterMuted] = useState(false);
   const [masterVolume, setMasterVolume] = useState(1);
@@ -111,7 +114,14 @@ export function PeerList({ peers, engine, localPeerId, agentParts, onChangePart,
           const part = agentParts?.get(peer.peerId);
 
           return (
-            <li key={peer.peerId} className="peer-list__item">
+            <li
+              key={peer.peerId}
+              className={`peer-list__item ${selectedPeerId === peer.peerId ? 'peer-list__item--selected' : ''}`}
+              data-peer={peer.peerId}
+              data-selected={selectedPeerId === peer.peerId ? 'yes' : 'no'}
+              onClick={() => onSelect?.(peer.peerId)}
+              style={{ cursor: onSelect ? 'pointer' : undefined }}
+            >
               <div className="peer-list__info">
                 <span
                   className="peer-list__dot"

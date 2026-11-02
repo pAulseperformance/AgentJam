@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import type { Patch } from '@/shared/music/patch';
 import type {
   Peer,
   RoomState,
@@ -42,6 +43,8 @@ interface UseRoomSocketReturn {
   aiDebugEntries: any[];
   /** Each agent's style and seat, kept from agent_spawned so the panel's per-agent controls can show them */
   agentParts: Map<string, { style: string; seat: string }>;
+  /** each agent's hand-built voice, from the last frame that carried one */
+  patches: Map<string, Patch>;
 }
 
 const RECONNECT_DELAYS = [500, 1000, 2000, 4000, 8000] as const;
@@ -172,6 +175,10 @@ export function useRoomSocket({
             const spawned = msg as { peer?: { peerId?: string }; style?: string; seat?: string };
             const peerId = spawned.peer?.peerId;
             if (peerId) {
+              if (spawned && typeof spawned === 'object' && 'patch' in spawned && spawned.patch) {
+                const patch = spawned.patch as Patch;
+                setPatches(prev => new Map(prev).set(peerId, patch));
+              }
               setAgentParts(prev => {
                 const next = new Map(prev);
                 next.set(peerId, { style: spawned.style ?? prev.get(peerId)?.style ?? 'jazz', seat: spawned.seat ?? prev.get(peerId)?.seat ?? 'lead' });
@@ -244,6 +251,7 @@ export function useRoomSocket({
   }, [roomId, playerName, playerKind, instrument]);
 
   const [agentParts, setAgentParts] = useState<Map<string, { style: string; seat: string }>>(() => new Map());
+  const [patches, setPatches] = useState<Map<string, Patch>>(() => new Map());
 
   const startClockSync = useCallback((ws: WebSocket) => {
     // Send clock sync ping every 30s for RTT measurement
@@ -339,5 +347,6 @@ export function useRoomSocket({
     clockOffset,
     aiDebugEntries,
     agentParts,
+    patches,
   };
 }

@@ -2,6 +2,8 @@ import { useCallback, useRef, useState, useMemo, useEffect } from 'react';
 import { useRoomSocket, PeerList, TransportBar, AgentPanel, MetricsPanel, AiDebugPanel, SessionPanel, tempoMarkOf, sessionSnapshot } from '@/client/features/room';
 import { useSynthEngine, Keyboard, useMidi, type InstrumentType } from '@/client/features/synth';
 import { DEFAULT_INSTRUMENT } from '@/shared/music/instruments';
+import { defaultPatchFor, type Patch } from '@/shared/music/patch';
+import { PatchPanel } from '@/client/features/synth';
 import { Visualizer, VisualizerDock } from '@/client/features/visualizer';
 import { panForIndex } from '@/client/features/visualizer/lib/stereo';
 import type { NoteEvent, Peer } from '@/shared/protocol';
@@ -24,6 +26,13 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
   const { engine, startAudio } = useSynthEngine();
   const [audioStarted, setAudioStarted] = useState(false);
   const [currentInstrument, setCurrentInstrument] = useState<InstrumentType>(DEFAULT_INSTRUMENT);
+  // THE PATCH PANEL EDITS ONE CARD AT A TIME, and the edit is optimistic: the sliders move on the frame
+  // you drag them, and the send that tells the room is throttled so a sweep is one message, not sixty.
+  const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
+  const [draftPatches, setDraftPatches] = useState<Map<string, Patch>>(() => new Map());
+  const patchSendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** what the engine already holds per peer, so a repeated frame does not cut a held note */
+  const appliedPatchesRef = useRef<Map<string, string>>(new Map());
   const [isRecording, setIsRecording] = useState(false);
 
   // WHO IS PLAYING. The socket does not carry the answer to the page, so it is asked once, from the
@@ -136,6 +145,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     clockOffset,
     aiDebugEntries,
     agentParts,
+    patches,
   } = useRoomSocket({
     roomId,
     playerName,
@@ -173,6 +183,16 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     for (const peer of peers) {
       if (peer.instrument) engine.setPeerInstrument(peer.peerId, peer.instrument as InstrumentType);
     }
+    // A HAND-BUILT VOICE WINS OVER THE PRESET. The room sends the patch with every agent frame; the
+    // engine only rebuilds when the numbers actually changed, because rebuilding a voice mid-phrase
+    // cuts the note being held.
+    for (const [peerId, patch] of patches) {
+      const applied = appliedPatchesRef.current.get(peerId);
+      const next = JSON.stringify(patch);
+      if (applied === next) continue;
+      appliedPatchesRef.current.set(peerId, next);
+      engine.setPeerPatch(peerId, patch);
+    }
     // THE BAND GETS A FIELD, AND YOU STAY IN THE MIDDLE OF IT. A human is placed centre because your
     // own playing is the reference; the bots spread to the sides by their order at the table, the first
     // one left, the next right, narrowing as the room fills. Sorting by peerId keeps the layout the
@@ -187,7 +207,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
       const seat = agents.findIndex(candidate => candidate.peerId === peer.peerId);
       engine.setPeerPan(peer.peerId, panForIndex(seat + 1, agents.length + 1));
     }
-  }, [peers, engine]);
+  }, [peers, engine, patches]);
 
   // Derive local peerId, the peer whose name matches ours
   const localPeerId = useMemo(() => {
@@ -263,6 +283,37 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
   const handlePhraseAskChange = useCallback((enabled: boolean) => {
     sendMessage(JSON.stringify({ type: 'set_phrase_ask', enabled }));
   }, [sendMessage]);
+
+  /**
+   * THE SELECTED CARD'S VOICE. Falls back to the last patch the room sent, then to the preset the card
+   * names, so the panel is never empty and never shows a sound the room is not playing.
+   */
+  const selectedPeer = useMemo(
+    () => peers.find(peer => peer.peerId === selectedPeerId) ?? null,
+    [peers, selectedPeerId],
+  );
+  const selectedPatch = useMemo<Patch | null>(() => {
+    if (!selectedPeer) return null;
+    return draftPatches.get(selectedPeer.peerId)
+      ?? patches.get(selectedPeer.peerId)
+      ?? defaultPatchFor((selectedPeer.instrument ?? DEFAULT_INSTRUMENT) as InstrumentType);
+  }, [selectedPeer, draftPatches, patches]);
+
+  /**
+   * A SLIDER MOVES THE ROOM, NOT ONLY THE PAGE. The draft is applied locally at once so the control feels
+   * direct, and the message to the server rides a short trailing timer so a sweep is one send.
+   */
+  const handlePatchChange = useCallback((patch: Patch) => {
+    const peerId = selectedPeer?.peerId;
+    if (!peerId) return;
+    setDraftPatches(prev => new Map(prev).set(peerId, patch));
+    appliedPatchesRef.current.set(peerId, JSON.stringify(patch));
+    engine?.setPeerPatch(peerId, patch);
+    if (patchSendTimer.current) clearTimeout(patchSendTimer.current);
+    patchSendTimer.current = setTimeout(() => {
+      sendMessage(JSON.stringify({ type: 'set_agent_patch', agentPeerId: peerId, patch }));
+    }, 140);
+  }, [selectedPeer, engine, sendMessage]);
 
   const handleInstrumentChange = useCallback((instrument: InstrumentType) => {
     setCurrentInstrument(instrument);
@@ -412,6 +463,8 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
             agentParts={agentParts}
             onChangePart={(peerId, part) => sendMessage(JSON.stringify({ type: 'set_agent_part', agentPeerId: peerId, ...part }))}
             onDespawn={(peerId) => sendMessage(JSON.stringify({ type: 'despawn_agent', agentPeerId: peerId }))}
+            selectedPeerId={selectedPeerId ?? undefined}
+            onSelect={(peerId) => setSelectedPeerId(current => (current === peerId ? null : peerId))}
           />
 
           <AgentPanel
@@ -449,6 +502,14 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
           {/* THE DOCK SITS UNDER THE KEYS, which is where it was asked for twice. The roll above them got
               shorter to pay for it: at 1280 by 800 the keys and the dock both have to be on screen. */}
           <VisualizerDock
+            patchPanel={selectedPatch ? (
+              <PatchPanel
+                name={selectedPeer?.name ?? 'this player'}
+                patch={selectedPatch}
+                editable={selectedPeer?.kind === 'agent'}
+                onChange={handlePatchChange}
+              />
+            ) : undefined}
             engine={engine ?? null}
             notesRef={visualizerNotesRef as unknown as React.RefObject<import('@/client/features/visualizer/ui/BandViewPane').BandNote[]>}
             names={new Map(peers.map(peer => [peer.peerId, peer.name]))}

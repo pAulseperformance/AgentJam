@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { STYLE_IDS, type AgentStyleId } from '@/shared/music/styles';
 import { INSTRUMENT_IDS } from '@/shared/music/instruments';
 import { LEGACY_INSTRUMENT_ALIASES } from '@/shared/music/presets';
+import { PatchSchema } from '@/shared/music/patch';
 
 /**
  * A player's instrument, as the wire names it: a preset patch, or one of the six synth classes the wire
@@ -186,6 +187,18 @@ export const SetAgentPartSchema = z.object({
 });
 export type SetAgentPartMessage = z.infer<typeof SetAgentPartSchema>;
 
+/**
+ * THE PATCH, EDITED BY HAND. A part's instrument names a starting preset; this message carries the whole
+ * voice, so a cutoff moved on the panel is heard by everyone in the room and not only by the person who
+ * moved it.
+ */
+export const SetAgentPatchSchema = z.object({
+  type: z.literal('set_agent_patch').describe("Message discriminator: change one agent's whole voice"),
+  agentPeerId: z.string().describe('Peer id of the agent whose patch changes'),
+  patch: PatchSchema.describe('The complete voice: oscillator, filter, envelope, modulation, effects'),
+});
+export type SetAgentPatchMessage = z.infer<typeof SetAgentPatchSchema>;
+
 export const InstrumentChangeMessageSchema = z.object({
   type: z.literal('instrument_change').describe('Message discriminator'),
   instrument: z.string().describe('New instrument label to apply to the requesting peer'),
@@ -244,6 +257,7 @@ export const AgentSpawnedMessageSchema = z.object({
   peer: PeerSchema.describe('Peer metadata for the newly spawned AI agent'),
   style: z.string().describe('Generation style the agent is using (jazz, ambient, funk, or random)'),
   seat: z.string().optional().describe('The seat the agent took, when it took one'),
+  patch: PatchSchema.optional().describe("The agent's whole voice, when one has been edited by hand"),
 });
 export type AgentSpawnedMessage = z.infer<typeof AgentSpawnedMessageSchema>;
 
@@ -291,6 +305,7 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   SetPhraseAskMessageSchema,
   SetVibeMessageSchema,
   SetAgentPartSchema,
+  SetAgentPatchSchema,
   z.object({ type: z.literal('set_agent_model'), agentPeerId: z.string(), model: z.string() }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;

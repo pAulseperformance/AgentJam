@@ -20,6 +20,7 @@ const PANES = [
   { id: 'meters', label: 'Meters', hint: 'scope, spectrogram, peak and RMS' },
   { id: 'stereo', label: 'Stereo', hint: 'goniometer, correlation, width and the two channels' },
   { id: 'atmos', label: 'Atmos', hint: 'shader feedback on the room, nothing faster than the music' },
+  { id: 'patch', label: 'Patch', hint: "the selected bot's synth: waveform, envelope, filter and movement" },
 ] as const;
 
 type PaneId = (typeof PANES)[number]['id'];
@@ -30,9 +31,11 @@ interface VisualizerDockProps {
   names?: Map<string, string>;
   width?: number;
   height?: number;
+  /** the synth front panel, rendered in its own tab: a control surface, not a reading */
+  patchPanel?: React.ReactNode;
 }
 
-export function VisualizerDock({ engine, notesRef, names, width = 800, height = 200 }: VisualizerDockProps) {
+export function VisualizerDock({ engine, notesRef, names, width = 800, height = 200, patchPanel }: VisualizerDockProps) {
   // SPECTRUM BY DEFAULT, because it is the pane a person expects to find and the one that answers
   // "is the room doing anything" in a glance.
   const [pane, setPane] = useState<PaneId>('spectrum');
@@ -70,6 +73,7 @@ export function VisualizerDock({ engine, notesRef, names, width = 800, height = 
       {pane === 'meters' && <MetersPane engine={engine} width={width} height={height} />}
       {pane === 'stereo' && <StereoPane engine={engine} width={width} height={height} />}
       {pane === 'atmos' && <AtmosGLPane engine={engine} width={width} height={height} />}
+      {pane === 'patch' && (patchPanel ?? <p style={{ fontSize: 12, opacity: 0.7 }}>Select a bot card to edit its voice.</p>)}
     </section>
   );
 }

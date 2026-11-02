@@ -5,6 +5,7 @@ import { PLAYOUT_DELAY_MS, MAX_NOTE_HOLD_S } from '@/shared/protocol/constants';
 
 import { DEFAULT_INSTRUMENT, type InstrumentId } from '@/shared/music/instruments';
 import { PRESETS, presetById, presetsByFamily, type PresetPatch } from '@/shared/music/presets';
+import { polyOptionsOf, type Patch } from '@/shared/music/patch';
 import { meterFromSpectrum } from './meter';
 
 // THE VOICE LIST IS SHARED. It lives in shared/music/instruments so the SERVER can validate a spawn and a
@@ -135,6 +136,32 @@ function createInstrumentSynth(id: InstrumentType, output: Tone.InputNode): Tone
   return synth;
 }
 
+/**
+ * A VOICE BUILT FROM A PATCH, for the panel's numbers rather than a preset's.
+ *
+ * Same shape as the preset builder (bank, then drive, filter, chorus, vibrato), but every value comes from
+ * the patch the player is dragging, so what the panel shows IS what the engine plays.
+ */
+function createPatchSynth(patch: Patch, output: Tone.InputNode): Tone.PolySynth {
+  const synth = new Tone.PolySynth(Tone.Synth, polyOptionsOf(patch) as never);
+  synth.volume.value = patch.level;
+
+  const chain: Tone.ToneAudioNode[] = [];
+  if (patch.drive > 0.01) chain.push(new Tone.Distortion({ distortion: patch.drive, wet: patch.drive }));
+  chain.push(new Tone.Filter({ type: patch.filter.type, frequency: patch.filter.cutoff, Q: patch.filter.resonance }));
+  if (patch.chorus > 0.01) chain.push(new Tone.Chorus({ frequency: 0.8, delayTime: 3.5, depth: 0.6, wet: patch.chorus }).start());
+  if (patch.lfo.depth > 0.01) chain.push(new Tone.Vibrato({ frequency: patch.lfo.rate, depth: patch.lfo.depth }));
+
+  let node: Tone.ToneAudioNode = synth;
+  for (const effect of chain) {
+    node.connect(effect);
+    node = effect;
+  }
+  node.connect(output);
+  CHAINS.set(synth, chain);
+  return synth;
+}
+
 /** Replace or drop a voice without leaking its effects into the master bus. */
 function disposeInstrument(synth: Tone.PolySynth): void {
   const chain = CHAINS.get(synth);
@@ -169,6 +196,8 @@ export class AudioEngine {
   private localKit: DrumVoice | null = null;
   /** Per-peer instrument type tracking */
   private peerInstruments: Map<string, InstrumentType> = new Map();
+  /** hand-built patches per player, kept so the panel opens on the voice that is playing */
+  private peerPatches: Map<string, Patch> = new Map();
   /** Per-peer volume nodes: peerId → Gain */
   private peerGains: Map<string, Tone.Gain> = new Map();
   /** Per-peer pan position, and the node that applies it once the voice exists */
@@ -482,6 +511,30 @@ export class AudioEngine {
     synth.maxPolyphony = 8;
     this.peerSynths.set(peerId, synth);
     this.peerInstruments.set(peerId, instrument);
+  }
+
+  /**
+   * A HAND-BUILT PATCH, for one player. Replaces whatever voice was there, kits included, because a patch
+   * is a complete instrument: leaving a kit underneath a synth patch would stack two voices on one part.
+   */
+  setPeerPatch(peerId: string, patch: Patch): void {
+    const kit = this.peerKits.get(peerId);
+    if (kit) { kit.dispose(); this.peerKits.delete(peerId); }
+    const existing = this.peerSynths.get(peerId);
+    if (existing) {
+      existing.releaseAll();
+      disposeInstrument(existing);
+      this.peerSynths.delete(peerId);
+    }
+    const synth = createPatchSynth(patch, this.getOrCreatePeerGain(peerId));
+    synth.maxPolyphony = 8;
+    this.peerSynths.set(peerId, synth);
+    this.peerPatches.set(peerId, patch);
+  }
+
+  /** The patch a player is playing, so the panel can open on the sound the room hears. */
+  getPeerPatch(peerId: string): Patch | undefined {
+    return this.peerPatches.get(peerId);
   }
 
   /** Get the synth for a remote peer, creating a default if needed */
