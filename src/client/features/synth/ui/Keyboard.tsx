@@ -1,21 +1,6 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AudioEngine } from '../lib/audio-engine';
-
-// Musical note layout matching standard piano keyboard
-const KEY_MAP: Record<string, string> = {
-  // Lower octave (Z row)
-  z: 'C3', x: 'D3', c: 'E3', v: 'F3',
-  b: 'G3', n: 'A3', m: 'B3',
-  // Upper octave (A row)
-  a: 'C4', s: 'D4', d: 'E4', f: 'F4',
-  g: 'G4', h: 'A4', j: 'B4',
-  // Higher octave (Q row)
-  q: 'C5', w: 'D5', e: 'E5', r: 'F5',
-  t: 'G5', y: 'A5', u: 'B5',
-  // Sharps/flats (number row)
-  '2': 'C#4', '3': 'D#4', '5': 'F#4',
-  '6': 'G#4', '7': 'A#4',
-};
+import { KEY_MAP, describePitch, inKey, letterFor } from '../lib/keyboard-layout';
 
 const WHITE_KEYS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
 const BLACK_KEYS = ['C#', 'D#', null, 'F#', 'G#', 'A#', null];
@@ -24,24 +9,31 @@ interface KeyboardProps {
   engine: AudioEngine;
   peerId: string;
   onNoteEvent?: (type: 'note_on' | 'note_off', pitch: string, velocity: number) => void;
+  /** The room's key, so the piano can show which notes belong to it and which are outside */
+  musicalKey?: string;
 }
 
 /**
- * Virtual QWERTY-mapped piano keyboard (TAS-71).
+ * THE PIANO, WITH ITS HELPERS DRAWN ON IT.
  *
- * Maps computer keyboard to musical notes and provides a clickable
- * on-screen piano. Routes all note events through the AudioEngine
- * directly (not through React state) and notifies the parent via
- * callback for WebSocket broadcast.
+ * Three readings a person playing by eye could not get before, all from the same data: every key carries
+ * the computer letter that plays it (A S D F on the home row), the notes that belong to the room's key are
+ * lit while the ones outside it are dimmed, and the note you just played is named beside the keyboard with
+ * whether it fits.
  */
-export function Keyboard({ engine, peerId, onNoteEvent }: KeyboardProps) {
+export function Keyboard({ engine, peerId, onNoteEvent, musicalKey }: KeyboardProps) {
   const pressedKeys = useRef<Set<string>>(new Set());
   const onNoteEventRef = useRef(onNoteEvent);
   onNoteEventRef.current = onNoteEvent;
+  // The audio path stays on the ref, because a note is not a render. These two mirror it for the drawing.
+  const [held, setHeld] = useState<string[]>([]);
+  const [lastPlayed, setLastPlayed] = useState<string | null>(null);
 
   const handleNoteOn = useCallback((pitch: string) => {
     if (pressedKeys.current.has(pitch)) return; // debounce repeats
     pressedKeys.current.add(pitch);
+    setHeld([...pressedKeys.current]);
+    setLastPlayed(pitch);
 
     engine.playNote(pitch, 100, false); // local = no playout delay
     onNoteEventRef.current?.('note_on', pitch, 100);
@@ -50,6 +42,7 @@ export function Keyboard({ engine, peerId, onNoteEvent }: KeyboardProps) {
   const handleNoteOff = useCallback((pitch: string) => {
     if (!pressedKeys.current.has(pitch)) return;
     pressedKeys.current.delete(pitch);
+    setHeld([...pressedKeys.current]);
 
     engine.releaseNote(pitch);
     onNoteEventRef.current?.('note_off', pitch, 0);
@@ -102,43 +95,57 @@ export function Keyboard({ engine, peerId, onNoteEvent }: KeyboardProps) {
   // Suppress unused peerId warning — used in stable identity for note events
   void peerId;
 
+  const renderKey = (pitch: string, black: boolean) => {
+    const letter = letterFor(pitch);
+    const fits = inKey(pitch, musicalKey);
+    const down = held.includes(pitch);
+    return (
+      <button
+        key={pitch}
+        className={[
+          'keyboard__key',
+          black ? 'keyboard__key--black' : 'keyboard__key--white',
+          fits ? 'keyboard__key--in-key' : 'keyboard__key--outside',
+          down ? 'keyboard__key--down' : '',
+        ].join(' ')}
+        onPointerDown={() => handleNoteOn(pitch)}
+        onPointerUp={() => handleNoteOff(pitch)}
+        onPointerLeave={() => handleNoteOff(pitch)}
+        aria-label={`${pitch}${letter ? `, press ${letter}` : ''}${fits ? ', in key' : ', outside the key'}`}
+        data-pitch={pitch}
+        data-letter={letter}
+        data-in-key={fits ? 'yes' : 'no'}
+        style={black
+          ? { left: `${(BLACK_KEYS.indexOf(pitch.slice(0, -1)) + 0.5) * (100 / 7)}%`, opacity: fits ? 1 : 0.5 }
+          : { opacity: fits ? 1 : 0.6 }}
+      >
+        <span className="keyboard__label">{pitch}</span>
+        {letter && <span className="keyboard__letter">{letter}</span>}
+      </button>
+    );
+  };
+
   return (
-    <div className="keyboard" role="group" aria-label="Piano keyboard">
-      <div className="keyboard__octave">
-        {[3, 4, 5].map((octave) => (
-          <div key={octave} className="keyboard__octave-group">
-            {WHITE_KEYS.map((note) => {
-              const pitch = `${note}${octave}`;
-              return (
-                <button
-                  key={pitch}
-                  className="keyboard__key keyboard__key--white"
-                  onPointerDown={() => handleNoteOn(pitch)}
-                  onPointerUp={() => handleNoteOff(pitch)}
-                  onPointerLeave={() => handleNoteOff(pitch)}
-                  aria-label={pitch}
-                >
-                  <span className="keyboard__label">{pitch}</span>
-                </button>
-              );
-            })}
-            {BLACK_KEYS.map((note, i) => {
-              if (!note) return <span key={`gap-${octave}-${String(i)}`} className="keyboard__gap" />;
-              const pitch = `${note}${octave}`;
-              return (
-                <button
-                  key={pitch}
-                  className="keyboard__key keyboard__key--black"
-                  onPointerDown={() => handleNoteOn(pitch)}
-                  onPointerUp={() => handleNoteOff(pitch)}
-                  onPointerLeave={() => handleNoteOff(pitch)}
-                  aria-label={pitch}
-                  style={{ left: `${(i + 0.5) * (100 / 7)}%` }}
-                />
-              );
-            })}
-          </div>
-        ))}
+    <div className="keyboard-wrap">
+      <div className="keyboard__readout" data-last-note={lastPlayed ?? ''}>
+        <span className="keyboard__readout-key">Key: {musicalKey ?? 'unset'}</span>
+        <span className="keyboard__readout-note">
+          {lastPlayed ? describePitch(lastPlayed, musicalKey) : 'the letters on the keys are the ones you press'}
+        </span>
+        <span className="keyboard__readout-held">{held.length ? `held ${held.join(' ')}` : ''}</span>
+      </div>
+      <div className="keyboard" role="group" aria-label="Piano keyboard">
+        <div className="keyboard__octave">
+          {[3, 4, 5].map((octave) => (
+            <div key={octave} className="keyboard__octave-group">
+              {WHITE_KEYS.map((note) => renderKey(`${note}${octave}`, false))}
+              {BLACK_KEYS.map((note, i) => {
+                if (!note) return <span key={`gap-${octave}-${String(i)}`} className="keyboard__gap" />;
+                return renderKey(`${note}${octave}`, true);
+              })}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

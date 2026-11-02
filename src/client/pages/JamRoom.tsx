@@ -440,6 +440,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
               engine={engine}
               peerId="local"
               onNoteEvent={handleLocalNoteEvent}
+              musicalKey={roomState?.key}
             />
           )}
 

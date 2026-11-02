@@ -600,6 +600,25 @@ body {
   z-index: 1;
 }
 
+/* THE PIANO'S HELPERS: the letter a person presses, the notes in the room's key, and the note that just
+   landed. In-key keys keep their brightness and outside ones dim (set inline), the held key lifts, and the
+   letter sits under the note name so a beginner reads "D4 press S" in one glance. */
+.keyboard-wrap { display: flex; flex-direction: column; gap: 4px; }
+.keyboard__readout {
+  display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap;
+  font-size: 12px; color: var(--text-secondary); padding: 2px 2px 0;
+}
+.keyboard__readout-key { font-weight: 600; color: var(--text-primary, inherit); }
+.keyboard__readout-note { font-variant-numeric: tabular-nums; }
+.keyboard__readout-held { opacity: .7; }
+.keyboard__letter {
+  position: absolute; bottom: 6px; left: 0; right: 0;
+  font-size: 10px; font-weight: 700; letter-spacing: .04em; opacity: .55; pointer-events: none;
+}
+.keyboard__key--black .keyboard__letter { bottom: 4px; color: #e0e7ff; }
+.keyboard__key--down { outline: 2px solid var(--accent-indigo); outline-offset: -2px; transform: translateY(2px); }
+.keyboard__key--outside { filter: saturate(.5); }
+
 .keyboard__key--white:hover { background: linear-gradient(180deg, #e0e0f0, #c8c8dd); }
 .keyboard__key--white:active { background: var(--accent-indigo); transform: translateY(2px); }
 

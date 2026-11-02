@@ -205,6 +205,11 @@ let dockReadings = {};
 let spawnLabel = null;
 let agentControls = 0;
 let stack = null;
+/** the piano's helpers: letters drawn, keys outside the room's key, the spawn form's style buttons, the note readout */
+let keyboardLetters = 0;
+let keysOutside = 0;
+let spawnStyleButtons = 0;
+let keyboardReadout = null;
 try {
   loadStartedAt = Date.now();
   // COMMIT, NOT DOMContentLoaded. The estate bar's script (zpe-bar.js in the shell head) holds
@@ -288,6 +293,18 @@ try {
   });
   // THE CARDS CARRY THE FINE CONTROLS: three selects per agent, style, voice and seat.
   agentControls = await page.evaluate(() => document.querySelectorAll('[data-agent-part]').length);
+
+  // THE PIANO'S HELPERS: a letter on every key, the notes outside the room's key dimmed, and a readout
+  // that names the note a person just played. A computer key is pressed for real, with focus off the form.
+  await page.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.blur() : null));
+  keyboardLetters = await page.evaluate(() => document.querySelectorAll('.keyboard__letter').length);
+  keysOutside = await page.evaluate(() => document.querySelectorAll('.keyboard__key[data-in-key="no"]').length);
+  spawnStyleButtons = await page.evaluate(() => document.querySelectorAll('.agent-panel__spawn .agent-panel__style-btn').length);
+  await page.keyboard.down('a');
+  await page.waitForTimeout(220);
+  await page.keyboard.up('a');
+  await page.waitForTimeout(120);
+  keyboardReadout = await page.evaluate(() => document.querySelector('.keyboard__readout')?.getAttribute('data-last-note') ?? null);
 
   // THE STACK: the roll above the keys, the dock below them, both on the visible page.
   stack = await page.evaluate(() => {
@@ -462,6 +479,8 @@ console.log(meterAtBar
   : 'audio meter not on the page (no canvas.spectrum-pane)');
 console.log(`visualizer bright pixels ${canvasAtBar ?? 'n/a'} at the bar, ${canvasLater ?? 'n/a'} 1.2 s later` +
   `${canvasAtBar === null ? ' (no canvas.visualizer on the page)' : ''}`);
+console.log(`keyboard   ${keyboardLetters} letters drawn, ${keysOutside} keys marked outside the room's key, readout "${keyboardReadout ?? ''}"`);
+console.log(`spawn      ${spawnStyleButtons} style buttons on the spawn form (a part's settings live on its card)`);
 console.log(`spawn      button reads "${spawnLabel ?? 'n/a'}", agent cards carry ${agentControls} part controls`);
 console.log(stack
   ? `stack      keyboard ${stack.keyboard?.top ?? 'n/a'} to ${(stack.keyboard?.top ?? 0) + (stack.keyboard?.height ?? 0)}, dock ${stack.dock?.top ?? 'n/a'}, viewport ${stack.viewport}`
@@ -515,6 +534,14 @@ if (!failure) {
     failure = 'the "four bars per call" switch was never pressed (no #phrase-ask on the page)';
   } else if (!spawnLabel || !/^➕ Add a /.test(spawnLabel)) {
     failure = `the spawn button reads "${spawnLabel}", not the seat it will fill`;
+  } else if (keyboardLetters < 10) {
+    failure = `the piano drew ${keyboardLetters} letter labels, so a person cannot see which keys to press`;
+  } else if (keysOutside < 5) {
+    failure = `the piano marked ${keysOutside} keys outside the room's key, which is not a harmonic helper`;
+  } else if (keyboardReadout !== 'C4') {
+    failure = `pressing A left the readout at "${String(keyboardReadout)}", not naming C4`;
+  } else if (spawnStyleButtons !== 0) {
+    failure = `the spawn form still carries ${spawnStyleButtons} style buttons, so a part's settings are in two places`;
   } else if (agentControls !== 3) {
     failure = `an agent card carries ${agentControls} part controls, not three (style, voice, seat)`;
   } else if (!stack?.dock || !stack?.keyboard || stack.dock.top < stack.keyboard.top) {

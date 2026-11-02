@@ -34,13 +34,8 @@ const SEATS = ['lead', 'answer', 'ornament', 'drums', 'bass'] as const;
  * Sends spawn_agent / despawn_agent messages via WebSocket.
  */
 export function AgentPanel({ sendMessage, peers, roomVibe, agentParts }: AgentPanelProps) {
-  // The form opens on the room's vibe, and a person can still pick another style for this one bot.
-  const [selectedStyle, setSelectedStyle] = useState<string>(roomVibe ?? 'jazz');
-  // THE VOICE a bot is born with: the style row's own unless a person picks otherwise.
-  const [selectedInstrument, setSelectedInstrument] = useState('');
-  // WHERE IT SITS: auto means the first seat the room has not covered.
-  const [selectedSeat, setSelectedSeat] = useState('auto');
-  const rowInstrument = STYLE_ROWS.find(row => row.id === selectedStyle)?.instrument ?? 'PolySynth';
+  // A PART'S STYLE, VOICE AND SEAT ARE NOT ON THIS FORM. They are on the agent's card, where they belong.
+  void roomVibe;
   const [agentName, setAgentName] = useState('');
   const [spawning, setSpawning] = useState(false);
 
@@ -77,25 +72,23 @@ export function AgentPanel({ sendMessage, peers, roomVibe, agentParts }: AgentPa
   }, [sendMessage]);
 
   const handleSpawn = useCallback(() => {
-    const name = agentName.trim() || `${selectedStyle.charAt(0).toUpperCase() + selectedStyle.slice(1)} Bot`;
+    const seat = nextSeat();
+    const name = agentName.trim() || `${seat.charAt(0).toUpperCase()}${seat.slice(1)} bot`;
     setSpawning(true);
 
+    // THE BUTTON SENDS A NAME AND A SEAT, and nothing else. The style comes from the room's vibe and the
+    // voice from that style's row; both are then edited on the agent's own card, which is where a part's
+    // settings belong. A form that also carried a style was a second place to set the same thing.
     sendMessage(JSON.stringify({
       type: 'spawn_agent',
       name,
-      style: selectedStyle,
-      // THE VOICE AND THE SEAT travel with the spawn. An empty voice means the style row's own, and an
-      // 'auto' seat means the first one the room has not covered, so the form can stay out of the way.
-      ...(selectedInstrument ? { instrument: selectedInstrument } : {}),
-      // AUTO MEANS THE SEAT THE ROOM IS MISSING, and the server fills the same one, so the button and the
-      // room agree even when the label is a render behind.
-      seat: selectedSeat === 'auto' ? nextSeat() : selectedSeat,
+      seat: nextSeat(),
     }));
 
     setAgentName('');
     // Brief delay to show spawning state
     setTimeout(() => setSpawning(false), 500);
-  }, [sendMessage, selectedStyle, selectedInstrument, selectedSeat, agentName, nextSeat]);
+  }, [sendMessage, agentName, nextSeat]);
 
   const handleDespawn = useCallback((agentPeerId: string) => {
     sendMessage(JSON.stringify({
@@ -124,62 +117,15 @@ export function AgentPanel({ sendMessage, peers, roomVibe, agentParts }: AgentPa
               if (e.key === 'Enter') { e.currentTarget.blur(); handleSpawn(); }
             }}
           />
-          <div className="agent-panel__style-grid">
-            {AGENT_STYLES.map(s => (
-              <button
-                key={s.value}
-                className={`agent-panel__style-btn ${selectedStyle === s.value ? 'agent-panel__style-btn--active' : ''}`}
-                onClick={() => setSelectedStyle(s.value)}
-                title={s.desc}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-          {/* THE VOICE AND THE SEAT. The voice defaults to the style row's own instrument, which is
-              what makes a latin row that names a pluck heard as a pluck; the seat defaults to auto, and
-              the room fills the first one it has not covered. */}
-          <div className="agent-panel__row" style={{ display: 'flex', gap: 8, margin: '8px 0' }}>
-            <label htmlFor="agent-instrument" style={{ fontSize: 12, opacity: 0.8 }}>
-              Voice
-              <select
-                id="agent-instrument"
-                value={selectedInstrument}
-                onChange={event => setSelectedInstrument(event.target.value)}
-                style={{ display: 'block', marginTop: 2 }}
-              >
-                <option value="">{rowInstrument} (from the style)</option>
-                {INSTRUMENT_LIST.map(entry => (
-                  <option key={entry.value} value={entry.value}>
-                    {entry.icon} {entry.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label htmlFor="agent-seat" style={{ fontSize: 12, opacity: 0.8 }}>
-              Seat
-              <select
-                id="agent-seat"
-                value={selectedSeat}
-                onChange={event => setSelectedSeat(event.target.value)}
-                style={{ display: 'block', marginTop: 2 }}
-              >
-                <option value="auto">auto (first free)</option>
-                <option value="lead">lead</option>
-                <option value="answer">answer</option>
-                <option value="ornament">ornament</option>
-                <option value="drums">drums</option>
-                <option value="bass">bass</option>
-              </select>
-            </label>
-          </div>
-
+          {/* NO STYLE HERE ANY MORE. A bot's style, voice and seat are ITS OWN, edited on its card; the
+              button only decides who walks in, and the room's vibe decides what they play until you say
+              otherwise on the card. */}
           <button
             className="agent-panel__spawn-btn"
             onClick={handleSpawn}
             disabled={spawning}
           >
-            {spawning ? '⏳ Spawning...' : `➕ Add a ${selectedSeat === 'auto' ? nextSeat() : selectedSeat}`}
+            {spawning ? '⏳ Adding...' : `➕ Add a ${nextSeat()}`}
           </button>
         </div>
       ) : (
