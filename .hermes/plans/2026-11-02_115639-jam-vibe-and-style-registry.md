@@ -254,7 +254,9 @@ Landed on 2026-11-02, live at https://zpe.vc/jam/ on version 35fc54f5:
 
 Also landed since, from the review pass rather than from a task: the dock moved beside the roll because measured at 1280 by 800 the keys were cut off and the dock began at 853, below the fold; the note buffer now keeps a twelve second window and the band view indexes it once per frame; and the separate meter under the roll was removed because the Meters pane answers the same question.
 
-Open: Task 9 (an instrument on the part) and Task 10 (the seat).
+Task 9 and Task 10 landed on 2026-11-02 as well, verified on the live room: a latin bot spawned with no instrument reported `PluckSynth` (its row's voice), a spawn asking for `FMSynth` reported `FMSynth`, a bot taking the bass seat made the room's own bass leave, and a second bot asking for a taken seat was refused with "the lead seat is taken".
+
+Every task in this plan is now built. Suite 376 with the floor at 376.
 
 Task 6 and Task 11 are done. The palette is nine rows, and the probe reads the room's own tempo back before dividing by a bar: the first version assumed the tempo it had asked for, which would have shifted every reading by the ratio if a change had been refused.
 
