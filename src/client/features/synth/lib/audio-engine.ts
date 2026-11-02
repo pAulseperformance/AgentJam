@@ -154,6 +154,8 @@ export class AudioEngine {
    * room had ears. This node is the only thing on the page that touches the signal.
    */
   private analyser: Tone.Analyser | null = null;
+  /** The time-domain twin. A spectrum says which frequencies, a scope says the shape of the wave. */
+  private scope: Tone.Analyser | null = null;
   /** Muted peers set */
   private mutedPeers: Set<string> = new Set();
   /** Master volume as a plain number (0-1), applied as velocity multiplier */
@@ -167,8 +169,10 @@ export class AudioEngine {
 
     this.masterGain = new Tone.Gain(1).toDestination();
     // 64 bins is enough for 16 bars and cheap enough to read every frame at 30 fps.
-    this.analyser = new Tone.Analyser('fft', 64);
+    this.analyser = new Tone.Analyser('fft', 128);
     this.masterGain.connect(this.analyser);
+    this.scope = new Tone.Analyser('waveform', 512);
+    this.masterGain.connect(this.scope);
     if (this.currentInstrument === 'DrumKit') {
       this.localKit = createDrumKit(this.masterGain);
     } else {
@@ -268,6 +272,23 @@ export class AudioEngine {
    * Zeros before the engine has started, which is the honest answer: a page that has not been armed
    * has no output to measure, and a meter reading full at that moment would be drawing something else.
    */
+  /**
+   * BOTH READINGS AT ONCE, for the panes that need them: the spectrum in decibels and the waveform in
+   * samples. Null before the audio overlay is answered, which is the honest answer for a page that has
+   * not been armed.
+   */
+  analyserSnapshot(): { spectrum: Float32Array<ArrayBufferLike>; wave: Float32Array<ArrayBufferLike> } | null {
+    if (!this.analyser) return null;
+    const fft = this.analyser.getValue();
+    const spectrum = Array.isArray(fft) ? (fft[0] ?? new Float32Array(0)) : fft;
+    let wave = new Float32Array(0);
+    if (this.scope) {
+      const time = this.scope.getValue();
+      wave = Array.isArray(time) ? (time[0] ?? new Float32Array(0)) : time;
+    }
+    return { spectrum, wave };
+  }
+
   meterLevels(bars = 16): number[] {
     if (!this.analyser) return new Array(Math.max(1, bars)).fill(0);
     const values = this.analyser.getValue();

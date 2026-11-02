@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, useMemo, useEffect } from 'react';
 import { useRoomSocket, PeerList, TransportBar, AgentPanel, MetricsPanel, AiDebugPanel, SessionPanel, tempoMarkOf, sessionSnapshot } from '@/client/features/room';
 import { useSynthEngine, Keyboard, useMidi, type InstrumentType } from '@/client/features/synth';
-import { AudioMeter, Visualizer } from '@/client/features/visualizer';
+import { AudioMeter, Visualizer, VisualizerDock } from '@/client/features/visualizer';
 import type { NoteEvent, Peer } from '@/shared/protocol';
 import { slotDelayMs } from '@/client/features/room/lib/note-clock';
 
@@ -412,6 +412,14 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
               onNoteEvent={handleLocalNoteEvent}
             />
           )}
+
+          {/* THE DOCK, BELOW THE KEYS. The roll above the keyboard stays as it is; these panes answer
+              the questions it cannot: who played what, the frequencies, the signal, the mood. */}
+          <VisualizerDock
+            engine={engine ?? null}
+            notesRef={visualizerNotesRef as unknown as React.RefObject<import('@/client/features/visualizer/ui/BandViewPane').BandNote[]>}
+            names={new Map(peers.map(peer => [peer.peerId, peer.name]))}
+          />
         </div>
       </div>
 
