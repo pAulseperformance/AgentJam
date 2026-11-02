@@ -217,6 +217,8 @@ let piano = null;
 let instruments = null;
 /** the synth front panel: what it offers, and whether a control on it reaches the room */
 let patchPanel = null;
+/** the meter mean before and while a knob is dragged: a rebuild shows up as silence */
+let knobDropout = null;
 try {
   loadStartedAt = Date.now();
   // COMMIT, NOT DOMContentLoaded. The estate bar's script (zpe-bar.js in the shell head) holds
@@ -462,6 +464,27 @@ try {
   await page.click('.patch__btn[data-wave="sawtooth"]', { timeout: 2000 }).catch(() => {});
   await page.waitForTimeout(350);
   patchPanel.after.wave = await page.evaluate(() => document.querySelector('[data-patch-wave]')?.getAttribute('data-patch-wave') ?? null);
+  // A KNOB MOVE MUST NOT SILENCE THE PLAYER. The first voice engine rebuilt the whole chain on every
+  // patch frame, so dragging a cutoff disposed the PolySynth mid-phrase: the owner heard it as "every time
+  // i move a knob the synth cuts out". The reading is the meter before the drag and during it.
+  const meterMean = async (samples) => {
+    const values = [];
+    for (let i = 0; i < samples; i += 1) {
+      const peak = await page.evaluate(() => Number(document.querySelector('canvas.spectrum-pane')?.dataset.peak ?? -1));
+      if (peak >= 0) values.push(peak);
+      await page.waitForTimeout(120);
+    }
+    return values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+  };
+  await page.evaluate(() => document.querySelector('[data-patch="cutoff"]')?.focus());
+  const beforeDrag = await meterMean(8);
+  for (let i = 0; i < 10; i += 1) {
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(60);
+  }
+  const duringDrag = await meterMean(8);
+  knobDropout = { before: Number(beforeDrag.toFixed(3)), during: Number(duringDrag.toFixed(3)) };
+
   // THE MASTER FADER, because a room needs one control for the whole band.
   patchPanel.master = await page.evaluate(async () => {
     const el = document.querySelector('#master-volume');
@@ -569,7 +592,7 @@ console.log(meterAtBar
   : 'audio meter not on the page (no canvas.spectrum-pane)');
 console.log(`visualizer bright pixels ${canvasAtBar ?? 'n/a'} at the bar, ${canvasLater ?? 'n/a'} 1.2 s later` +
   `${canvasAtBar === null ? ' (no canvas.visualizer on the page)' : ''}`);
-console.log(`patch      ${patchPanel?.presets ?? 0} presets, ${patchPanel?.waves ?? 0} waves, ${patchPanel?.knobs ?? 0} knobs in ${patchPanel?.sections ?? 0} sections, ${patchPanel?.modTargets ?? 0} modulator destinations; pad loaded as ${patchPanel?.preset?.base ?? '?'} at ${patchPanel?.preset?.cutoff ?? '?'}Hz / ${patchPanel?.preset?.voices ?? '?'} voices; knob to ${patchPanel?.after?.cutoff ?? '?'}Hz, wave ${patchPanel?.after?.wave ?? '?'}; master ${patchPanel?.master?.before ?? '?'} to ${patchPanel?.master?.after ?? '?'} (bus ${patchPanel?.master?.gain ?? '?'})`);
+console.log(`patch      ${patchPanel?.presets ?? 0} presets, ${patchPanel?.waves ?? 0} waves, ${patchPanel?.knobs ?? 0} knobs in ${patchPanel?.sections ?? 0} sections, ${patchPanel?.modTargets ?? 0} modulator destinations; pad loaded as ${patchPanel?.preset?.base ?? '?'} at ${patchPanel?.preset?.cutoff ?? '?'}Hz / ${patchPanel?.preset?.voices ?? '?'} voices; knob to ${patchPanel?.after?.cutoff ?? '?'}Hz, wave ${patchPanel?.after?.wave ?? '?'}; master ${patchPanel?.master?.before ?? '?'} to ${patchPanel?.master?.after ?? '?'} (bus ${patchPanel?.master?.gain ?? '?'}); meter mean ${knobDropout?.before ?? '?'} before a knob drag, ${knobDropout?.during ?? '?'} during it`);
 console.log(`voices     ${instruments?.options ?? 0} instruments in ${instruments?.groups ?? 0} groups, this bot plays ${instruments?.chosen ?? 'nothing'}`);
 console.log(`piano      ${piano?.whites ?? 0} white keys with a ${piano?.maxGap ?? 'n/a'} px worst gap, ${piano?.blacks ?? 0} black keys off their seam by at most ${piano?.maxSeamError ?? 'n/a'} px`);
 console.log(`keyboard   ${keyboardLetters} letters drawn, ${keysOutside} keys marked outside the room's key, readout "${keyboardReadout ?? ''}"`);
@@ -638,6 +661,8 @@ if (!failure) {
     failure = `a knob press left the cutoff at ${patchPanel.after?.cutoff ?? 'n/a'}: the panel is not connected to the patch`;
   } else if (patchPanel.after?.wave !== 'sawtooth') {
     failure = `the waveform reads ${patchPanel.after?.wave ?? 'nothing'} after choosing sawtooth`;
+  } else if (!knobDropout || knobDropout.during < knobDropout.before * 0.35) {
+    failure = `the room went quiet while a knob was dragged: meter mean ${knobDropout?.before ?? '?'} before, ${knobDropout?.during ?? '?'} during`;
   } else if (!patchPanel.master || patchPanel.master.after !== '35') {
     failure = `the master fader reads ${patchPanel.master?.after ?? 'nothing'} after being set to 35`;
   } else if (patchPanel.master.gain !== '0.35') {

@@ -145,61 +145,137 @@ function createInstrumentSynth(id: InstrumentType, output: Tone.InputNode): Tone
  * Same shape as the preset builder (bank, then drive, filter, chorus, vibrato), but every value comes from
  * the patch the player is dragging, so what the panel shows IS what the engine plays.
  */
-function createPatchSynth(patch: Patch, output: Tone.InputNode): Tone.PolySynth {
+/**
+ * A VOICE IS A FIXED CHAIN OF NODES, and every knob is a PARAM on one of them.
+ *
+ * The first version rebuilt the whole voice on every patch message, so moving a cutoff disposed the
+ * PolySynth mid-phrase and the player went silent until the next bar: the owner's report was "every time
+ * i move a knob the synth cuts out". A synth does not rebuild itself because you turned a knob.
+ *
+ * So the topology is built once and never changes: oscillator bank, then drive, the three equaliser bands,
+ * the filter, the vibrato, the tremolo, the chorus, the level. Turning a knob writes a value. The only
+ * thing that rebuilds is the oscillator BANK, and only when the thing it is (wave, unison count, detune,
+ * octave, glide) changes, because those are construction arguments and not params.
+ */
+interface VoiceChain {
+  synth: Tone.PolySynth;
+  drive: Tone.Distortion;
+  eqLow: Tone.Filter;
+  eqMid: Tone.Filter;
+  eqHigh: Tone.Filter;
+  filter: Tone.Filter;
+  vibrato: Tone.Vibrato;
+  tremolo: Tone.Tremolo;
+  chorus: Tone.Chorus;
+  filterLfo: Tone.LFO;
+  level: Tone.Gain;
+  patch: Patch;
+  /** what the oscillator bank was built as, so a rebuild happens only when that changes */
+  shape: string;
+}
+
+/** The battery's construction arguments, as one comparable string. */
+function shapeOf(patch: Patch): string {
+  return [patch.wave, patch.voices, patch.detune, patch.octave, patch.glide].join('|');
+}
+
+function buildVoiceChain(patch: Patch, output: Tone.InputNode): VoiceChain {
   const full = normalizePatch(patch);
-  const synth = new Tone.PolySynth(Tone.Synth, polyOptionsOf(patch) as never);
-  synth.volume.value = patch.level;
-
-  const chain: Tone.ToneAudioNode[] = [];
-  if (patch.drive > 0.01) chain.push(new Tone.Distortion({ distortion: patch.drive, wet: patch.drive }));
-
-  // THE EQUALISER, and it is a real three band one: low shelf, bell, high shelf, each with its own gain and
-  // the two crossovers the panel draws. Flat EQ is skipped entirely so a clean patch costs no node.
   const eq = full.eq;
-  const eqActive = Math.abs(eq.low) > 0.1 || Math.abs(eq.mid) > 0.1 || Math.abs(eq.high) > 0.1;
-  if (eqActive) {
-    chain.push(new Tone.Filter({ type: 'lowshelf', frequency: eq.lowFreq, gain: eq.low }));
-    chain.push(new Tone.Filter({ type: 'peaking', frequency: Math.sqrt(eq.lowFreq * eq.highFreq), Q: 1, gain: eq.mid }));
-    chain.push(new Tone.Filter({ type: 'highshelf', frequency: eq.highFreq, gain: eq.high }));
-  }
 
+  const synth = new Tone.PolySynth(Tone.Synth, polyOptionsOf(patch) as never);
+  const drive = new Tone.Distortion({ distortion: Math.max(0.001, patch.drive), wet: patch.drive });
+  // the equaliser is always there, flat when the patch asks for nothing: three params on three nodes is
+  // cheaper than building and tearing a chain down every time a band is touched
+  const eqLow = new Tone.Filter({ type: 'lowshelf', frequency: eq.lowFreq, gain: eq.low });
+  const eqMid = new Tone.Filter({ type: 'peaking', frequency: Math.sqrt(eq.lowFreq * eq.highFreq), Q: 1, gain: eq.mid });
+  const eqHigh = new Tone.Filter({ type: 'highshelf', frequency: eq.highFreq, gain: eq.high });
   const filter = new Tone.Filter({ type: patch.filter.type, frequency: patch.filter.cutoff, Q: patch.filter.resonance });
-  chain.push(filter);
+  const vibrato = new Tone.Vibrato({ frequency: 5, depth: 0, wet: 0 });
+  const tremolo = new Tone.Tremolo({ frequency: 4, depth: 0, spread: 60 }).start();
+  const chorus = new Tone.Chorus({ frequency: 0.8, delayTime: 3.5, depth: 0.6, wet: patch.chorus }).start();
+  const level = new Tone.Gain(1);
 
-  // TWO MODULATORS, EACH SENDING WHERE THE PATCH SAYS. Pitch is a vibrato, level a tremolo, and filter an
-  // LFO on the cutoff between a quarter and four times it, which is how a synth sweep is actually made.
-  const mods = full.mods;
-  const mods3: Tone.ToneAudioNode[] = [];
-  const [pitchMod, filterMod, levelMod] = [
-    mods.find(mod => mod.target === 'pitch' && mod.depth > 0.001),
-    mods.find(mod => mod.target === 'filter' && mod.depth > 0.001),
-    mods.find(mod => mod.target === 'level' && mod.depth > 0.001),
-  ];
-  if (pitchMod) mods3.push(new Tone.Vibrato({ frequency: pitchMod.rate, depth: Math.min(0.95, pitchMod.depth) }));
-  if (levelMod) mods3.push(new Tone.Tremolo({ frequency: levelMod.rate, depth: Math.min(0.95, levelMod.depth), spread: 60 }).start());
-  if (filterMod) {
-    const lfo = new Tone.LFO({
-      frequency: filterMod.rate,
-      min: Math.max(80, patch.filter.cutoff * 0.25),
-      max: Math.min(12000, patch.filter.cutoff * 4),
-    });
-    lfo.connect(filter.frequency);
-    lfo.start();
-    mods3.push(lfo as unknown as Tone.ToneAudioNode);
+  // the filter's own modulator is a node that is ALWAYS connected and silent until its depth is raised
+  const filterLfo = new Tone.LFO({ frequency: full.mods[1].rate, min: patch.filter.cutoff, max: patch.filter.cutoff });
+  filterLfo.connect(filter.frequency);
+  filterLfo.start();
+
+  synth.connect(drive);
+  drive.connect(eqLow);
+  eqLow.connect(eqMid);
+  eqMid.connect(eqHigh);
+  eqHigh.connect(filter);
+  filter.connect(vibrato);
+  vibrato.connect(tremolo);
+  tremolo.connect(chorus);
+  chorus.connect(level);
+  level.connect(output);
+
+  const voice: VoiceChain = { synth, drive, eqLow, eqMid, eqHigh, filter, vibrato, tremolo, chorus, filterLfo, level, patch, shape: shapeOf(patch) };
+  applyVoiceChain(voice, patch, output);
+  return voice;
+}
+
+/**
+ * WRITE A PATCH INTO A LIVE VOICE. Every value is a param, so a knob move is heard on the next frame and
+ * the note being held keeps sounding. Only the oscillator bank is rebuilt, and only when its construction
+ * changed.
+ */
+function applyVoiceChain(voice: VoiceChain, patch: Patch, output: Tone.InputNode): void {
+  const full = normalizePatch(patch);
+  const eq = full.eq;
+
+  if (shapeOf(patch) !== voice.shape) {
+    // THE ONE REBUILD. A unison count or a waveform is not a param: the bank is replaced, and it is
+    // reconnected INTO the chain that is already running, so the filter, the EQ and the level survive.
+    const old = voice.synth;
+    const next = new Tone.PolySynth(Tone.Synth, polyOptionsOf(patch) as never);
+    next.maxPolyphony = 8;
+    next.connect(voice.drive);
+    voice.synth = next;
+    voice.shape = shapeOf(patch);
+    old.dispose();
   }
-  chain.push(...mods3);
+  voice.synth.maxPolyphony = 8;
 
-  if (patch.chorus > 0.01) chain.push(new Tone.Chorus({ frequency: 0.8, delayTime: 3.5, depth: 0.6, wet: patch.chorus }).start());
-  if (full.sub > 0.01) chain.push(new Tone.Gain(1 + full.sub * 0.4));
+  voice.drive.wet.value = patch.drive;
+  voice.drive.distortion = Math.max(0.001, patch.drive);
 
-  let node: Tone.ToneAudioNode = synth;
-  for (const effect of chain) {
-    node.connect(effect);
-    node = effect;
-  }
-  node.connect(output);
-  CHAINS.set(synth, chain);
-  return synth;
+  voice.eqLow.frequency.value = eq.lowFreq;
+  voice.eqLow.gain.value = eq.low;
+  voice.eqMid.frequency.value = Math.sqrt(eq.lowFreq * eq.highFreq);
+  voice.eqMid.gain.value = eq.mid;
+  voice.eqHigh.frequency.value = eq.highFreq;
+  voice.eqHigh.gain.value = eq.high;
+
+  voice.filter.type = patch.filter.type;
+  voice.filter.frequency.value = patch.filter.cutoff;
+  voice.filter.Q.value = patch.filter.resonance;
+
+  const pitchMod = full.mods.find(mod => mod.target === 'pitch');
+  const filterMod = full.mods.find(mod => mod.target === 'filter');
+  const levelMod = full.mods.find(mod => mod.target === 'level');
+
+  voice.vibrato.frequency.value = pitchMod?.rate ?? 5;
+  voice.vibrato.depth.value = pitchMod?.depth ?? 0;
+  voice.vibrato.wet.value = (pitchMod?.depth ?? 0) > 0.001 ? 1 : 0;
+
+  voice.tremolo.frequency.value = levelMod?.rate ?? 4;
+  voice.tremolo.depth.value = levelMod?.depth ?? 0;
+
+  // the filter's sweep is a range around the cutoff, and a depth of zero collapses that range onto the
+  // cutoff, which is the same thing as no movement without having to disconnect a node
+  const depth = filterMod?.depth ?? 0;
+  const span = depth * Math.log2(4);
+  voice.filterLfo.frequency.value = filterMod?.rate ?? 0.6;
+  voice.filterLfo.min = Math.max(80, patch.filter.cutoff / 2 ** span);
+  voice.filterLfo.max = Math.min(12000, patch.filter.cutoff * 2 ** span);
+
+  voice.chorus.wet.value = patch.chorus;
+  voice.level.gain.value = 10 ** (patch.level / 20);
+  voice.patch = patch;
+  void output;
 }
 
 /** Replace or drop a voice without leaking its effects into the master bus. */
@@ -238,6 +314,8 @@ export class AudioEngine {
   private peerInstruments: Map<string, InstrumentType> = new Map();
   /** hand-built patches per player, kept so the panel opens on the voice that is playing */
   private peerPatches: Map<string, Patch> = new Map();
+  /** a hand-built voice's chain, so a knob move writes a param instead of rebuilding the player */
+  private peerVoices: Map<string, VoiceChain> = new Map();
   /** Per-peer volume nodes: peerId → Gain */
   private peerGains: Map<string, Tone.Gain> = new Map();
   /** Per-peer pan position, and the node that applies it once the voice exists */
@@ -547,6 +625,17 @@ export class AudioEngine {
    * that left leaked a Tone.Gain and four one-shot voices for the life of the tab.
    */
   removePeer(peerId: string): void {
+    // A DEPARTING PLAYER GIVES BACK ITS WHOLE CHAIN: the bank, the three EQ bands, the filter, the two
+    // modulators, the chorus and the level, not only the bank.
+    const voice = this.peerVoices.get(peerId);
+    if (voice) {
+      for (const node of [voice.filterLfo, voice.chorus, voice.tremolo, voice.vibrato, voice.filter, voice.eqHigh, voice.eqMid, voice.eqLow, voice.drive, voice.level] as Tone.ToneAudioNode[]) {
+        node.dispose();
+      }
+      voice.synth.dispose();
+      this.peerVoices.delete(peerId);
+      this.peerSynths.delete(peerId);
+    }
     const kit = this.peerKits.get(peerId);
     if (kit) { kit.dispose(); this.peerKits.delete(peerId); }
     const synth = this.peerSynths.get(peerId);
@@ -600,17 +689,31 @@ export class AudioEngine {
    * is a complete instrument: leaving a kit underneath a synth patch would stack two voices on one part.
    */
   setPeerPatch(peerId: string, patch: Patch): void {
+    const existing = this.peerVoices.get(peerId);
+    if (existing) {
+      // A KNOB MOVE IS A VALUE, NOT A REBUILD. This used to dispose the voice on every frame of a drag,
+      // which is the silence the owner heard: "every time i move a knob the synth cuts out".
+      applyVoiceChain(existing, patch, this.getOrCreatePeerGain(peerId));
+      // A REBUILT BANK MUST BE THE ONE THE NOTES ARRIVE AT. The chain replaces its PolySynth when the
+      // waveform or the unison count changes, and the note path reads this map: left stale, the next note
+      // went to a disposed node and the player went quiet until a reload.
+      this.peerSynths.set(peerId, existing.synth);
+      this.peerPatches.set(peerId, patch);
+      return;
+    }
     const kit = this.peerKits.get(peerId);
     if (kit) { kit.dispose(); this.peerKits.delete(peerId); }
-    const existing = this.peerSynths.get(peerId);
-    if (existing) {
-      existing.releaseAll();
-      disposeInstrument(existing);
+    const synth = this.peerSynths.get(peerId);
+    if (synth) {
+      synth.releaseAll();
+      disposeInstrument(synth);
       this.peerSynths.delete(peerId);
     }
-    const synth = createPatchSynth(patch, this.getOrCreatePeerGain(peerId));
-    synth.maxPolyphony = 8;
-    this.peerSynths.set(peerId, synth);
+    const voice = buildVoiceChain(patch, this.getOrCreatePeerGain(peerId));
+    voice.synth.maxPolyphony = 8;
+    this.peerVoices.set(peerId, voice);
+    // the older maps stay truthful: the player's synth IS this voice's bank, so the note path finds it
+    this.peerSynths.set(peerId, voice.synth);
     this.peerPatches.set(peerId, patch);
   }
 
