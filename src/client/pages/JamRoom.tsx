@@ -408,11 +408,12 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
             peers={peers}
             engine={engine}
             localPeerId={localPeerId}
+            agentParts={agentParts}
+            onChangePart={(peerId, part) => sendMessage(JSON.stringify({ type: 'set_agent_part', agentPeerId: peerId, ...part }))}
+            onDespawn={(peerId) => sendMessage(JSON.stringify({ type: 'despawn_agent', agentPeerId: peerId }))}
           />
 
           <AgentPanel
-            roomVibe={roomState?.vibe}
-            agentParts={agentParts}
             sendMessage={sendMessage}
             peers={peers}
           />

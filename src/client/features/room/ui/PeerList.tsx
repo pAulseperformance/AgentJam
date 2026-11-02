@@ -1,6 +1,8 @@
 import { useState, useCallback } from 'react';
 import type { Peer } from '@/shared/protocol';
 import type { AudioEngine } from '@/client/features/synth';
+import { STYLE_ROWS } from '@/shared/music/styles';
+import { INSTRUMENT_LIST } from '@/client/features/synth';
 
 interface PeerMixState {
   volume: number;
@@ -13,12 +15,20 @@ interface PeerListProps {
   engine?: AudioEngine | null;
   /** Local peer's peerId */
   localPeerId?: string;
+  /** Each agent's style and seat, so its card can show and change them */
+  agentParts?: Map<string, { style: string; seat: string }>;
+  /** Write a change to one agent's part: style, voice or seat */
+  onChangePart?: (peerId: string, part: { style?: string; instrument?: string; seat?: string }) => void;
+  /** Remove an agent */
+  onDespawn?: (peerId: string) => void;
 }
+
+const SEATS = ['lead', 'answer', 'ornament', 'drums', 'bass'] as const;
 
 /**
  * Displays connected peers with per-peer volume & mute controls.
  */
-export function PeerList({ peers, engine, localPeerId }: PeerListProps) {
+export function PeerList({ peers, engine, localPeerId, agentParts, onChangePart, onDespawn }: PeerListProps) {
   const [mixState, setMixState] = useState<Map<string, PeerMixState>>(new Map());
   const [masterMuted, setMasterMuted] = useState(false);
   const [masterVolume, setMasterVolume] = useState(1);
@@ -96,6 +106,9 @@ export function PeerList({ peers, engine, localPeerId }: PeerListProps) {
         {peers.map((peer) => {
           const isLocal = peer.peerId === localPeerId;
           const mix = getPeerMix(peer.peerId);
+          // THE PART CONTROLS LIVE ON THE CARD, and only for a bot the room can actually change: a
+          // backing drummer is a layer, not an agent in the roster, so it carries no style or seat.
+          const part = agentParts?.get(peer.peerId);
 
           return (
             <li key={peer.peerId} className="peer-list__item">
@@ -109,7 +122,56 @@ export function PeerList({ peers, engine, localPeerId }: PeerListProps) {
                 <span className="peer-list__badge">
                   {peer.kind === 'agent' ? '🤖' : '🎹'}
                 </span>
+                {part && onDespawn && (
+                  <button
+                    className="peer-list__kill"
+                    onClick={() => onDespawn(peer.peerId)}
+                    title={`Remove ${peer.name}`}
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
+
+              {part && onChangePart && (
+                <div className="peer-list__part" // STACKED, because these live in a narrow column: three selects side by side in a 240 px sidebar are
+                // three unreadable slivers.
+                style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 3, margin: '5px 0 2px' }}>
+                  <select
+                    aria-label={`${peer.name} style`}
+                    data-agent-part={`${peer.peerId}-style`}
+                    value={part.style}
+                    onChange={event => onChangePart(peer.peerId, { style: event.target.value })}
+                    style={{ fontSize: 11 }}
+                  >
+                    {STYLE_ROWS.map(row => (
+                      <option key={row.id} value={row.id}>{row.icon} {row.label}</option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label={`${peer.name} voice`}
+                    data-agent-part={`${peer.peerId}-voice`}
+                    value={peer.instrument}
+                    onChange={event => onChangePart(peer.peerId, { instrument: event.target.value })}
+                    style={{ fontSize: 11 }}
+                  >
+                    {INSTRUMENT_LIST.map(entry => (
+                      <option key={entry.value} value={entry.value}>{entry.icon} {entry.label}</option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label={`${peer.name} seat`}
+                    data-agent-part={`${peer.peerId}-seat`}
+                    value={part.seat}
+                    onChange={event => onChangePart(peer.peerId, { seat: event.target.value })}
+                    style={{ fontSize: 11 }}
+                  >
+                    {SEATS.map(seat => (
+                      <option key={seat} value={seat}>{seat}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Volume controls — only for remote peers */}
               {!isLocal && (

@@ -1,7 +1,5 @@
 import { useState, useCallback } from 'react';
 import type { Peer } from '@/shared/protocol';
-import { STYLE_ROWS } from '@/shared/music/styles';
-import { INSTRUMENT_LIST } from '@/client/features/synth';
 
 interface AgentPanelProps {
   /** Send a WS message to the server */
@@ -18,12 +16,6 @@ interface AgentPanelProps {
  * THE STYLE LIST IS THE REGISTRY'S. It used to be four hand-written options, which meant a style added
  * to the table was invisible here and a style removed from it stayed on this list.
  */
-const AGENT_STYLES = STYLE_ROWS.map(row => ({
-  value: row.id,
-  label: `${row.icon} ${row.label}`,
-  desc: row.verbs,
-}));
-
 const MAX_AGENTS = 4;
 
 /** The five seats, in the order the room fills them. */
@@ -66,11 +58,6 @@ export function AgentPanel({ sendMessage, peers, roomVibe, agentParts }: AgentPa
     return SEATS.find(seat => !taken.has(seat)) ?? 'ornament';
   }, [agentPeers, agentParts, hasDrummer, hasBass]);
 
-  /** One agent's part, changed from its card. */
-  const changePart = useCallback((agentPeerId: string, part: { style?: string; instrument?: string; seat?: string }) => {
-    sendMessage(JSON.stringify({ type: 'set_agent_part', agentPeerId, ...part }));
-  }, [sendMessage]);
-
   const handleSpawn = useCallback(() => {
     const seat = nextSeat();
     const name = agentName.trim() || `${seat.charAt(0).toUpperCase()}${seat.slice(1)} bot`;
@@ -89,13 +76,6 @@ export function AgentPanel({ sendMessage, peers, roomVibe, agentParts }: AgentPa
     // Brief delay to show spawning state
     setTimeout(() => setSpawning(false), 500);
   }, [sendMessage, agentName, nextSeat]);
-
-  const handleDespawn = useCallback((agentPeerId: string) => {
-    sendMessage(JSON.stringify({
-      type: 'despawn_agent',
-      agentPeerId,
-    }));
-  }, [sendMessage]);
 
   return (
     <div className="agent-panel">
@@ -132,72 +112,8 @@ export function AgentPanel({ sendMessage, peers, roomVibe, agentParts }: AgentPa
         <p className="agent-panel__limit">Max {MAX_AGENTS} agents reached</p>
       )}
 
-      {/* Active agents list */}
-      {agentPeers.length > 0 && (
-        <ul className="agent-panel__list" role="list">
-          {agentPeers.map(agent => (
-            <li key={agent.peerId} className="agent-panel__agent">
-              <span
-                className="agent-panel__dot"
-                style={{ backgroundColor: agent.color }}
-              />
-              <span className="agent-panel__agent-name">{agent.name}</span>
-              {/* THE FINE CONTROLS LIVE ON THE CARD. A style, a voice and a seat are the three things a
-                  player is, and changing them here is heard on the next bar instead of costing a respawn. */}
-              <select
-                aria-label={`${agent.name} style`}
-                data-agent-part={`${agent.peerId}-style`}
-                value={agentParts?.get(agent.peerId)?.style ?? ''}
-                onChange={event => changePart(agent.peerId, { style: event.target.value })}
-                style={{ fontSize: 11, maxWidth: 92 }}
-              >
-                {!agentParts?.get(agent.peerId)?.style && <option value="">style</option>}
-                {AGENT_STYLES.map(entry => (
-                  <option key={entry.value} value={entry.value}>
-                    {entry.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label={`${agent.name} voice`}
-                data-agent-part={`${agent.peerId}-voice`}
-                value={agent.instrument}
-                onChange={event => changePart(agent.peerId, { instrument: event.target.value })}
-                style={{ fontSize: 11, maxWidth: 84 }}
-              >
-                {INSTRUMENT_LIST.map(entry => (
-                  <option key={entry.value} value={entry.value}>
-                    {entry.icon} {entry.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label={`${agent.name} seat`}
-                data-agent-part={`${agent.peerId}-seat`}
-                value={agentParts?.get(agent.peerId)?.seat ?? ''}
-                onChange={event => changePart(agent.peerId, { seat: event.target.value })}
-                style={{ fontSize: 11, maxWidth: 84 }}
-              >
-                {!agentParts?.get(agent.peerId)?.seat && <option value="">seat</option>}
-                {SEATS.map(seat => (
-                  <option key={seat} value={seat}>{seat}</option>
-                ))}
-              </select>
-              <button
-                className="agent-panel__despawn-btn"
-                onClick={() => handleDespawn(agent.peerId)}
-                title={`Remove ${agent.name}`}
-              >
-                ✕
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {agentPeers.length === 0 && (
-        <p className="agent-panel__empty">No agents yet, spawn one above!</p>
-      )}
+      {/* THE AGENT CARDS LIVE IN THE PEERS PANEL. A bot's style, voice and seat sit on its own
+          card there, with its volume, which is where a person looks for a player. */}
 
       {/* The rhythm section: instant, free, and the thing that sets the tempo */}
       <h3 className="agent-panel__title" style={{ marginTop: '1rem' }}>🥁 Rhythm section</h3>

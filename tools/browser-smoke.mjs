@@ -204,6 +204,7 @@ let dockReadings = {};
 /** the spawn button's own words, the per-agent control count, and where the dock sits */
 let spawnLabel = null;
 let agentControls = 0;
+let controlsInCard = 0;
 let stack = null;
 /** the piano's helpers: letters drawn, keys outside the room's key, the spawn form's style buttons, the note readout */
 let keyboardLetters = 0;
@@ -293,6 +294,9 @@ try {
   });
   // THE CARDS CARRY THE FINE CONTROLS: three selects per agent, style, voice and seat.
   agentControls = await page.evaluate(() => document.querySelectorAll('[data-agent-part]').length);
+  // AND THEY ARE INSIDE THE PEER CARD, beside the bot's own volume, which is where a person looks for a
+  // player. A control in the agent panel was a second place to set the same thing.
+  controlsInCard = await page.evaluate(() => document.querySelectorAll('.peer-list__item [data-agent-part]').length);
 
   // THE PIANO'S HELPERS: a letter on every key, the notes outside the room's key dimmed, and a readout
   // that names the note a person just played. A computer key is pressed for real, with focus off the form.
@@ -480,6 +484,7 @@ console.log(meterAtBar
 console.log(`visualizer bright pixels ${canvasAtBar ?? 'n/a'} at the bar, ${canvasLater ?? 'n/a'} 1.2 s later` +
   `${canvasAtBar === null ? ' (no canvas.visualizer on the page)' : ''}`);
 console.log(`keyboard   ${keyboardLetters} letters drawn, ${keysOutside} keys marked outside the room's key, readout "${keyboardReadout ?? ''}"`);
+console.log(`cards      ${controlsInCard} part controls inside a peer card`);
 console.log(`spawn      ${spawnStyleButtons} style buttons on the spawn form (a part's settings live on its card)`);
 console.log(`spawn      button reads "${spawnLabel ?? 'n/a'}", agent cards carry ${agentControls} part controls`);
 console.log(stack
@@ -542,6 +547,8 @@ if (!failure) {
     failure = `pressing A left the readout at "${String(keyboardReadout)}", not naming C4`;
   } else if (spawnStyleButtons !== 0) {
     failure = `the spawn form still carries ${spawnStyleButtons} style buttons, so a part's settings are in two places`;
+  } else if (controlsInCard !== agentControls || controlsInCard === 0) {
+    failure = `${controlsInCard} of ${agentControls} part controls are inside a peer card, and they belong on the card`;
   } else if (agentControls !== 3) {
     failure = `an agent card carries ${agentControls} part controls, not three (style, voice, seat)`;
   } else if (!stack?.dock || !stack?.keyboard || stack.dock.top < stack.keyboard.top) {
