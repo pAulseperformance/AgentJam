@@ -409,6 +409,7 @@ console.log(panelDrawn
   ? `panel drawn, state "${panelState ?? 'unknown'}"${panelState === 'signed out' ? ' (a guest: the panel draws its guest state and no rows)' : ''}`
   : 'panel not drawn (no .session-panel on the page)');
 console.log('dock       ' + Object.entries(dockReadings).map(([pane, read]) => `${pane} ${read.drawn === null ? 'NO CANVAS' : (read.frames !== undefined ? `${read.frames} frames (${read.preset})` : `${read.drawn}px`)}`).join(', '));
+if (dockReadings.stereo?.correlation) console.log(`           stereo correlation ${dockReadings.stereo.correlation} (1 is mono, 0 is wide, -1 is out of phase)`);
 console.log(vibeBefore === null
   ? 'vibe       no #vibe-select on the page'
   : `vibe       read ${vibeBefore}, picked funk, now reads ${vibeAfter}`);
@@ -447,8 +448,10 @@ if (!failure) {
     failure = `the visualizer dock offered ${Object.keys(dockReadings).length} panes, not 5`;
   } else if (Object.values(dockReadings).some(read => read.drawn === null)) {
     failure = 'a dock pane drew no canvas when it was picked';
-  } else if (Object.values(dockReadings).some(read => (read.drawn ?? 0) < 40)) {
-    failure = `a dock pane painted almost nothing: ${JSON.stringify(Object.entries(dockReadings).map(([p, r]) => [p, r.drawn]))}`;
+  } else if (Object.values(dockReadings).some(read => read.frames !== undefined ? Number(read.frames) < 3 : (read.drawn ?? 0) < 40)) {
+    // A 2D pane is scored in bright pixels and the shader pane in frames drawn, because a WebGL canvas
+    // cannot be read with getImageData and counting its pixels was never what the reading meant.
+    failure = `a dock pane painted almost nothing: ${JSON.stringify(Object.entries(dockReadings).map(([p, r]) => [p, r.frames ?? r.drawn]))}`;
   } else if (vibeBefore === null) {
     failure = 'the room has no vibe control (#vibe-select)';
   } else if (vibeAfter !== 'funk') {

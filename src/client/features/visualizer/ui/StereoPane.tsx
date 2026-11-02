@@ -73,11 +73,25 @@ export function StereoPane({ engine, width = 800, height = 200 }: StereoPaneProp
         trail.push({ x: cx + point.x, y: cy + point.y });
       }
       while (trail.length > 900) trail.shift();
+      // A TRACE IS A GLOW, not a line of single pixels: at 1.4 px and low alpha the pane read as almost
+      // empty in the gate, which is the reading telling me a listener would see nothing either.
+      context.globalCompositeOperation = 'lighter';
       trail.forEach((point, i) => {
-        const alpha = 0.10 + (i / trail.length) * 0.6;
-        context.fillStyle = `rgba(165,180,252,${alpha})`;
-        context.fillRect(point.x, point.y, 1.4, 1.4);
+        const fresh = i / Math.max(1, trail.length);
+        const alpha = 0.08 + fresh * 0.5;
+        context.fillStyle = `rgba(129,140,248,${alpha})`;
+        context.beginPath();
+        context.arc(point.x, point.y, 1.2 + fresh * 1.8, 0, Math.PI * 2);
+        context.fill();
       });
+      context.globalCompositeOperation = 'source-over';
+      const lastPoint = trail[trail.length - 1];
+      if (lastPoint) {
+        context.fillStyle = '#e0e7ff';
+        context.beginPath();
+        context.arc(lastPoint.x, lastPoint.y, 2.4, 0, Math.PI * 2);
+        context.fill();
+      }
 
       // THE READOUT: correlation, width, and the two channel bars.
       context.fillStyle = correlation < -0.2 ? '#f472b6' : '#e0e7ff';
