@@ -10,6 +10,8 @@ interface AgentPanelProps {
   peers: Peer[];
   /** The room's vibe: what a new bot is born into when the form is left alone */
   roomVibe?: string;
+  /** Each agent's style and seat, from agent_spawned, so the card can show and change them */
+  agentParts?: Map<string, { style: string; seat: string }>;
 }
 
 /**
@@ -24,11 +26,14 @@ const AGENT_STYLES = STYLE_ROWS.map(row => ({
 
 const MAX_AGENTS = 4;
 
+/** The five seats, in the order the room fills them. */
+const SEATS = ['lead', 'answer', 'ornament', 'drums', 'bass'] as const;
+
 /**
  * AgentPanel, spawn and despawn AI agents from the browser UI.
  * Sends spawn_agent / despawn_agent messages via WebSocket.
  */
-export function AgentPanel({ sendMessage, peers, roomVibe }: AgentPanelProps) {
+export function AgentPanel({ sendMessage, peers, roomVibe, agentParts }: AgentPanelProps) {
   // The form opens on the room's vibe, and a person can still pick another style for this one bot.
   const [selectedStyle, setSelectedStyle] = useState<string>(roomVibe ?? 'jazz');
   // THE VOICE a bot is born with: the style row's own unless a person picks otherwise.
@@ -50,6 +55,27 @@ export function AgentPanel({ sendMessage, peers, roomVibe }: AgentPanelProps) {
   const agentPeers = peers.filter(p => p.kind === 'agent' && p.name !== 'Drummer' && p.name !== 'Bass');
   const canSpawn = agentPeers.length < MAX_AGENTS;
 
+  /**
+   * THE NEXT PLAYER THE ROOM IS MISSING. The button names the seat it will fill, so a person pressing it
+   * knows what is about to walk in; the server applies the same order, so the label cannot disagree with
+   * what lands unless the room changed between the render and the press.
+   */
+  const nextSeat = useCallback((): (typeof SEATS)[number] => {
+    const taken = new Set<string>();
+    for (const agent of agentPeers) {
+      const seat = agentParts?.get(agent.peerId)?.seat;
+      if (seat) taken.add(seat);
+    }
+    if (hasDrummer) taken.add('drums');
+    if (hasBass) taken.add('bass');
+    return SEATS.find(seat => !taken.has(seat)) ?? 'ornament';
+  }, [agentPeers, agentParts, hasDrummer, hasBass]);
+
+  /** One agent's part, changed from its card. */
+  const changePart = useCallback((agentPeerId: string, part: { style?: string; instrument?: string; seat?: string }) => {
+    sendMessage(JSON.stringify({ type: 'set_agent_part', agentPeerId, ...part }));
+  }, [sendMessage]);
+
   const handleSpawn = useCallback(() => {
     const name = agentName.trim() || `${selectedStyle.charAt(0).toUpperCase() + selectedStyle.slice(1)} Bot`;
     setSpawning(true);
@@ -61,13 +87,15 @@ export function AgentPanel({ sendMessage, peers, roomVibe }: AgentPanelProps) {
       // THE VOICE AND THE SEAT travel with the spawn. An empty voice means the style row's own, and an
       // 'auto' seat means the first one the room has not covered, so the form can stay out of the way.
       ...(selectedInstrument ? { instrument: selectedInstrument } : {}),
-      ...(selectedSeat !== 'auto' ? { seat: selectedSeat } : {}),
+      // AUTO MEANS THE SEAT THE ROOM IS MISSING, and the server fills the same one, so the button and the
+      // room agree even when the label is a render behind.
+      seat: selectedSeat === 'auto' ? nextSeat() : selectedSeat,
     }));
 
     setAgentName('');
     // Brief delay to show spawning state
     setTimeout(() => setSpawning(false), 500);
-  }, [sendMessage, selectedStyle, selectedInstrument, selectedSeat, agentName]);
+  }, [sendMessage, selectedStyle, selectedInstrument, selectedSeat, agentName, nextSeat]);
 
   const handleDespawn = useCallback((agentPeerId: string) => {
     sendMessage(JSON.stringify({
@@ -151,7 +179,7 @@ export function AgentPanel({ sendMessage, peers, roomVibe }: AgentPanelProps) {
             onClick={handleSpawn}
             disabled={spawning}
           >
-            {spawning ? '⏳ Spawning...' : '➕ Spawn Agent'}
+            {spawning ? '⏳ Spawning...' : `➕ Add a ${selectedSeat === 'auto' ? nextSeat() : selectedSeat}`}
           </button>
         </div>
       ) : (
@@ -168,6 +196,47 @@ export function AgentPanel({ sendMessage, peers, roomVibe }: AgentPanelProps) {
                 style={{ backgroundColor: agent.color }}
               />
               <span className="agent-panel__agent-name">{agent.name}</span>
+              {/* THE FINE CONTROLS LIVE ON THE CARD. A style, a voice and a seat are the three things a
+                  player is, and changing them here is heard on the next bar instead of costing a respawn. */}
+              <select
+                aria-label={`${agent.name} style`}
+                data-agent-part={`${agent.peerId}-style`}
+                value={agentParts?.get(agent.peerId)?.style ?? ''}
+                onChange={event => changePart(agent.peerId, { style: event.target.value })}
+                style={{ fontSize: 11, maxWidth: 92 }}
+              >
+                {!agentParts?.get(agent.peerId)?.style && <option value="">style</option>}
+                {AGENT_STYLES.map(entry => (
+                  <option key={entry.value} value={entry.value}>
+                    {entry.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label={`${agent.name} voice`}
+                data-agent-part={`${agent.peerId}-voice`}
+                value={agent.instrument}
+                onChange={event => changePart(agent.peerId, { instrument: event.target.value })}
+                style={{ fontSize: 11, maxWidth: 84 }}
+              >
+                {INSTRUMENT_LIST.map(entry => (
+                  <option key={entry.value} value={entry.value}>
+                    {entry.icon} {entry.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label={`${agent.name} seat`}
+                data-agent-part={`${agent.peerId}-seat`}
+                value={agentParts?.get(agent.peerId)?.seat ?? ''}
+                onChange={event => changePart(agent.peerId, { seat: event.target.value })}
+                style={{ fontSize: 11, maxWidth: 84 }}
+              >
+                {!agentParts?.get(agent.peerId)?.seat && <option value="">seat</option>}
+                {SEATS.map(seat => (
+                  <option key={seat} value={seat}>{seat}</option>
+                ))}
+              </select>
               <button
                 className="agent-panel__despawn-btn"
                 onClick={() => handleDespawn(agent.peerId)}

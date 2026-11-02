@@ -40,6 +40,8 @@ interface UseRoomSocketReturn {
   /** AI debug entries — last prompt/response/metadata per agent */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic debug payload from server
   aiDebugEntries: any[];
+  /** Each agent's style and seat, kept from agent_spawned so the panel's per-agent controls can show them */
+  agentParts: Map<string, { style: string; seat: string }>;
 }
 
 const RECONNECT_DELAYS = [500, 1000, 2000, 4000, 8000] as const;
@@ -153,9 +155,20 @@ export function useRoomSocket({
             setPeers((prev) => prev.filter((p) => p.peerId !== msg.peerId));
             break;
 
-          case 'agent_spawned':
-            // Agent also triggers peer_joined, so just log
+          case 'agent_spawned': {
+            // THE PANEL NEEDS EACH AGENT'S PART, and the peer list does not carry a style or a seat. Every
+            // spawn and every change re-broadcasts this frame, so it is the one place the parts stay true.
+            const spawned = msg as { peer?: { peerId?: string }; style?: string; seat?: string };
+            const peerId = spawned.peer?.peerId;
+            if (peerId) {
+              setAgentParts(prev => {
+                const next = new Map(prev);
+                next.set(peerId, { style: spawned.style ?? prev.get(peerId)?.style ?? 'jazz', seat: spawned.seat ?? prev.get(peerId)?.seat ?? 'lead' });
+                return next;
+              });
+            }
             break;
+          }
           case 'metrics_snapshot':
             setMetrics(msg);
             break;
@@ -211,6 +224,8 @@ export function useRoomSocket({
       // onclose will fire after onerror
     };
   }, [roomId, playerName, playerKind, instrument]);
+
+  const [agentParts, setAgentParts] = useState<Map<string, { style: string; seat: string }>>(() => new Map());
 
   const startClockSync = useCallback((ws: WebSocket) => {
     // Send clock sync ping every 30s for RTT measurement
@@ -292,5 +307,6 @@ export function useRoomSocket({
     wsRtt,
     clockOffset,
     aiDebugEntries,
+    agentParts,
   };
 }

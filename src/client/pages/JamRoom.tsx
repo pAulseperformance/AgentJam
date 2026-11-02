@@ -134,6 +134,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     wsRtt,
     clockOffset,
     aiDebugEntries,
+    agentParts,
   } = useRoomSocket({
     roomId,
     playerName,
@@ -411,6 +412,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
 
           <AgentPanel
             roomVibe={roomState?.vibe}
+            agentParts={agentParts}
             sendMessage={sendMessage}
             peers={peers}
           />
@@ -431,16 +433,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
               panes under the keys: roll 321 to 585, keyboard 689 to 829, dock 853 to 1090, so the keys
               were cut off and the dock began below the fold. The roll keeps its place and its size; the
               dock sits beside it and the keys stay under both. */}
-          <div className="jam-room__stage" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)', gap: 12, alignItems: 'start' }}>
-            <Visualizer width={800} height={250} notesRef={visualizerNotesRef} />
-            <VisualizerDock
-              engine={engine ?? null}
-              notesRef={visualizerNotesRef as unknown as React.RefObject<import('@/client/features/visualizer/ui/BandViewPane').BandNote[]>}
-              names={new Map(peers.map(peer => [peer.peerId, peer.name]))}
-              width={520}
-              height={208}
-            />
-          </div>
+          <Visualizer width={800} height={170} notesRef={visualizerNotesRef} />
 
           {engine && (
             <Keyboard
@@ -449,6 +442,16 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
               onNoteEvent={handleLocalNoteEvent}
             />
           )}
+
+          {/* THE DOCK SITS UNDER THE KEYS, which is where it was asked for twice. The roll above them got
+              shorter to pay for it: at 1280 by 800 the keys and the dock both have to be on screen. */}
+          <VisualizerDock
+            engine={engine ?? null}
+            notesRef={visualizerNotesRef as unknown as React.RefObject<import('@/client/features/visualizer/ui/BandViewPane').BandNote[]>}
+            names={new Map(peers.map(peer => [peer.peerId, peer.name]))}
+            width={800}
+            height={190}
+          />
         </div>
       </div>
 

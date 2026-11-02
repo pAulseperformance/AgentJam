@@ -201,6 +201,10 @@ let vibeBefore = null;
 let vibeAfter = null;
 /** what each dock pane painted: bright pixels plus its own data attributes */
 let dockReadings = {};
+/** the spawn button's own words, the per-agent control count, and where the dock sits */
+let spawnLabel = null;
+let agentControls = 0;
+let stack = null;
 try {
   loadStartedAt = Date.now();
   // COMMIT, NOT DOMContentLoaded. The estate bar's script (zpe-bar.js in the shell head) holds
@@ -243,6 +247,8 @@ try {
   // THE ONE AGENT. The name is set so the agent_spawned frame can be tied to this click, not to a
   // neighbour that happens to be in the same room.
   await page.waitForSelector('.agent-panel__spawn-btn', { timeout: remaining() });
+  // THE BUTTON NAMES THE SEAT IT WILL FILL. A person pressing it should know what is about to walk in.
+  spawnLabel = await page.evaluate(() => document.querySelector('.agent-panel__spawn-btn')?.textContent?.trim() ?? null);
   await page.fill('.agent-panel__name-input', 'Smoke');
   await page.click('.agent-panel__spawn-btn', { timeout: remaining() });
   // A click lost to a re-render is retried ONCE, and only while the page has sent no spawn at all:
@@ -280,6 +286,20 @@ try {
     for (let i = 0; i < d.length; i += 4) if (d[i] > 90 || d[i + 1] > 90 || d[i + 2] > 90) n++;
     return n;
   });
+  // THE CARDS CARRY THE FINE CONTROLS: three selects per agent, style, voice and seat.
+  agentControls = await page.evaluate(() => document.querySelectorAll('[data-agent-part]').length);
+
+  // THE STACK: the roll above the keys, the dock below them, both on the visible page.
+  stack = await page.evaluate(() => {
+    const box = (selector) => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { top: Math.round(r.top), height: Math.round(r.height) };
+    };
+    return { keyboard: box('.keyboard'), dock: box('.visualizer-dock'), viewport: window.innerHeight };
+  });
+
   canvasAtBar = await brightPixels();
   await page.waitForTimeout(1200);
   canvasLater = await brightPixels();
@@ -442,6 +462,10 @@ console.log(meterAtBar
   : 'audio meter not on the page (no canvas.spectrum-pane)');
 console.log(`visualizer bright pixels ${canvasAtBar ?? 'n/a'} at the bar, ${canvasLater ?? 'n/a'} 1.2 s later` +
   `${canvasAtBar === null ? ' (no canvas.visualizer on the page)' : ''}`);
+console.log(`spawn      button reads "${spawnLabel ?? 'n/a'}", agent cards carry ${agentControls} part controls`);
+console.log(stack
+  ? `stack      keyboard ${stack.keyboard?.top ?? 'n/a'} to ${(stack.keyboard?.top ?? 0) + (stack.keyboard?.height ?? 0)}, dock ${stack.dock?.top ?? 'n/a'}, viewport ${stack.viewport}`
+  : 'stack      not measured');
 console.log(`toggle     default ${String(toggleDefault)} (on is the room's default when nobody has chosen)`);
 console.log(toggle
   ? `toggle     "four bars per call" pressed: checked ${toggle.checked}, peers ${toggle.peers}` +
@@ -489,6 +513,12 @@ if (!failure) {
     failure = 'the audio meter is armed and read zero at the bar and 1.5 s later while the room played';
   } else if (!toggle) {
     failure = 'the "four bars per call" switch was never pressed (no #phrase-ask on the page)';
+  } else if (!spawnLabel || !/^➕ Add a /.test(spawnLabel)) {
+    failure = `the spawn button reads "${spawnLabel}", not the seat it will fill`;
+  } else if (agentControls !== 3) {
+    failure = `an agent card carries ${agentControls} part controls, not three (style, voice, seat)`;
+  } else if (!stack?.dock || !stack?.keyboard || stack.dock.top < stack.keyboard.top) {
+    failure = `the dock is not under the keys (keyboard ${stack?.keyboard?.top}, dock ${stack?.dock?.top})`;
   } else if (toggleDefault !== true) {
     failure = `the phrase switch defaulted to ${String(toggleDefault)}, and a room that has never chosen asks for phrases`;
   } else if (toggle.checked !== false || !toggle.note.includes('one bar at a time')) {

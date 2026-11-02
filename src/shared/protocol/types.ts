@@ -164,6 +164,20 @@ export const SetVibeMessageSchema = z.object({
 });
 export type SetVibeMessage = z.infer<typeof SetVibeMessageSchema>;
 
+/**
+ * ONE AGENT'S PART, CHANGED FROM ITS CARD. A style, a voice and a seat are the three things a player is,
+ * and the panel's fine controls write them here rather than asking for a respawn: a listener tuning the
+ * band should hear the change on the next bar, not lose the idea the bot was developing.
+ */
+export const SetAgentPartSchema = z.object({
+  type: z.literal('set_agent_part').describe('Message discriminator: change one agent\'s style, voice or seat'),
+  agentPeerId: z.string().describe('Peer id of the agent to change'),
+  style: z.enum([...STYLE_IDS] as [AgentStyleId, ...AgentStyleId[]]).optional().describe('New style for this agent'),
+  instrument: z.enum([...INSTRUMENT_IDS] as [InstrumentId, ...InstrumentId[]]).optional().describe('New voice for this agent'),
+  seat: z.enum(['drums', 'bass', 'lead', 'answer', 'ornament']).optional().describe('New seat for this agent'),
+});
+export type SetAgentPartMessage = z.infer<typeof SetAgentPartSchema>;
+
 export const InstrumentChangeMessageSchema = z.object({
   type: z.literal('instrument_change').describe('Message discriminator'),
   instrument: z.string().describe('New instrument label to apply to the requesting peer'),
@@ -268,6 +282,7 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   SetGapRestsMessageSchema,
   SetPhraseAskMessageSchema,
   SetVibeMessageSchema,
+  SetAgentPartSchema,
   z.object({ type: z.literal('set_agent_model'), agentPeerId: z.string(), model: z.string() }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;

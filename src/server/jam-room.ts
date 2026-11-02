@@ -530,6 +530,9 @@ export class JamRoom implements DurableObject {
       case 'despawn_agent':
         this.handleDespawnAgent(ws, msg.agentPeerId);
         break;
+      case 'set_agent_part':
+        this.handleSetAgentPart(ws, msg);
+        break;
       case 'set_vibe':
         this.handleSetVibe(msg.vibe);
         break;
@@ -1175,11 +1178,64 @@ export class JamRoom implements DurableObject {
    * NOT rewrite a bot that is already playing: a part's style is its own field, and a room setting that
    * mutated every part would be one listener's click changing everybody's band with no undo.
    */
+
+  /**
+   * ONE AGENT'S PART, FROM ITS CARD. The three things a player is: a style (how it composes), a voice (what
+   * it sounds like) and a seat (where it sits). A change is heard on the next bar and keeps the agent's
+   * motif unless the STYLE moves, because a new idiom means the old idea no longer belongs.
+   */
+  private handleSetAgentPart(ws: WebSocket, msg: { agentPeerId: string; style?: AgentStyle; instrument?: InstrumentId; seat?: AgentSeat }): void {
+    const agent = this.agents.get(msg.agentPeerId);
+    if (!agent) {
+      this.sendError(ws, 'no such agent in this room');
+      return;
+    }
+
+    if (msg.seat && msg.seat !== agent.seat) {
+      const taken = [...this.agents.values()].some(other => other.seat === msg.seat && other.peer.peerId !== agent.peer.peerId);
+      if (taken) {
+        this.sendError(ws, `the ${msg.seat} seat is taken`);
+        return;
+      }
+      agent.seat = msg.seat;
+      if (msg.seat === 'bass') this.despawnLayer('bass');
+      if (msg.seat === 'drums') this.despawnLayer('drummer');
+    }
+
+    if (msg.style && msg.style !== agent.style) {
+      agent.style = msg.style;
+      // A NEW STYLE IS A NEW IDEA: the queued bars were planned as the old idiom and the motif is the old
+      // line, so both go. The next bar is asked for from scratch, which is what makes the change audible.
+      agent.queue = [];
+      agent.motif = null;
+      agent.renderCostMs = 0;
+    }
+
+    if (msg.instrument) {
+      agent.peer.instrument = msg.instrument;
+    }
+
+    // THE PEERS CARRY THE VOICE, so a room_state frame is what tells every listener to rebuild the synth.
+    this.broadcastAll(this.roomStateFrame());
+    this.broadcastAll(JSON.stringify({ type: 'agent_spawned', peer: agent.peer, style: agent.style, seat: agent.seat, tier: agent.tier }));
+  }
+
   private handleSetVibe(vibe: AgentStyle): void {
     this.roomState.vibe = vibe;
     this.roomState.serverTime = Date.now();
     void this.ctx.storage.put('roomState', this.roomState);
+    // THE SECTION MOVES WITH THE VIBE, on the next bar. A backing layer's style used to be a snapshot
+    // taken at spawn, so changing the vibe changed nothing anyone could hear: the drums and bass are the
+    // room's own players, not a part with its own opinion, so they follow the room every time it changes.
+    let moved = 0;
+    for (const layer of this.layers.values()) {
+      if (layer.style === vibe) continue;
+      layer.style = vibe;
+      layer.bars = 0;
+      moved += 1;
+    }
     this.broadcastAll(this.roomStateFrame());
+    void moved;
   }
 
   /**
