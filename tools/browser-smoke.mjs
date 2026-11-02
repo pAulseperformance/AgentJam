@@ -188,6 +188,8 @@ let overlayTakenDown = false;
 /** what the "four bars per call" switch read after it was pressed (null when the press never happened) */
 let toggle = null;
 let toggleErrors = [];
+/** what "four bars per call" read BEFORE it was pressed: absent-means-on is the room's default now */
+let toggleDefault = null;
 /** bright pixels on the visualizer canvas, at the bar and 1.2 s later (null when it was not read) */
 let canvasAtBar = null;
 let canvasLater = null;
@@ -350,6 +352,13 @@ try {
   // back to the roll's neighbour so the last pane is not the one left on screen
   await page.click('[data-pane-tab="spectrum"]', { timeout: 1500 }).catch(() => {});
 
+  // THE SWITCH STARTS ON, because a room that has never chosen is asked for phrases: a style lives in its
+  // phrase. So the reading is the DEFAULT first, then the round trip off and back on, which is more than
+  // the old one proved and is the reading the new default needs.
+  toggleDefault = await page.evaluate(() => {
+    const box = document.querySelector('#phrase-ask');
+    return box instanceof HTMLInputElement ? box.checked : null;
+  });
   const errorsBefore = pageErrors.length;
   await page.click('#phrase-ask', { timeout: Math.max(500, Math.min(remaining(), 4000)) });
   await page.waitForTimeout(700);
@@ -363,6 +372,16 @@ try {
       crashed: document.body.innerText.includes('Something went wrong'),
     };
   });
+  // AND BACK ON, so a listener who presses twice is where they started.
+  await page.click('#phrase-ask', { timeout: Math.max(500, Math.min(remaining(), 2000)) }).catch(() => {});
+  await page.waitForTimeout(600);
+  const toggleBackOn = await page.evaluate(() => {
+    const box = document.querySelector('#phrase-ask');
+    return box instanceof HTMLInputElement ? box.checked : null;
+  });
+  if (toggleBackOn !== true) {
+    toggleErrors.push(`pressing twice left the switch at ${String(toggleBackOn)}`);
+  }
   toggleErrors = pageErrors.slice(errorsBefore);
 } catch (err) {
   failure = err.message;
@@ -423,6 +442,7 @@ console.log(meterAtBar
   : 'audio meter not on the page (no canvas.spectrum-pane)');
 console.log(`visualizer bright pixels ${canvasAtBar ?? 'n/a'} at the bar, ${canvasLater ?? 'n/a'} 1.2 s later` +
   `${canvasAtBar === null ? ' (no canvas.visualizer on the page)' : ''}`);
+console.log(`toggle     default ${String(toggleDefault)} (on is the room's default when nobody has chosen)`);
 console.log(toggle
   ? `toggle     "four bars per call" pressed: checked ${toggle.checked}, peers ${toggle.peers}` +
     `${toggle.crashed ? ', PAGE SAYS SOMETHING WENT WRONG' : ''}${toggleErrors.length ? `, ${toggleErrors.length} page error(s)` : ''}` +
@@ -469,7 +489,9 @@ if (!failure) {
     failure = 'the audio meter is armed and read zero at the bar and 1.5 s later while the room played';
   } else if (!toggle) {
     failure = 'the "four bars per call" switch was never pressed (no #phrase-ask on the page)';
-  } else if (toggle.checked !== true || !toggle.note.includes('one model call writes a whole phrase')) {
+  } else if (toggleDefault !== true) {
+    failure = `the phrase switch defaulted to ${String(toggleDefault)}, and a room that has never chosen asks for phrases`;
+  } else if (toggle.checked !== false || !toggle.note.includes('one bar at a time')) {
     failure = `pressing "four bars per call" left the switch at checked=${String(toggle.checked)} ` +
       `with the note "${toggle.note || '(none)'}"`;
   } else if (toggle.peers < 1) {
