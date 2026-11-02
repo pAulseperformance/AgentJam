@@ -171,6 +171,11 @@ export class AudioEngine {
     await Tone.start();
 
     this.masterGain = new Tone.Gain(1).toDestination();
+    // THE BUS MUST NOT COLLAPSE TO MONO. A gain node upmixes whatever arrives to its own channel count,
+    // and with an explicit mono count every panned voice arrives identical on both channels: the room
+    // reported a perfect correlation with the band spread across the field.
+    this.masterGain.channelCount = 2;
+    this.masterGain.channelCountMode = 'max';
     // 64 bins is enough for 16 bars and cheap enough to read every frame at 30 fps.
     this.analyser = new Tone.Analyser('fft', 128);
     this.masterGain.connect(this.analyser);

@@ -339,6 +339,7 @@ try {
         peak: canvas.dataset.peak ?? null,
         correlation: canvas.dataset.correlation ?? null,
         channels: canvas.dataset.channels ?? null,
+        delta: canvas.dataset.delta ?? null,
         bass: canvas.dataset.bass ?? null,
         dock: document.querySelector('.visualizer-dock')?.getAttribute('data-pane') ?? null,
       };
@@ -410,7 +411,7 @@ console.log(panelDrawn
   ? `panel drawn, state "${panelState ?? 'unknown'}"${panelState === 'signed out' ? ' (a guest: the panel draws its guest state and no rows)' : ''}`
   : 'panel not drawn (no .session-panel on the page)');
 console.log('dock       ' + Object.entries(dockReadings).map(([pane, read]) => `${pane} ${read.drawn === null ? 'NO CANVAS' : (read.frames !== undefined ? `${read.frames} frames (${read.preset})` : `${read.drawn}px`)}`).join(', '));
-if (dockReadings.stereo?.correlation) console.log(`           stereo correlation ${dockReadings.stereo.correlation} over ${dockReadings.stereo.channels} channel(s) (1 is mono, 0 is wide, -1 is out of phase)`);
+if (dockReadings.stereo?.correlation) console.log(`           stereo correlation ${dockReadings.stereo.correlation} over ${dockReadings.stereo.channels} channel(s), left-right delta ${dockReadings.stereo.delta} (1 is mono, 0 is wide, -1 is out of phase)`);
 console.log(vibeBefore === null
   ? 'vibe       no #vibe-select on the page'
   : `vibe       read ${vibeBefore}, picked funk, now reads ${vibeAfter}`);

@@ -42,6 +42,12 @@ export function StereoPane({ engine, width = 800, height = 200 }: StereoPaneProp
       const { mid, side } = stereoEnergy(left, right);
       element.dataset.correlation = correlation.toFixed(3);
       element.dataset.channels = String(snapshot?.channels ?? 0);
+      // HOW DIFFERENT THE CHANNELS ARE, in absolute terms. Correlation alone cannot tell "no pan" from
+      // "pan applied but the band is centred", and this can.
+      let delta = 0;
+      const compare = Math.min(left.length, right.length);
+      for (let i = 0; i < compare; i++) delta += Math.abs((left[i] ?? 0) - (right[i] ?? 0));
+      element.dataset.delta = (compare ? delta / compare : 0).toFixed(4);
       element.dataset.side = side.toFixed(3);
       element.dataset.armed = engine?.isStarted() ? 'yes' : 'no';
 
