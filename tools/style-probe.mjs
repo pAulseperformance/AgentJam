@@ -25,7 +25,9 @@ const arg = (name, fallback) => {
 };
 
 const base = arg('url', 'wss://zpe.vc/jam');
-const seconds = Number(arg('seconds', '25'));
+// FORTY FIVE SECONDS, because a style's first bar is not its character: a model call takes seconds, and
+// a fourteen second window measured one note a bar for a row that plays three to five.
+const seconds = Number(arg('seconds', '45'));
 // The list is written out rather than imported from the registry: this is a .mjs script and the registry
 // is TypeScript, so an import here runs under a loader the gate does not have. The registry's own suite is
 // what keeps the two in step, and a style missing from this list is a style the palette ships unmeasured.
@@ -43,12 +45,16 @@ async function probeStyle(style) {
   const room = `style-${style}-${randomUUID().slice(0, 6)}`;
   const url = `${base}/api/room/${room}/ws`;
   const notes = [];
+  let agentPeerId = null;
+  let spawned = false;
   let bars = 0;
+  const seenTypes = new Map();
   return new Promise((resolve) => {
     const ws = new WebSocket(url);
     const done = () => {
       try { ws.close(); } catch { /* already closing */ }
-      resolve({ style, room, notes, bars });
+      if (process.argv.includes('--verbose')) console.error(`${style}: agent=${String(agentPeerId).slice(0,8)} peers=${JSON.stringify(Object.entries(notes.reduce((a,n)=>{const k=String(n.peerId).slice(0,8);a[k]=(a[k]||0)+1;return a;},{})))}`);
+      resolve({ style, room, notes, agentPeerId, bars });
     };
     ws.on('open', () => {
       ws.send(JSON.stringify({ type: 'join_room', name: 'Probe', kind: 'human', instrument: 'PolySynth' }));
@@ -56,16 +62,34 @@ async function probeStyle(style) {
     ws.on('message', (raw) => {
       let msg;
       try { msg = JSON.parse(String(raw)); } catch { return; }
-      if (msg.type === 'room_state') {
-        // The room's tempo is set once, then the agent is spawned into it with the style under test.
+      if (msg.type === 'room_state' && !spawned) {
+        // ONCE. The room re-broadcasts room_state on every setting change, so an unguarded spawn here
+        // asked for an agent on each frame and hit the room's agent limit on the second one, which is
+        // why three of four styles measured zero notes.
+        spawned = true;
         ws.send(JSON.stringify({ type: 'bpm_change', bpm }));
         ws.send(JSON.stringify({ type: 'spawn_agent', name: `Probe ${style}`, style }));
-        ws.send(JSON.stringify({ type: 'set_backing', drummer: true, bass: true }));
+        // NO SECTION BY DEFAULT. A style is the agent's own line, and with the drummer and bass in the
+        // room the agent's notes arrived under neither peer id the probe saw, so the reading was of the
+        // rhythm section. --backing puts them back for anyone measuring the whole band.
+        if (process.argv.includes('--backing')) {
+          ws.send(JSON.stringify({ type: 'set_backing', drummer: true, bass: true }));
+        }
+      }
+      // THE EXACT NAME, not a prefix: the room names its backing layers after the first agent, so
+      // "Probe funk" and "Probe funk drummer" both start with "Probe" and the prefix match captured the
+      // layer's id, which plays nothing of its own and made every style measure zero notes.
+      if (msg.type === 'agent_spawned' && msg.peer?.name === `Probe ${style}`) {
+        agentPeerId = msg.peer.peerId;
       }
       if (msg.type === 'note_on' && typeof msg.pitch === 'string') {
+        // ONLY THE AGENT'S OWN LINE. Counting the drummer and the bass as well made every style read as
+        // the rhythm section plus a melody, which is why funk measured 28 notes a bar for a row that asks
+        // for three to five.
         notes.push({ t: Date.now(), pitch: msg.pitch, velocity: Number(msg.velocity) || 0, peerId: msg.peerId });
       }
       if (msg.type === 'ai_debug') bars += 1;
+      seenTypes.set(msg.type, (seenTypes.get(msg.type) ?? 0) + 1);
     });
     setTimeout(done, seconds * 1000);
   });
@@ -81,7 +105,12 @@ const barMs = (240_000 / bpm);
 const results = [];
 for (const style of styles) {
   const reading = await probeStyle(style);
-  const notes = reading.notes;
+  // THE AGENT'S OWN LINE, filtered once its id is known. Notes that arrived before the spawn frame are
+  // kept and then dropped here rather than lost, because a probe that discards the first bars measures
+  // the style's opening badly for exactly the styles that start slow.
+  const notes = reading.agentPeerId
+    ? reading.notes.filter(note => note.peerId === reading.agentPeerId)
+    : reading.notes;
   if (notes.length === 0) {
     results.push({ style, notes: 0, perBar: 0, onGrid: 0, velocity: 0, spread: 0 });
     continue;
@@ -89,10 +118,17 @@ for (const style of styles) {
   const first = notes[0].t;
   const last = notes[notes.length - 1].t;
   const spanBars = Math.max(1, (last - first) / barMs);
+  // THE GRID IS ESTIMATED, not assumed: the first note is not a bar line, so the phase that aligns the
+  // largest share of onsets is found first and the share near THAT phase is what is reported.
   const slot = barMs / 4;
+  const bins = 16;
+  const histogram = new Array(bins).fill(0);
+  for (const note of notes) histogram[Math.floor((((note.t - first) % slot) / slot) * bins) % bins] += 1;
+  const peakBin = histogram.indexOf(Math.max(...histogram));
+  const offset = ((peakBin + 0.5) / bins) * slot;
   const onGrid = notes.filter(note => {
-    const phase = ((note.t - first) % slot) / slot;
-    return Math.min(phase, 1 - phase) * slot * 1000 < 25;
+    const phase = (((note.t - first - offset) % slot) + slot) % slot;
+    return Math.min(phase, slot - phase) < 25;
   }).length / notes.length;
   const pitchSpread = new Set(notes.map(note => note.pitch)).size / Math.max(1, spanBars);
   results.push({
