@@ -161,12 +161,20 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     for (const peer of peers) {
       if (peer.instrument) engine.setPeerInstrument(peer.peerId, peer.instrument as InstrumentType);
     }
-    // THE BAND GETS A FIELD. Each peer is placed by its seat at the table, so the same band is laid out
-    // the same way on every listener's machine and a bot that takes a lane sounds like it stands there.
+    // THE BAND GETS A FIELD, AND YOU STAY IN THE MIDDLE OF IT. A human is placed centre because your
+    // own playing is the reference; the bots spread to the sides by their order at the table, the first
+    // one left, the next right, narrowing as the room fills. Sorting by peerId keeps the layout the
+    // same on every listener's machine, so two people in the same room hear the same band.
     const order = [...peers].sort((a, b) => (a.peerId < b.peerId ? -1 : 1));
-    order.forEach((peer, index) => {
-      engine.setPeerPan(peer.peerId, panForIndex(index, order.length));
-    });
+    const agents = order.filter(peer => peer.kind === 'agent');
+    for (const peer of order) {
+      if (peer.kind === 'human') {
+        engine.setPeerPan(peer.peerId, 0);
+        continue;
+      }
+      const seat = agents.findIndex(candidate => candidate.peerId === peer.peerId);
+      engine.setPeerPan(peer.peerId, panForIndex(seat + 1, agents.length + 1));
+    }
   }, [peers, engine]);
 
   // Derive local peerId, the peer whose name matches ours
