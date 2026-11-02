@@ -46,6 +46,7 @@ async function probeStyle(style) {
   const url = `${base}/api/room/${room}/ws`;
   const notes = [];
   let agentPeerId = null;
+  let roomBpm = null;
   let spawned = false;
   let bars = 0;
   const seenTypes = new Map();
@@ -54,7 +55,7 @@ async function probeStyle(style) {
     const done = () => {
       try { ws.close(); } catch { /* already closing */ }
       if (process.argv.includes('--verbose')) console.error(`${style}: agent=${String(agentPeerId).slice(0,8)} peers=${JSON.stringify(Object.entries(notes.reduce((a,n)=>{const k=String(n.peerId).slice(0,8);a[k]=(a[k]||0)+1;return a;},{})))}`);
-      resolve({ style, room, notes, agentPeerId, bars });
+      resolve({ style, room, notes, agentPeerId, bars, roomBpm });
     };
     ws.on('open', () => {
       ws.send(JSON.stringify({ type: 'join_room', name: 'Probe', kind: 'human', instrument: 'PolySynth' }));
@@ -62,6 +63,12 @@ async function probeStyle(style) {
     ws.on('message', (raw) => {
       let msg;
       try { msg = JSON.parse(String(raw)); } catch { return; }
+      if (msg.type === 'room_state' && typeof msg.roomState?.bpm === 'number') {
+        // THE TEMPO THE ROOM ACTUALLY PLAYS, read back rather than assumed: a refused change would have
+        // shifted every reading by the ratio, and a note count per bar is meaningless against the wrong
+        // bar length.
+        roomBpm = msg.roomState.bpm;
+      }
       if (msg.type === 'room_state' && !spawned) {
         // ONCE. The room re-broadcasts room_state on every setting change, so an unguarded spawn here
         // asked for an agent on each frame and hit the room's agent limit on the second one, which is
@@ -101,7 +108,7 @@ const median = (values) => {
   return sorted[Math.floor(sorted.length / 2)];
 };
 
-const barMs = (240_000 / bpm);
+const barMsFor = (tempo) => 240_000 / Math.max(20, tempo);
 const results = [];
 for (const style of styles) {
   const reading = await probeStyle(style);
@@ -117,6 +124,8 @@ for (const style of styles) {
   }
   const first = notes[0].t;
   const last = notes[notes.length - 1].t;
+  // The room's own tempo when it answered one, the requested tempo otherwise.
+  const barMs = barMsFor(reading.roomBpm ?? bpm);
   const spanBars = Math.max(1, (last - first) / barMs);
   // THE GRID IS ESTIMATED, not assumed: the first note is not a bar line, so the phase that aligns the
   // largest share of onsets is found first and the share near THAT phase is what is reported.
@@ -138,6 +147,7 @@ for (const style of styles) {
     onGrid: Number(onGrid.toFixed(2)),
     velocity: median(notes.map(note => note.velocity)),
     spread: Number(pitchSpread.toFixed(2)),
+    tempo: reading.roomBpm,
   });
 }
 
@@ -146,7 +156,7 @@ console.log(head);
 console.log('-'.repeat(head.length));
 for (const row of results) {
   console.log(
-    `${row.style.padEnd(10)} ${String(row.perBar).padEnd(10)} ${String(row.onGrid).padEnd(8)} ${String(row.velocity).padEnd(9)} ${row.spread}`,
+    `${row.style.padEnd(10)} ${String(row.perBar).padEnd(10)} ${String(row.onGrid).padEnd(8)} ${String(row.velocity).padEnd(9)} ${row.spread}${row.tempo ? `   (${row.tempo} bpm)` : ''}`,
   );
 }
 

@@ -252,7 +252,13 @@ Landed on 2026-11-02, live at https://zpe.vc/jam/ on version 35fc54f5:
 - Task 8: the vibe select in the transport bar, built from the registry, with the spawn form defaulting to it.
 - Task 12: the audio visualizer, an analyser on the master gain drawn at 30 frames a second, gated by the smoke's peak reading.
 
-Open: Task 6 (five new rows), Task 9 (an instrument on the part), Task 10 (the seat), Task 11 (the style probe).
+Also landed since, from the review pass rather than from a task: the dock moved beside the roll because measured at 1280 by 800 the keys were cut off and the dock began at 853, below the fold; the note buffer now keeps a twelve second window and the band view indexes it once per frame; and the separate meter under the roll was removed because the Meters pane answers the same question.
+
+Open: Task 9 (an instrument on the part) and Task 10 (the seat).
+
+Task 6 and Task 11 are done. The palette is nine rows, and the probe reads the room's own tempo back before dividing by a bar: the first version assumed the tempo it had asked for, which would have shifted every reading by the ratio if a change had been refused.
+
+Measured by the probe, one room per style, agent line only, at 110 BPM: jazz 5.11 notes per bar, funk 3.10, latin 4.69 then 4.84, afrobeat 4.18, house 3.39, lofi 5.59. Every pair differs in at least one reading.
 
 **The ladder below is rebased on the runner, not on the forecast.** The forecast in each task assumed a 337 baseline; a parallel commit landed 6 tests while this plan was being written, so the real baseline was 343. The suite stands at 359 with the floor at 359, taken from the runner in this pass: 343 plus 4 registry cases, 2 enum cases, 2 prompt cases and 4 vibe cases, plus 4 meter cases that Task 12 added before the registry landed. Each remaining task's Run line names its own count from that total rather than from the forecast.
 
