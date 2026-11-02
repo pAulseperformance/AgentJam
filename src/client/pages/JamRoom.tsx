@@ -207,6 +207,10 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     }
   }, [sendNoteEvent, localColor]);
 
+  const handleVibeChange = useCallback((vibe: string) => {
+    sendMessage(JSON.stringify({ type: 'set_vibe', vibe }));
+  }, [sendMessage]);
+
   const handleBpmChange = useCallback((bpm: number) => {
     sendMessage(JSON.stringify({ type: 'bpm_change', bpm }));
   }, [sendMessage]);
@@ -285,6 +289,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
         onKeyChange={handleKeyChange}
         onInstrumentChange={handleInstrumentChange}
         currentInstrument={currentInstrument}
+        onVibeChange={handleVibeChange}
         isRecording={isRecording}
         onToggleRecording={handleToggleRecording}
       />
@@ -379,6 +384,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
           />
 
           <AgentPanel
+            roomVibe={roomState?.vibe}
             sendMessage={sendMessage}
             peers={peers}
           />

@@ -194,6 +194,9 @@ let canvasLater = null;
 /** the audio analyser's loudest bar, at the model bar and 1.5 s later (null when the canvas is absent) */
 let meterAtBar = null;
 let meterLater = null;
+/** the vibe select's value before and after picking funk (null when the control is absent) */
+let vibeBefore = null;
+let vibeAfter = null;
 try {
   loadStartedAt = Date.now();
   // COMMIT, NOT DOMContentLoaded. The estate bar's script (zpe-bar.js in the shell head) holds
@@ -289,6 +292,13 @@ try {
   await page.waitForTimeout(1500);
   meterLater = await meterPeak();
 
+  // AND THE VIBE CONTROL. The select shows the room's style; picking one only sticks if the server's
+  // room_state came back and the page re-rendered it, so a value that holds is the frame and the render.
+  vibeBefore = await page.inputValue('#vibe-select').catch(() => null);
+  await page.selectOption('#vibe-select', 'funk', { timeout: Math.max(500, Math.min(remaining(), 3000)) }).catch(() => {});
+  await page.waitForTimeout(700);
+  vibeAfter = await page.inputValue('#vibe-select').catch(() => null);
+
   const errorsBefore = pageErrors.length;
   await page.click('#phrase-ask', { timeout: Math.max(500, Math.min(remaining(), 4000)) });
   await page.waitForTimeout(700);
@@ -351,6 +361,9 @@ if (llmBars.length) {
 console.log(panelDrawn
   ? `panel drawn, state "${panelState ?? 'unknown'}"${panelState === 'signed out' ? ' (a guest: the panel draws its guest state and no rows)' : ''}`
   : 'panel not drawn (no .session-panel on the page)');
+console.log(vibeBefore === null
+  ? 'vibe       no #vibe-select on the page'
+  : `vibe       read ${vibeBefore}, picked funk, now reads ${vibeAfter}`);
 console.log(meterAtBar
   ? `audio meter ${meterAtBar.armed ? 'armed' : 'NOT ARMED'}: peak ${meterAtBar.peak} at the bar, ` +
     `${meterLater ? meterLater.peak : 'n/a'} 1.5 s later`
@@ -382,6 +395,10 @@ if (!failure) {
       `${(deadlineMs / 1000).toFixed(1)} s deadline`;
   } else if (!spawnedPeers.includes('Smoke')) {
     failure = `the room never announced the one agent: agent_spawned names ${spawnedPeers.join(', ') || 'nobody'}`;
+  } else if (vibeBefore === null) {
+    failure = 'the room has no vibe control (#vibe-select)';
+  } else if (vibeAfter !== 'funk') {
+    failure = `picking a vibe left the control reading ${String(vibeAfter)}, so the room did not take it`;
   } else if (meterAtBar === null) {
     failure = 'the audio meter is not on the page (no canvas.audio-meter)';
   } else if (meterAtBar.armed && llmBars.length >= 1

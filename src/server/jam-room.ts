@@ -517,11 +517,14 @@ export class JamRoom implements DurableObject {
       case 'despawn_agent':
         this.handleDespawnAgent(ws, msg.agentPeerId);
         break;
+      case 'set_vibe':
+        this.handleSetVibe(msg.vibe);
+        break;
       case 'set_backing':
         this.handleSetBacking(msg.drummer, msg.bass);
         break;
       case 'set_phrase_ask':
-        this.handleSetPhraseAsk(ws, msg.enabled);
+        this.handleSetPhraseAsk(msg.enabled);
         break;
       case 'set_hedge':
         this.handleSetHedge(ws, msg.enabled);
@@ -778,11 +781,7 @@ export class JamRoom implements DurableObject {
       this.armLayerBar(layer);
     }
 
-    this.broadcastAll(JSON.stringify({
-      type: 'room_state',
-      roomState: this.roomState,
-      peers: this.getAllPeers(),
-    }));
+    this.broadcastAll(this.roomStateFrame());
   }
 
   private handleKeyChange(_ws: WebSocket, key: string): void {
@@ -795,11 +794,7 @@ export class JamRoom implements DurableObject {
     }
     this.roomState.serverTime = Date.now();
     void this.ctx.storage.put('roomState', this.roomState);
-    this.broadcastAll(JSON.stringify({
-      type: 'room_state',
-      roomState: this.roomState,
-      peers: this.getAllPeers(),
-    }));
+    this.broadcastAll(this.roomStateFrame());
   }
 
   private handleClockSyncPing(ws: WebSocket, _t0: number): void {
@@ -863,7 +858,7 @@ export class JamRoom implements DurableObject {
     }
   }
 
-  private handleSpawnAgent(ws: WebSocket, name: string, style: AgentStyle): void {
+  private handleSpawnAgent(ws: WebSocket, name: string, style?: AgentStyle): void {
     if (this.agents.size >= MAX_AGENTS_PER_ROOM) {
       this.sendError(ws, `Max ${MAX_AGENTS_PER_ROOM} agents per room`);
       return;
@@ -884,7 +879,8 @@ export class JamRoom implements DurableObject {
 
     const agent: InProcessAgent = {
       peer,
-      style,
+      // THE ROOM'S VIBE IS THE DEFAULT, and a part that names its own style keeps it.
+      style: style ?? ((this.roomState.vibe as AgentStyle | undefined) ?? 'jazz'),
       model: tier === 'signed' ? SIGNED_MODEL : FREE_MODEL,
       tier,
       busy: false,
@@ -936,7 +932,9 @@ export class JamRoom implements DurableObject {
     }
 
     // Broadcast agent_spawned + peer_joined to all WS peers
-    this.broadcastAll(JSON.stringify({ type: 'agent_spawned', peer, style, tier }));
+    // THE AGENT'S OWN STYLE, not the one the frame was asked with: a bot spawned with no style names
+    // the room's vibe, and a frame carrying the absent argument would tell every listener "undefined".
+    this.broadcastAll(JSON.stringify({ type: 'agent_spawned', peer, style: agent.style, tier }));
     this.broadcastAll(JSON.stringify({ type: 'peer_joined', peer }));
   }
 
@@ -1126,8 +1124,35 @@ export class JamRoom implements DurableObject {
    * (8 of 8 in the probe run). On, the agent is asked on the bar that opens its phrase and its four
    * bars are queued at once, so three of the four cost no model call at all.
    */
-  private handleSetPhraseAsk(ws: WebSocket, enabled: boolean): void {
-    void ws;
+
+  /**
+   * THE ROOM'S VIBE, set by anyone in the room the way tempo and key are.
+   *
+   * It fills the defaults for bots born after it and it is the style the backing section plays. It does
+   * NOT rewrite a bot that is already playing: a part's style is its own field, and a room setting that
+   * mutated every part would be one listener's click changing everybody's band with no undo.
+   */
+  private handleSetVibe(vibe: AgentStyle): void {
+    this.roomState.vibe = vibe;
+    this.roomState.serverTime = Date.now();
+    void this.ctx.storage.put('roomState', this.roomState);
+    this.broadcastAll(this.roomStateFrame());
+  }
+
+  /**
+   * THE ROOM STATE FRAME, built in one place. `peers` is part of it because the client sets its peer
+   * list from this frame: the phrase-ask toggle once broadcast it without them and the live page died
+   * with "Q is not iterable". One builder is one place to keep that true.
+   */
+  private roomStateFrame(): string {
+    return JSON.stringify({
+      type: 'room_state',
+      roomState: this.roomState,
+      peers: this.getAllPeers(),
+    });
+  }
+
+  private handleSetPhraseAsk(enabled: boolean): void {
     this.roomState.phraseAsk = enabled;
     this.roomState.serverTime = Date.now();
     void this.ctx.storage.put('roomState', this.roomState);
@@ -1135,11 +1160,7 @@ export class JamRoom implements DurableObject {
     // because the client sets its peer list from this frame; this one did not, so pressing the button
     // emptied every listener's peer list and the next render threw "Q is not iterable" (a spread of
     // undefined). Reported from the live page on 2026-11-01.
-    this.broadcastAll(JSON.stringify({
-      type: 'room_state',
-      roomState: this.roomState,
-      peers: this.getAllPeers(),
-    }));
+    this.broadcastAll(this.roomStateFrame());
   }
 
   private handleSetHedge(ws: WebSocket, enabled: boolean): void {
@@ -1191,11 +1212,7 @@ export class JamRoom implements DurableObject {
     this.roomState.gapRests = enabled;
     this.roomState.serverTime = Date.now();
     void this.ctx.storage.put('roomState', this.roomState);
-    this.broadcastAll(JSON.stringify({
-      type: 'room_state',
-      roomState: this.roomState,
-      peers: this.getAllPeers(),
-    }));
+    this.broadcastAll(this.roomStateFrame());
   }
 
   private spawnLayer(role: 'drummer' | 'bass'): void {
@@ -1215,7 +1232,9 @@ export class JamRoom implements DurableObject {
       peer,
       role,
       // The rhythm section matches the lead agent's style when there is one, otherwise jazz.
-      style: [...this.agents.values()][0]?.style ?? 'jazz',
+      // THE SECTION FOLLOWS THE ROOM, not whichever bot spawned first. A vibe the listener set is a
+      // statement about the groove; the first bot's style was an accident of arrival order.
+      style: (this.roomState.vibe as AgentStyle | undefined) ?? [...this.agents.values()][0]?.style ?? 'jazz',
       barTimer: null,
       bars: 0,
       activeNotes: new Set(),

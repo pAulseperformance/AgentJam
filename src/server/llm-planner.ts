@@ -18,7 +18,7 @@
  *   - the renderer turns that into notes, and a deterministic pattern covers any failure.
  */
 
-import { generateMeasure, midiOf, snapPitchToKey, type GeneratedNote, type AgentStyle } from '@/shared/music';
+import { generateMeasure, midiOf, snapPitchToKey, styleRow, type GeneratedNote, type AgentStyle } from '@/shared/music';
 import { parsePhraseResponse, phraseInstruction, type PhraseBars } from './phrase';
 import { FREE_MODEL } from '@/shared/ai/models';
 
@@ -172,7 +172,18 @@ export interface MeasureResult {
   meta: AiCallMeta;
 }
 
-const SYSTEM_PROMPT = `You are a musical partner in a collaborative jam room, playing live with a human. You generate MIDI-like note sequences that answer and support what the other musicians are playing. The brief below is binding: honour the move, the relation and the amount.
+/**
+ * THE STYLE LINE IS THE ROW'S. The system prompt used to describe three genres in one parenthetical,
+ * which meant a fourth style reached the model as a bare id it had never been told about. The rules are
+ * fixed; the line that says what the style MEANS is composed from the registry.
+ */
+export function systemPrompt(style: string | undefined): string {
+  const row = styleRow(style);
+  return `${SYSTEM_RULES}
+- Match the style: ${row.verbs}. Keep to ${row.notes.state} to ${row.notes.develop} notes a bar, on a ${row.grid} grid.`;
+}
+
+const SYSTEM_RULES = `You are a musical partner in a collaborative jam room, playing live with a human. You generate MIDI-like note sequences that answer and support what the other musicians are playing. The brief below is binding: honour the move, the relation and the amount.
 
 RULES:
 - Output ONLY a JSON array of note objects: [{"pitch": "C4", "beatTime": 0.0, "velocity": 80, "duration": 0.5}, ...]
@@ -183,7 +194,6 @@ RULES:
 - Generate 4-12 notes per measure, unless the brief says otherwise
 - Stay in the given key
 - Complement what others are playing, don't play the same notes
-- Match the style (jazz = swing + 7th chords, ambient = long drones, funk = syncopated 16ths)
 - NO text, NO markdown, NO explanation, ONLY the JSON array`;
 
 /** What the bar is FOR. This is the part a jam partner answers and a generator never did. */
@@ -321,7 +331,7 @@ function buildUserPrompt(ctx: MeasureContext, brief: DecisionBrief | null, ask: 
     : 'silence, be the first to play';
 
   const lines = [
-    `Key: ${ctx.key} | BPM: ${ctx.bpm} | Style: ${ctx.style} | Beat: ${ctx.currentBeat}`,
+    `Key: ${ctx.key} | BPM: ${ctx.bpm} | Style: ${styleRow(ctx.style).label} | Beat: ${ctx.currentBeat} | ${styleRow(ctx.style).verbs}`,
     `They are playing: ${ctx.phrase ?? recentSummary}`,
     `Your motif from last bar: ${ctx.motif ?? 'none yet'}`,
   ];
@@ -631,7 +641,7 @@ function buildPhrasePrompt(ctx: MeasureContext, brief: DecisionBrief | null): st
     ? ctx.recentNotes.slice(-20).map(n => `${n.pitch}@${n.beatTime.toFixed(2)}`).join(', ')
     : 'silence, be the first to play';
   const lines = [
-    `Key: ${ctx.key} | BPM: ${ctx.bpm} | Style: ${ctx.style} | Bars: 4`,
+    `Key: ${ctx.key} | BPM: ${ctx.bpm} | Style: ${styleRow(ctx.style).label} | Bars: 4 | ${styleRow(ctx.style).verbs}`,
     `They are playing: ${ctx.phrase ?? recent}`,
     `Your motif from last bar: ${ctx.motif ?? 'none yet (this is your first statement)'}`,
   ];
@@ -663,7 +673,7 @@ export async function generatePhraseWithAi(
   const started = Date.now();
   try {
     const call = ai.run(model, {
-      messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: prompt }],
+      messages: [{ role: 'system', content: systemPrompt(ctx.style) }, { role: 'user', content: prompt }],
       // FOUR BARS IS FOUR TIMES THE OUTPUT: at 1400 tokens the probe's answers stopped on the closing
       // brace with all four bars written, so the budget is set for the phrase, not for the bar.
       max_tokens: 2000,
@@ -759,7 +769,7 @@ export async function generateMeasureWithAi(
     // agent's only slot forever and silence it for the rest of the session.
     const call = ai.run(model, {
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt(ctx.style) },
         { role: 'user', content: prompt },
       ],
       max_tokens: 512,

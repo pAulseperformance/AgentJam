@@ -1,4 +1,5 @@
 import type { RoomState } from '@/shared/protocol';
+import { STYLE_ROWS } from '@/shared/music/styles';
 import { INSTRUMENT_LIST, type InstrumentType } from '@/client/features/synth';
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
@@ -9,6 +10,7 @@ interface TransportBarProps {
   onBpmChange?: (bpm: number) => void;
   onKeyChange?: (key: string) => void;
   onInstrumentChange?: (instrument: InstrumentType) => void;
+  onVibeChange?: (vibe: string) => void;
   currentInstrument?: InstrumentType;
   isRecording?: boolean;
   onToggleRecording?: () => void;
@@ -30,12 +32,16 @@ export function TransportBar({
   onBpmChange,
   onKeyChange,
   onInstrumentChange,
+  onVibeChange,
   currentInstrument = 'PolySynth',
   isRecording = false,
   onToggleRecording,
 }: TransportBarProps) {
   const bpm = roomState?.bpm ?? 120;
   const key = roomState?.key ?? 'C major';
+  // THE ROOM'S VIBE. Absent means jazz, which is what the room played before the field existed.
+  // The list is the registry's own, so a style cannot be offered here and missing from the table.
+  const vibe = roomState?.vibe ?? 'jazz';
 
   const statusColor = {
     disconnected: '#ef4444',
@@ -103,6 +109,28 @@ export function TransportBar({
         >
           {KEYS.map((k) => (
             <option key={k} value={k}>{k}</option>
+          ))}
+        </select>
+      </div>
+
+
+      {/* THE ROOM'S VIBE: what every new bot is born into, and what the section follows. */}
+      <div className="transport-bar__key">
+        <label htmlFor="vibe-select" className="transport-bar__label">
+          Vibe:
+        </label>
+        <select
+          id="vibe-select"
+          className="transport-bar__select"
+          value={vibe}
+          onChange={(e) => onVibeChange?.(e.target.value)}
+          disabled={status !== 'connected'}
+          title="The style every new bot is born into, and the style the drums and bass follow"
+        >
+          {STYLE_ROWS.map((row) => (
+            <option key={row.id} value={row.id}>
+              {row.icon} {row.label}
+            </option>
           ))}
         </select>
       </div>

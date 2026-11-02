@@ -31,6 +31,13 @@ export const RoomStateSchema = z.object({
    */
   gapRests: z.boolean().optional().describe('Whether a bar the agent did not write with the model rests instead of playing the room’s own fill'),
   phraseAsk: z.boolean().optional().describe('Whether one model call writes four bars for this room instead of one call per bar'),
+  /**
+   * THE ROOM'S VIBE: the style every new bot is born into, and the style the backing section follows.
+   * Optional because a room that has never been set sends nothing, and nothing means jazz, which is
+   * what the room played before this field existed. A PART's own style still wins: the vibe fills
+   * defaults, it does not rewrite a bot that is already playing.
+   */
+  vibe: z.string().optional().describe('Style every new bot is born into, and the style the backing section follows'),
 });
 export type RoomState = z.infer<typeof RoomStateSchema>;
 
@@ -80,7 +87,7 @@ export type ClockSyncPing = z.infer<typeof ClockSyncPingSchema>;
 export const SpawnAgentMessageSchema = z.object({
   type: z.literal('spawn_agent').describe('Message discriminator'),
   name: z.string().describe('Display name for the agent that will be spawned'),
-  style: z.enum(STYLE_IDS as [AgentStyleId, ...AgentStyleId[]]).describe('Generation style that determines the musical character of the agent'),
+  style: z.enum(STYLE_IDS as [AgentStyleId, ...AgentStyleId[]]).optional().describe('Generation style that determines the musical character of the agent; absent means the room\'s vibe'),
 });
 export type SpawnAgentMessage = z.infer<typeof SpawnAgentMessageSchema>;
 
@@ -131,6 +138,18 @@ export const SetPhraseAskMessageSchema = z.object({
   enabled: z.boolean().describe('Whether the agent is asked for a four-bar phrase instead of one bar'),
 });
 export type SetPhraseAskMessage = z.infer<typeof SetPhraseAskMessageSchema>;
+
+
+/**
+ * THE ROOM'S VIBE. It fills the defaults for every bot born after it and sets the style the backing
+ * section plays; a bot's own style still wins, because a room setting that rewrote a playing part
+ * would be one listener's click changing everybody's band with no undo.
+ */
+export const SetVibeMessageSchema = z.object({
+  type: z.literal('set_vibe').describe('Message discriminator: set the style the room is playing in'),
+  vibe: z.enum(STYLE_IDS as [AgentStyleId, ...AgentStyleId[]]).describe('The style the room sets as its vibe'),
+});
+export type SetVibeMessage = z.infer<typeof SetVibeMessageSchema>;
 
 export const InstrumentChangeMessageSchema = z.object({
   type: z.literal('instrument_change').describe('Message discriminator'),
@@ -234,6 +253,7 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   SetHedgeMessageSchema,
   SetGapRestsMessageSchema,
   SetPhraseAskMessageSchema,
+  SetVibeMessageSchema,
   z.object({ type: z.literal('set_agent_model'), agentPeerId: z.string(), model: z.string() }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;

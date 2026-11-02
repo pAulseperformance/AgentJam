@@ -1,19 +1,25 @@
 import { useState, useCallback } from 'react';
 import type { Peer } from '@/shared/protocol';
+import { STYLE_ROWS } from '@/shared/music/styles';
 
 interface AgentPanelProps {
   /** Send a WS message to the server */
   sendMessage: (msg: string) => void;
   /** Current peers in the room */
   peers: Peer[];
+  /** The room's vibe: what a new bot is born into when the form is left alone */
+  roomVibe?: string;
 }
 
-const AGENT_STYLES = [
-  { value: 'jazz', label: '🎷 Jazz', desc: 'Swing, improv' },
-  { value: 'ambient', label: '🌊 Ambient', desc: 'Long, dreamy' },
-  { value: 'funk', label: '🎸 Funk', desc: 'Groovy 16ths' },
-  { value: 'random', label: '🎲 Random', desc: 'Experimental' },
-] as const;
+/**
+ * THE STYLE LIST IS THE REGISTRY'S. It used to be four hand-written options, which meant a style added
+ * to the table was invisible here and a style removed from it stayed on this list.
+ */
+const AGENT_STYLES = STYLE_ROWS.map(row => ({
+  value: row.id,
+  label: `${row.icon} ${row.label}`,
+  desc: row.verbs,
+}));
 
 const MAX_AGENTS = 4;
 
@@ -21,8 +27,9 @@ const MAX_AGENTS = 4;
  * AgentPanel, spawn and despawn AI agents from the browser UI.
  * Sends spawn_agent / despawn_agent messages via WebSocket.
  */
-export function AgentPanel({ sendMessage, peers }: AgentPanelProps) {
-  const [selectedStyle, setSelectedStyle] = useState<string>('jazz');
+export function AgentPanel({ sendMessage, peers, roomVibe }: AgentPanelProps) {
+  // The form opens on the room's vibe, and a person can still pick another style for this one bot.
+  const [selectedStyle, setSelectedStyle] = useState<string>(roomVibe ?? 'jazz');
   const [agentName, setAgentName] = useState('');
   const [spawning, setSpawning] = useState(false);
 

@@ -16,8 +16,10 @@ describe('the spawn_agent style enum', () => {
     }
   });
 
-  it('refuses a style that is not a row', () => {
+  it('refuses a style that is not a row, and accepts no style at all', () => {
     expect(ClientMessageSchema.safeParse({ type: 'spawn_agent', name: 'Bit', style: 'afrobeat' }).success).toBe(false);
-    expect(ClientMessageSchema.safeParse({ type: 'spawn_agent', name: 'Bit' }).success).toBe(false);
+    // ABSENT IS NOT INVALID: a bot spawned with no style is born into the room's vibe, which is the
+    // whole point of the vibe field. What must never happen is a style the registry cannot name.
+    expect(ClientMessageSchema.safeParse({ type: 'spawn_agent', name: 'Bit' }).success).toBe(true);
   });
 });
