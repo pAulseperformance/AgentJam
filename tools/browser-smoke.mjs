@@ -191,6 +191,9 @@ let toggleErrors = [];
 /** bright pixels on the visualizer canvas, at the bar and 1.2 s later (null when it was not read) */
 let canvasAtBar = null;
 let canvasLater = null;
+/** the audio analyser's loudest bar, at the model bar and 1.5 s later (null when the canvas is absent) */
+let meterAtBar = null;
+let meterLater = null;
 try {
   loadStartedAt = Date.now();
   // COMMIT, NOT DOMContentLoaded. The estate bar's script (zpe-bar.js in the shell head) holds
@@ -269,6 +272,18 @@ try {
   await page.waitForTimeout(1200);
   canvasLater = await brightPixels();
 
+  // AND THE ROOM'S EARS. The roll above is drawn from the event list; this canvas is fed by an
+  // analyser on the master gain, so a peak above zero is the only reading that says the page can hear
+  // the room. A meter that stays at zero while notes play is drawing the event stream again.
+  const meterPeak = async () => page.evaluate(() => {
+    const canvas = document.querySelector('canvas.audio-meter');
+    if (!(canvas instanceof HTMLCanvasElement)) return null;
+    return { peak: Number(canvas.dataset.peak ?? '0'), armed: canvas.dataset.armed === 'yes' };
+  });
+  meterAtBar = await meterPeak();
+  await page.waitForTimeout(1500);
+  meterLater = await meterPeak();
+
   const errorsBefore = pageErrors.length;
   await page.click('#phrase-ask', { timeout: Math.max(500, Math.min(remaining(), 4000)) });
   await page.waitForTimeout(700);
@@ -331,6 +346,10 @@ if (llmBars.length) {
 console.log(panelDrawn
   ? `panel drawn, state "${panelState ?? 'unknown'}"${panelState === 'signed out' ? ' (a guest: the panel draws its guest state and no rows)' : ''}`
   : 'panel not drawn (no .session-panel on the page)');
+console.log(meterAtBar
+  ? `audio meter ${meterAtBar.armed ? 'armed' : 'NOT ARMED'}: peak ${meterAtBar.peak} at the bar, ` +
+    `${meterLater ? meterLater.peak : 'n/a'} 1.5 s later`
+  : 'audio meter not on the page (no canvas.audio-meter)');
 console.log(`visualizer bright pixels ${canvasAtBar ?? 'n/a'} at the bar, ${canvasLater ?? 'n/a'} 1.2 s later` +
   `${canvasAtBar === null ? ' (no canvas.visualizer on the page)' : ''}`);
 console.log(toggle

@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, useMemo, useEffect } from 'react';
 import { useRoomSocket, PeerList, TransportBar, AgentPanel, MetricsPanel, AiDebugPanel, SessionPanel, tempoMarkOf, sessionSnapshot } from '@/client/features/room';
 import { useSynthEngine, Keyboard, useMidi, type InstrumentType } from '@/client/features/synth';
-import { Visualizer } from '@/client/features/visualizer';
+import { AudioMeter, Visualizer } from '@/client/features/visualizer';
 import type { NoteEvent, Peer } from '@/shared/protocol';
 import { slotDelayMs } from '@/client/features/room/lib/note-clock';
 
@@ -396,6 +396,8 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
 
         <div className="jam-room__content">
           <Visualizer width={800} height={250} notesRef={visualizerNotesRef} />
+          {/* THE ROOM'S EARS. The roll above is a score; this reads the master output. */}
+          <AudioMeter engine={engine ?? null} width={800} height={56} />
 
           {engine && (
             <Keyboard

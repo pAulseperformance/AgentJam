@@ -3,6 +3,8 @@ import { PLAYOUT_DELAY_MS, MAX_NOTE_HOLD_S } from '@/shared/protocol/constants';
 
 // ── Instrument Definitions ────────────────────────────────────────────────
 
+import { meterFromSpectrum } from './meter';
+
 export type InstrumentType = 'PolySynth' | 'AMSynth' | 'FMSynth' | 'MembraneSynth' | 'PluckSynth' | 'DrumKit';
 
 export const INSTRUMENT_LIST: { value: InstrumentType; label: string; icon: string }[] = [
@@ -144,6 +146,14 @@ export class AudioEngine {
   private peerGains: Map<string, Tone.Gain> = new Map();
   /** Master volume for local player */
   private masterGain: Tone.Gain | null = null;
+  /**
+   * AN ANALYSER ON THE OUTPUT, so the meter shows what the room SOUNDS like.
+   *
+   * The page's note roll draws rectangles from the note event stream and reads no audio at all; its
+   * own comment called it a waveform until 2026-11-02, which is how a reader came away believing the
+   * room had ears. This node is the only thing on the page that touches the signal.
+   */
+  private analyser: Tone.Analyser | null = null;
   /** Muted peers set */
   private mutedPeers: Set<string> = new Set();
   /** Master volume as a plain number (0-1), applied as velocity multiplier */
@@ -156,6 +166,9 @@ export class AudioEngine {
     await Tone.start();
 
     this.masterGain = new Tone.Gain(1).toDestination();
+    // 64 bins is enough for 16 bars and cheap enough to read every frame at 30 fps.
+    this.analyser = new Tone.Analyser('fft', 64);
+    this.masterGain.connect(this.analyser);
     if (this.currentInstrument === 'DrumKit') {
       this.localKit = createDrumKit(this.masterGain);
     } else {
@@ -239,6 +252,21 @@ export class AudioEngine {
   }
 
   /** Set master volume (local player), stored as field, applied in playNote */
+  /**
+   * THE METER'S READING, in bars from 0 to 1, taken from the analyser on the master gain.
+   *
+   * Zeros before the engine has started, which is the honest answer: a page that has not been armed
+   * has no output to measure, and a meter reading full at that moment would be drawing something else.
+   */
+  meterLevels(bars = 16): number[] {
+    if (!this.analyser) return new Array(Math.max(1, bars)).fill(0);
+    const values = this.analyser.getValue();
+    // A multi-channel analyser answers one array per channel; the room is mono in practice, so the
+    // first channel is the room.
+    const spectrum = Array.isArray(values) ? (values[0] ?? new Float32Array(0)) : values;
+    return meterFromSpectrum(spectrum, bars);
+  }
+
   setMasterVolume(volume: number): void {
     this.masterVolumeLevel = Math.max(0, Math.min(1, volume));
   }

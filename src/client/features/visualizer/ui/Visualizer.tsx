@@ -32,7 +32,11 @@ interface VisualizerProps {
 }
 
 /**
- * Real-time waveform/note visualizer (TAS-63).
+ * THE NOTE ROLL: what the room SCHEDULED, not what it sounds like.
+ *
+ * This file draws note rectangles from the event stream and reads no audio at all. It called itself a
+ * "waveform/note visualizer" until 2026-11-02, and that comment is why a reader reported the room as
+ * having a visualizer it did not have. The audio reading lives beside it, in AudioMeter.
  *
  * v5 Pattern: Uses requestAnimationFrame loop reading from a mutable
  * useRef circular buffer — NEVER reads from React state. Note events
