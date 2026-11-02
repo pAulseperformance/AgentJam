@@ -231,10 +231,20 @@ export class AudioEngine {
    * Get or create a Gain node for a peer.
    * Each remote peer gets their own Gain node for independent volume control.
    */
+  /**
+   * WHERE EVERY VOICE LANDS. The local player's synth and every remote peer's gain feed the master
+   * gain, and the analyser listens there, so the meter hears the ROOM. A peer gain wired straight to
+   * the destination bypasses this bus, which is what made the first deployed meter read zero while the
+   * band played: the room was audible and unmeasurable at the same time.
+   */
+  private outputBus(): Tone.InputNode {
+    return this.masterGain ?? Tone.getDestination();
+  }
+
   private getOrCreatePeerGain(peerId: string): Tone.Gain {
     let gain = this.peerGains.get(peerId);
     if (!gain) {
-      gain = new Tone.Gain(1).toDestination();
+      gain = new Tone.Gain(1).connect(this.outputBus());
       this.peerGains.set(peerId, gain);
     }
     return gain;

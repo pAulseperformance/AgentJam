@@ -382,6 +382,13 @@ if (!failure) {
       `${(deadlineMs / 1000).toFixed(1)} s deadline`;
   } else if (!spawnedPeers.includes('Smoke')) {
     failure = `the room never announced the one agent: agent_spawned names ${spawnedPeers.join(', ') || 'nobody'}`;
+  } else if (meterAtBar === null) {
+    failure = 'the audio meter is not on the page (no canvas.audio-meter)';
+  } else if (meterAtBar.armed && llmBars.length >= 1
+    && (meterAtBar.peak === 0 && (!meterLater || meterLater.peak === 0))) {
+    // THE FALSIFIER FROM THE PLAN: a meter that never leaves zero while a model bar is playing is
+    // drawing something other than the audio, and it would look identical with the speakers off.
+    failure = 'the audio meter is armed and read zero at the bar and 1.5 s later while the room played';
   } else if (!toggle) {
     failure = 'the "four bars per call" switch was never pressed (no #phrase-ask on the page)';
   } else if (toggle.checked !== true || !toggle.note.includes('one model call writes a whole phrase')) {
