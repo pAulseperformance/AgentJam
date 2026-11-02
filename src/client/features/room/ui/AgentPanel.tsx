@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { Peer } from '@/shared/protocol';
 import { STYLE_ROWS } from '@/shared/music/styles';
+import { INSTRUMENT_LIST } from '@/client/features/synth';
 
 interface AgentPanelProps {
   /** Send a WS message to the server */
@@ -30,6 +31,11 @@ const MAX_AGENTS = 4;
 export function AgentPanel({ sendMessage, peers, roomVibe }: AgentPanelProps) {
   // The form opens on the room's vibe, and a person can still pick another style for this one bot.
   const [selectedStyle, setSelectedStyle] = useState<string>(roomVibe ?? 'jazz');
+  // THE VOICE a bot is born with: the style row's own unless a person picks otherwise.
+  const [selectedInstrument, setSelectedInstrument] = useState('');
+  // WHERE IT SITS: auto means the first seat the room has not covered.
+  const [selectedSeat, setSelectedSeat] = useState('auto');
+  const rowInstrument = STYLE_ROWS.find(row => row.id === selectedStyle)?.instrument ?? 'PolySynth';
   const [agentName, setAgentName] = useState('');
   const [spawning, setSpawning] = useState(false);
 
@@ -52,12 +58,16 @@ export function AgentPanel({ sendMessage, peers, roomVibe }: AgentPanelProps) {
       type: 'spawn_agent',
       name,
       style: selectedStyle,
+      // THE VOICE AND THE SEAT travel with the spawn. An empty voice means the style row's own, and an
+      // 'auto' seat means the first one the room has not covered, so the form can stay out of the way.
+      ...(selectedInstrument ? { instrument: selectedInstrument } : {}),
+      ...(selectedSeat !== 'auto' ? { seat: selectedSeat } : {}),
     }));
 
     setAgentName('');
     // Brief delay to show spawning state
     setTimeout(() => setSpawning(false), 500);
-  }, [sendMessage, selectedStyle, agentName]);
+  }, [sendMessage, selectedStyle, selectedInstrument, selectedSeat, agentName]);
 
   const handleDespawn = useCallback((agentPeerId: string) => {
     sendMessage(JSON.stringify({
@@ -98,6 +108,44 @@ export function AgentPanel({ sendMessage, peers, roomVibe }: AgentPanelProps) {
               </button>
             ))}
           </div>
+          {/* THE VOICE AND THE SEAT. The voice defaults to the style row's own instrument, which is
+              what makes a latin row that names a pluck heard as a pluck; the seat defaults to auto, and
+              the room fills the first one it has not covered. */}
+          <div className="agent-panel__row" style={{ display: 'flex', gap: 8, margin: '8px 0' }}>
+            <label htmlFor="agent-instrument" style={{ fontSize: 12, opacity: 0.8 }}>
+              Voice
+              <select
+                id="agent-instrument"
+                value={selectedInstrument}
+                onChange={event => setSelectedInstrument(event.target.value)}
+                style={{ display: 'block', marginTop: 2 }}
+              >
+                <option value="">{rowInstrument} (from the style)</option>
+                {INSTRUMENT_LIST.map(entry => (
+                  <option key={entry.value} value={entry.value}>
+                    {entry.icon} {entry.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label htmlFor="agent-seat" style={{ fontSize: 12, opacity: 0.8 }}>
+              Seat
+              <select
+                id="agent-seat"
+                value={selectedSeat}
+                onChange={event => setSelectedSeat(event.target.value)}
+                style={{ display: 'block', marginTop: 2 }}
+              >
+                <option value="auto">auto (first free)</option>
+                <option value="lead">lead</option>
+                <option value="answer">answer</option>
+                <option value="ornament">ornament</option>
+                <option value="drums">drums</option>
+                <option value="bass">bass</option>
+              </select>
+            </label>
+          </div>
+
           <button
             className="agent-panel__spawn-btn"
             onClick={handleSpawn}

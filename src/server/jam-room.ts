@@ -21,8 +21,10 @@ import {
   midiOf,
   noteNameFromMidi,
   scalePitchClasses,
+  styleRow,
   type AgentStyle,
   type GeneratedNote,
+  type InstrumentId,
 } from '@/shared/music';
 import { repairMeasure } from './measure-repair';
 import { summarizePhrase, motifFrom, describePhrase, describeMotif, type Motif, type NoteRecord } from './listener';
@@ -120,6 +122,15 @@ interface PeerConnection {
  * bar clock the lead agent uses. They exist so the room has a spine before it has a soloist, and so
  * the tempo is set by something that never gets it wrong.
  */
+/** The seats a bot can take. The three melodic ones are a preference the arc may override. */
+export type AgentSeat = 'drums' | 'bass' | 'lead' | 'answer' | 'ornament';
+
+/**
+ * THE ORDER A ROOM FILLS ITS SEATS: a lead, then an answer, then an ornament, then the rhythm seats.
+ * Percussion last because a room with one bot should have a line, not a heartbeat.
+ */
+export const SEAT_ORDER: AgentSeat[] = ['lead', 'answer', 'ornament', 'drums', 'bass'];
+
 interface RoomLayer {
   peer: Peer;
   role: 'drummer' | 'bass';
@@ -148,6 +159,8 @@ interface PacedMeta extends AiCallMeta {
 interface InProcessAgent {
   peer: Peer;
   style: AgentStyle;
+  /** where this bot sits in the band; see AgentSeat */
+  seat: AgentSeat;
   model: string;
   /** who spawned it: a public agent renders notes, a signed-in agent is judged by Jev first */
   tier: Tier;
@@ -512,7 +525,7 @@ export class JamRoom implements DurableObject {
         this.handleClockSyncPing(ws, msg.t0);
         break;
       case 'spawn_agent':
-        this.handleSpawnAgent(ws, msg.name, msg.style);
+        this.handleSpawnAgent(ws, msg.name, msg.style, msg.instrument, msg.seat);
         break;
       case 'despawn_agent':
         this.handleDespawnAgent(ws, msg.agentPeerId);
@@ -858,7 +871,7 @@ export class JamRoom implements DurableObject {
     }
   }
 
-  private handleSpawnAgent(ws: WebSocket, name: string, style?: AgentStyle): void {
+  private handleSpawnAgent(ws: WebSocket, name: string, style?: AgentStyle, instrument?: InstrumentId, seat?: AgentSeat): void {
     if (this.agents.size >= MAX_AGENTS_PER_ROOM) {
       this.sendError(ws, `Max ${MAX_AGENTS_PER_ROOM} agents per room`);
       return;
@@ -869,18 +882,38 @@ export class JamRoom implements DurableObject {
     const color = PEER_COLORS[this.colorIndex % PEER_COLORS.length] ?? '#6366f1';
     this.colorIndex++;
 
+    // THE SEAT, FIRST UNCOVERED BY DEFAULT. A band with three leads has no band, and a bass bot with the
+    // room's own bass still playing has two bass lines and no way to say which one is wrong.
+    const taken = new Set([...this.agents.values()].map(agent => agent.seat));
+    const chosenSeat: AgentSeat = seat ?? SEAT_ORDER.find(candidate => !taken.has(candidate)) ?? 'ornament';
+    if (taken.has(chosenSeat)) {
+      this.sendError(ws, `the ${chosenSeat} seat is taken`);
+      return;
+    }
+
+    // A RHYTHM SEAT HANDS THE LAYER OVER. The kit and the low end are played once: a bot that takes the
+    // bass seat stops the room's own bass rather than doubling it, and the section cannot come back and
+    // take the seat while a bot holds it.
+    if (chosenSeat === 'bass') this.despawnLayer('bass');
+    if (chosenSeat === 'drums') this.despawnLayer('drummer');
+
+    // THE VOICE: what the bot asked for, else what its style row names.
+    const rowStyle = style ?? ((this.roomState.vibe as AgentStyle | undefined) ?? 'jazz');
+    const voice: InstrumentId = instrument ?? styleRow(rowStyle).instrument;
+
     const peer: Peer = {
       peerId: crypto.randomUUID(),
       name,
       kind: 'agent',
-      instrument: 'PolySynth',
+      instrument: voice,
       color,
     };
 
     const agent: InProcessAgent = {
       peer,
       // THE ROOM'S VIBE IS THE DEFAULT, and a part that names its own style keeps it.
-      style: style ?? ((this.roomState.vibe as AgentStyle | undefined) ?? 'jazz'),
+      style: rowStyle,
+      seat: chosenSeat,
       model: tier === 'signed' ? SIGNED_MODEL : FREE_MODEL,
       tier,
       busy: false,
@@ -934,7 +967,7 @@ export class JamRoom implements DurableObject {
     // Broadcast agent_spawned + peer_joined to all WS peers
     // THE AGENT'S OWN STYLE, not the one the frame was asked with: a bot spawned with no style names
     // the room's vibe, and a frame carrying the absent argument would tell every listener "undefined".
-    this.broadcastAll(JSON.stringify({ type: 'agent_spawned', peer, style: agent.style, tier }));
+    this.broadcastAll(JSON.stringify({ type: 'agent_spawned', peer, style: agent.style, seat: agent.seat, tier }));
     this.broadcastAll(JSON.stringify({ type: 'peer_joined', peer }));
   }
 
@@ -1216,6 +1249,11 @@ export class JamRoom implements DurableObject {
   }
 
   private spawnLayer(role: 'drummer' | 'bass'): void {
+    // A SEAT A BOT HOLDS IS NOT THE SECTION'S. Without this, toggling the backing on after a bot took
+    // the bass seat put two bass lines in the room, which is the defect the seat exists to prevent.
+    const held = [...this.agents.values()].some(agent => agent.seat === (role === 'drummer' ? 'drums' : 'bass'));
+    if (held) return;
+
     const color = PEER_COLORS[this.colorIndex % PEER_COLORS.length] ?? '#6366f1';
     this.colorIndex++;
 

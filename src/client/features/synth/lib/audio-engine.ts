@@ -3,9 +3,12 @@ import { PLAYOUT_DELAY_MS, MAX_NOTE_HOLD_S } from '@/shared/protocol/constants';
 
 // ── Instrument Definitions ────────────────────────────────────────────────
 
+import type { InstrumentId } from '@/shared/music/instruments';
 import { meterFromSpectrum } from './meter';
 
-export type InstrumentType = 'PolySynth' | 'AMSynth' | 'FMSynth' | 'MembraneSynth' | 'PluckSynth' | 'DrumKit';
+// THE VOICE LIST IS SHARED. It lives in shared/music/instruments so the SERVER can validate a spawn and a
+// style row can name its own voice; this type is the engine's view of the same five ids.
+export type InstrumentType = InstrumentId;
 
 export const INSTRUMENT_LIST: { value: InstrumentType; label: string; icon: string }[] = [
   { value: 'PolySynth', label: 'Classic', icon: '🎹' },

@@ -11,6 +11,8 @@
  * the same distribution are a rename wearing a label.
  */
 
+import type { InstrumentId } from './instruments';
+
 /** The styles the room ships. Derived from the table below, never retyped. */
 /** The four deterministic patterns the room can fill a bar from. */
 export type GeneratorId = 'jazz' | 'ambient' | 'funk' | 'random';
@@ -73,7 +75,7 @@ export interface StyleRow {
   /** The deterministic generator a late model falls back to: one of the four base patterns. */
   generator: GeneratorId;
   /** The voice a bot in this style is born with. */
-  instrument: string;
+  instrument: InstrumentId;
   /** A style that rotates through others by bar rather than having a shape of its own. */
   rotates?: AgentStyleId[];
 }

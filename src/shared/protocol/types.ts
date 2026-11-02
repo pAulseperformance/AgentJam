@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { STYLE_IDS, type AgentStyleId } from '@/shared/music/styles';
+import { INSTRUMENT_IDS, type InstrumentId } from '@/shared/music/instruments';
 
 // ─── Peer Types ──────────────────────────────────────────────────────────────
 
@@ -88,6 +89,18 @@ export const SpawnAgentMessageSchema = z.object({
   type: z.literal('spawn_agent').describe('Message discriminator'),
   name: z.string().describe('Display name for the agent that will be spawned'),
   style: z.enum(STYLE_IDS as [AgentStyleId, ...AgentStyleId[]]).optional().describe('Generation style that determines the musical character of the agent; absent means the room\'s vibe'),
+  /**
+   * THE VOICE THIS BOT PLAYS. Absent means the style row's own instrument, which is what makes a latin row
+   * that names a pluck actually heard as a pluck. An id the engine does not implement is refused here
+   * rather than defaulted, because a silently defaulted voice is a spawn that looks successful.
+   */
+  instrument: z.enum([...INSTRUMENT_IDS] as [InstrumentId, ...InstrumentId[]]).optional().describe('Voice the bot plays; absent means the style row\'s instrument'),
+  /**
+   * THE SEAT THIS BOT TAKES. Absent means the first seat the room does not already cover. The three
+   * melodic seats are a PREFERENCE the phrase arc may override; the two rhythm seats hand the matching
+   * backing layer over so the kit and the low end are each played once.
+   */
+  seat: z.enum(['drums', 'bass', 'lead', 'answer', 'ornament']).optional().describe('Seat the bot takes; absent means the first uncovered one'),
 });
 export type SpawnAgentMessage = z.infer<typeof SpawnAgentMessageSchema>;
 
@@ -208,6 +221,7 @@ export const AgentSpawnedMessageSchema = z.object({
   type: z.literal('agent_spawned').describe('Message discriminator'),
   peer: PeerSchema.describe('Peer metadata for the newly spawned AI agent'),
   style: z.string().describe('Generation style the agent is using (jazz, ambient, funk, or random)'),
+  seat: z.string().optional().describe('The seat the agent took, when it took one'),
 });
 export type AgentSpawnedMessage = z.infer<typeof AgentSpawnedMessageSchema>;
 
