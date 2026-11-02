@@ -100,7 +100,7 @@ console.log(`messages  ${messages.length}   notes ${notes.length}   bar records 
 // stride of one and `pattern` is the generator's line at a stride of one.
 console.log(`model bars ${bars.filter(b => b.source === 'llm').length}  rest ${bars.filter(b => b.source === 'rest').length}` +
   `  cell ${bars.filter(b => b.source === 'cell').length}` +
-  `  pattern ${bars.filter(b => b.source === 'pattern').length}  fallback ${bars.filter(b => b.source === 'fallback').length}` +
+  `  pattern ${bars.filter(b => b.source === 'pattern').length}  fallback ${bars.filter(b => b.source === 'fallback').length}  groove ${bars.filter(b => b.source === 'groove').length}` +
   `  late ${bars.filter(b => b.source === 'late').length}`);
 // THE BARS THAT MISSED THEIR LINE, NAMED ONE BY ONE: a bar patched after its own line records
 // source 'late' (jam-room.ts, latePatch).

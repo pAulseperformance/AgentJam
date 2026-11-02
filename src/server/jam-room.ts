@@ -1869,12 +1869,20 @@ export class JamRoom implements DurableObject {
         : bassBar(agent.style, this.roomState.key, bar);
     agent.grooveBars += 1;
     this.emitAgentBar(agent, notes, bar, beatMs);
+    // THE COLLISION MAP IS WRITTEN HERE TOO. `soundedSlots` and `otherNotesFor` read one agent's slots
+    // from `playedByBar`, which only the melodic bar path filled, so a bass line was invisible to the
+    // filter that stops two bots doubling a note on a beat: the "last line of defence" was blind to the
+    // one part that sits under everything else.
+    this.markSoundedSlots(agent.peer.peerId, bar, notes);
     this.broadcastAll(JSON.stringify({
       type: 'ai_debug',
       agentPeerId: agent.peer.peerId,
       agentName: agent.peer.name,
       bar,
-      meta: { source: 'pattern', reason: `a ${agent.seat} seat plays the room's own part` },
+      // NOT 'pattern'. The session readers count `source === 'pattern'` as a bar the GENERATOR had to
+      // cover, which is the fallback number the findings rest on; a drummer and a bass add a groove bar
+      // every bar, so labelling these 'pattern' would bury the fallback count under a working band.
+      meta: { source: 'groove', reason: `a ${agent.seat} seat plays the room's own part` },
     }));
   }
 

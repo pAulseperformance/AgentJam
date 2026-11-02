@@ -202,7 +202,7 @@ function report() {
   // setting ON should show both FALLING and `rest` rising, which is the card's own reading.
   console.log(`model bars ${bars.filter(b => b.source === 'llm').length}  rest ${bars.filter(b => b.source === 'rest').length}` +
     `  cell ${bars.filter(b => b.source === 'cell').length}` +
-    `  pattern ${bars.filter(b => b.source === 'pattern').length}  fallback ${bars.filter(b => b.source === 'fallback').length}` +
+    `  pattern ${bars.filter(b => b.source === 'pattern').length}  fallback ${bars.filter(b => b.source === 'fallback').length}  groove ${bars.filter(b => b.source === 'groove').length}` +
     `  late ${bars.filter(b => b.source === 'late').length}`);
   // THE BARS THAT MISSED THEIR LINE, NAMED ONE BY ONE. A bar patched after its own line records
   // source 'late' (jam-room.ts, latePatch): it is the model's own answer, played into the eighths
