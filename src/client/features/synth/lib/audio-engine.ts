@@ -159,10 +159,6 @@ export class AudioEngine {
   private analyser: Tone.Analyser | null = null;
   /** The time-domain twin. A spectrum says which frequencies, a scope says the shape of the wave. */
   private scope: Tone.Analyser | null = null;
-  /** The right channel's own scope, so the goniometer has two independent signals to plot. */
-  private rightScope: Tone.Analyser | null = null;
-  /** Splits the master into the two channels the stereo panes read. */
-  private split: Tone.Split | null = null;
   /** Muted peers set */
   private mutedPeers: Set<string> = new Set();
   /** Master volume as a plain number (0-1), applied as velocity multiplier */
@@ -179,14 +175,11 @@ export class AudioEngine {
     this.analyser = new Tone.Analyser('fft', 128);
     this.masterGain.connect(this.analyser);
     // TWO CHANNELS, because the room now has a stereo field: every peer is panned by its seat, so a
-    // goniometer and a width meter read something real instead of a mono line. A single analyser's
-    // channel count is fixed at construction in Tone 14, so the bus is split and measured twice.
-    this.split = new Tone.Split();
-    this.masterGain.connect(this.split);
-    this.scope = new Tone.Analyser('waveform', 512);
-    this.rightScope = new Tone.Analyser('waveform', 512);
-    this.split.connect(this.scope, 0, 0);
-    this.split.connect(this.rightScope, 1, 0);
+    // goniometer and a width meter read something real instead of a mono line. The channel count is a
+    // CONSTRUCTION option in Tone, not a property, so it is passed here and getValue() answers an array
+    // of one buffer per channel.
+    this.scope = new Tone.Analyser({ type: 'waveform', size: 512, channels: 2 });
+    this.masterGain.connect(this.scope);
     if (this.currentInstrument === 'DrumKit') {
       this.localKit = createDrumKit(this.masterGain);
     } else {
@@ -324,11 +317,13 @@ export class AudioEngine {
     let right: Float32Array<ArrayBufferLike> = new Float32Array(0);
     if (this.scope) {
       const time = this.scope.getValue();
-      left = Array.isArray(time) ? (time[0] ?? new Float32Array(0)) : time;
-    }
-    if (this.rightScope) {
-      const time = this.rightScope.getValue();
-      right = Array.isArray(time) ? (time[0] ?? new Float32Array(0)) : time;
+      if (Array.isArray(time)) {
+        left = time[0] ?? new Float32Array(0);
+        right = time[1] ?? left;
+      } else {
+        left = time;
+        right = time;
+      }
     }
     return { spectrum, wave: left, left, right };
   }
