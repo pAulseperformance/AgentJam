@@ -3,6 +3,7 @@ import { PRESETS } from '@/shared/music/presets';
 import {
   FILTER_TYPES,
   WAVE_SHAPES,
+  patchFromPreset,
   type Patch,
   type WaveShape,
 } from '@/shared/music/patch';
@@ -146,7 +147,10 @@ export function PatchPanel({ name, patch, onChange, editable }: PatchPanelProps)
             data-preset={preset.id}
             disabled={!editable}
             title={`Start from ${preset.label}`}
-            onClick={() => onChange(prev => ({ ...prev, base: preset.id }))}
+            // A PRESET IS A WHOLE SOUND, NOT A LABEL. This only wrote `base`, so pressing Juno Pad
+            // renamed the voice and left every number where it was: the button highlighted and nothing
+            // about the sound moved, which is the one thing the owner asked this panel to do.
+            onClick={() => onChange(() => patchFromPreset(preset.id))}
             style={{ fontSize: 10, padding: '2px 6px' }}
           >
             {preset.icon} {preset.label}
