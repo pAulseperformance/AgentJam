@@ -211,6 +211,8 @@ let keyboardLetters = 0;
 let keysOutside = 0;
 let spawnStyleButtons = 0;
 let keyboardReadout = null;
+/** the board's geometry: contiguous whites, black keys centred on seams */
+let piano = null;
 try {
   loadStartedAt = Date.now();
   // COMMIT, NOT DOMContentLoaded. The estate bar's script (zpe-bar.js in the shell head) holds
@@ -304,6 +306,22 @@ try {
   keyboardLetters = await page.evaluate(() => document.querySelectorAll('.keyboard__letter').length);
   keysOutside = await page.evaluate(() => document.querySelectorAll('.keyboard__key[data-in-key="no"]').length);
   spawnStyleButtons = await page.evaluate(() => document.querySelectorAll('.agent-panel__spawn .agent-panel__style-btn').length);
+  // THE BOARD IS LAID OUT LIKE A PIANO: white keys contiguous, every black key centred on a seam.
+  piano = await page.evaluate(() => {
+    const whites = Array.from(document.querySelectorAll('.keyboard__key--white')).map(el => el.getBoundingClientRect());
+    const blacks = Array.from(document.querySelectorAll('.keyboard__key--black')).map(el => el.getBoundingClientRect());
+    let maxGap = 0;
+    let maxSeamError = 0;
+    for (let i = 1; i < whites.length; i++) {
+      maxGap = Math.max(maxGap, Math.abs(whites[i].left - whites[i - 1].right));
+    }
+    for (const black of blacks) {
+      const centre = black.left + black.width / 2;
+      const nearest = Math.min(...whites.map(white => Math.abs(centre - white.right)));
+      maxSeamError = Math.max(maxSeamError, nearest);
+    }
+    return { whites: whites.length, blacks: blacks.length, maxGap: Math.round(maxGap * 10) / 10, maxSeamError: Math.round(maxSeamError * 10) / 10 };
+  });
   await page.keyboard.down('a');
   await page.waitForTimeout(220);
   await page.keyboard.up('a');
@@ -483,6 +501,7 @@ console.log(meterAtBar
   : 'audio meter not on the page (no canvas.spectrum-pane)');
 console.log(`visualizer bright pixels ${canvasAtBar ?? 'n/a'} at the bar, ${canvasLater ?? 'n/a'} 1.2 s later` +
   `${canvasAtBar === null ? ' (no canvas.visualizer on the page)' : ''}`);
+console.log(`piano      ${piano?.whites ?? 0} white keys with a ${piano?.maxGap ?? 'n/a'} px worst gap, ${piano?.blacks ?? 0} black keys off their seam by at most ${piano?.maxSeamError ?? 'n/a'} px`);
 console.log(`keyboard   ${keyboardLetters} letters drawn, ${keysOutside} keys marked outside the room's key, readout "${keyboardReadout ?? ''}"`);
 console.log(`cards      ${controlsInCard} part controls inside a peer card`);
 console.log(`spawn      ${spawnStyleButtons} style buttons on the spawn form (a part's settings live on its card)`);
@@ -539,6 +558,12 @@ if (!failure) {
     failure = 'the "four bars per call" switch was never pressed (no #phrase-ask on the page)';
   } else if (!spawnLabel || !/^➕ Add a /.test(spawnLabel)) {
     failure = `the spawn button reads "${spawnLabel}", not the seat it will fill`;
+  } else if (!piano || piano.whites !== 21 || piano.blacks !== 15) {
+    failure = `the board has ${piano?.whites ?? 0} white and ${piano?.blacks ?? 0} black keys, not 21 and 15`;
+  } else if (piano.maxGap > 2) {
+    failure = `the white keys are not one strip: a ${piano.maxGap} px gap between neighbours`;
+  } else if (piano.maxSeamError > 2) {
+    failure = `a black key sits ${piano.maxSeamError} px off the seam it should straddle`;
   } else if (keyboardLetters < 10) {
     failure = `the piano drew ${keyboardLetters} letter labels, so a person cannot see which keys to press`;
   } else if (keysOutside < 5) {

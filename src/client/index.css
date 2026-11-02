@@ -570,15 +570,12 @@ body {
   max-width: 1180px;
 }
 
-.keyboard__octave {
-  display: flex;
-  gap: 2px;
-}
-
-.keyboard__octave-group {
-  display: flex;
+/* ONE STRIP, NO GAPS BETWEEN OCTAVES: a seam the black keys can straddle. No flex gap, because the black
+   keys are positioned as a percentage of this box and a gap would shift the geometry they rely on. */
+.keyboard__keys {
   position: relative;
-  flex: 1;
+  display: flex;
+  width: 100%;
 }
 
 .keyboard__key {
@@ -594,7 +591,8 @@ body {
 
 .keyboard__key--white {
   background: linear-gradient(180deg, #f0f0f5, #d8d8e5);
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   height: 200px;
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   border: 1px solid var(--border);
@@ -625,10 +623,11 @@ body {
 
 .keyboard__key--black {
   background: linear-gradient(180deg, #2a2a3e, #1a1a2e);
-  width: 9%;
-  height: 130px;
+  /* Width and left arrive inline: a black key is a fraction of the board, centred on the seam it sits on. */
+  height: 128px;
   position: absolute;
   top: 0;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.45);
   border-radius: 0 0 4px 4px;
   z-index: 2;
   border: 1px solid #333;

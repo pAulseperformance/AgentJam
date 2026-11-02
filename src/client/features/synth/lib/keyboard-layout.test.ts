@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { KEY_MAP, describePitch, inKey, letterFor, mappedPitches } from './keyboard-layout';
+import { KEY_MAP, blackKeySeams, describePitch, inKey, letterFor, mappedPitches, whitePitches } from './keyboard-layout';
 
 /**
  * THE PIANO'S OWN DATA. Three readings a person needs and could not see: which letter plays a note, which
@@ -29,6 +29,30 @@ describe('the computer keyboard as an instrument', () => {
   it('does not grey out a piano in a room with no key set', () => {
     expect(inKey('F#4', undefined)).toBe(true);
     expect(inKey('B5', 'not a key')).toBe(true);
+  });
+
+  it('lays out a piano: a continuous white strip and black keys on the right seams', () => {
+    const octaves = [3, 4, 5];
+    const whites = whitePitches(octaves);
+    expect(whites.length).toBe(21);
+    expect(whites[0]).toBe('C3');
+    expect(whites[6]).toBe('B3');
+    expect(whites[7]).toBe('C4');
+
+    const blacks = blackKeySeams(octaves);
+    expect(blacks.length).toBe(15);
+    // No black key between E and F or B and C: those seams are 3 and 7 within an octave.
+    const withinOctave = blacks.map(entry => entry.seam % 7);
+    expect(withinOctave).not.toContain(3);
+    expect(withinOctave).not.toContain(0);
+    expect(new Set(withinOctave).size).toBe(5);
+    // Every seam is a real boundary between two white keys, and the pitch names the right one.
+    for (const entry of blacks) {
+      expect(entry.seam).toBeGreaterThan(0);
+      expect(entry.seam).toBeLessThan(whites.length);
+    }
+    expect(blacks.find(entry => entry.pitch === 'C#3')?.seam).toBe(1);
+    expect(blacks.find(entry => entry.pitch === 'A#5')?.seam).toBe(20);
   });
 
   it('describes a landed note with its letter and whether it fits', () => {

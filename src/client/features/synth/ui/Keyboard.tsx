@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AudioEngine } from '../lib/audio-engine';
-import { KEY_MAP, describePitch, inKey, letterFor } from '../lib/keyboard-layout';
+import { KEY_MAP, blackKeySeams, describePitch, inKey, letterFor, whitePitches } from '../lib/keyboard-layout';
 
-const WHITE_KEYS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
-const BLACK_KEYS = ['C#', 'D#', null, 'F#', 'G#', 'A#', null];
+const OCTAVES = [3, 4, 5] as const;
+/**
+ * A PIANO IS NOT SEVEN BUTTONS AND SOME GAPS. The white keys are one continuous strip and the black keys
+ * sit ASTRIDE THE SEAMS between them: C# on the C/D seam, D# on D/E, then F#, G#, A# with no black key
+ * between E and F or B and C. The old layout put a spacer where each absent black key would be and then
+ * floated the black keys over nothing, which read as a row of tiles rather than an instrument.
+ */
+const WHITE_PITCHES = whitePitches(OCTAVES);
+const BLACK_KEYS_ON_SEAMS = blackKeySeams(OCTAVES);
+/** How wide a black key is against the white key it straddles. A real one is about 60 percent. */
+const BLACK_KEY_RATIO = 0.62;
 
 interface KeyboardProps {
   engine: AudioEngine;
@@ -95,7 +104,7 @@ export function Keyboard({ engine, peerId, onNoteEvent, musicalKey }: KeyboardPr
   // Suppress unused peerId warning — used in stable identity for note events
   void peerId;
 
-  const renderKey = (pitch: string, black: boolean) => {
+  const renderKey = (pitch: string, black: boolean, geometry?: { left: string; width: string }) => {
     const letter = letterFor(pitch);
     const fits = inKey(pitch, musicalKey);
     const down = held.includes(pitch);
@@ -116,8 +125,14 @@ export function Keyboard({ engine, peerId, onNoteEvent, musicalKey }: KeyboardPr
         data-letter={letter}
         data-in-key={fits ? 'yes' : 'no'}
         style={black
-          ? { left: `${(BLACK_KEYS.indexOf(pitch.slice(0, -1)) + 0.5) * (100 / 7)}%`, opacity: fits ? 1 : 0.5 }
-          : { opacity: fits ? 1 : 0.6 }}
+          ? {
+            left: geometry?.left,
+            width: geometry?.width,
+            // Centred on the seam it straddles, the way a black key actually sits.
+            transform: 'translateX(-50%)',
+            opacity: fits ? 1 : 0.55,
+          }
+          : { opacity: fits ? 1 : 0.62 }}
       >
         <span className="keyboard__label">{pitch}</span>
         {letter && <span className="keyboard__letter">{letter}</span>}
@@ -135,16 +150,14 @@ export function Keyboard({ engine, peerId, onNoteEvent, musicalKey }: KeyboardPr
         <span className="keyboard__readout-held">{held.length ? `held ${held.join(' ')}` : ''}</span>
       </div>
       <div className="keyboard" role="group" aria-label="Piano keyboard">
-        <div className="keyboard__octave">
-          {[3, 4, 5].map((octave) => (
-            <div key={octave} className="keyboard__octave-group">
-              {WHITE_KEYS.map((note) => renderKey(`${note}${octave}`, false))}
-              {BLACK_KEYS.map((note, i) => {
-                if (!note) return <span key={`gap-${octave}-${String(i)}`} className="keyboard__gap" />;
-                return renderKey(`${note}${octave}`, true);
-              })}
-            </div>
-          ))}
+        {/* ONE STRIP OF WHITE KEYS, with the black keys laid over the seams between them. The board is
+            three octaves wide, so every percentage below is a fraction of 21 white keys. */}
+        <div className="keyboard__keys">
+          {WHITE_PITCHES.map(pitch => renderKey(pitch, false))}
+          {BLACK_KEYS_ON_SEAMS.map(({ pitch, seam }) => renderKey(pitch, true, {
+            left: `${(seam / WHITE_PITCHES.length) * 100}%`,
+            width: `${(100 / WHITE_PITCHES.length) * BLACK_KEY_RATIO}%`,
+          }))}
         </div>
       </div>
     </div>

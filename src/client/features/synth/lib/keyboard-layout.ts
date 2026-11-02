@@ -25,6 +25,28 @@ export function letterFor(pitch: string): string {
   return LETTER_BY_PITCH.get(pitch) ?? '';
 }
 
+/**
+ * THE BOARD'S GEOMETRY, as data, because a piano is not seven buttons and some gaps.
+ *
+ * The white keys are one continuous strip. A black key sits ASTRIDE THE SEAM between two white keys, and
+ * there is no black key between E and F or between B and C: the seams it may use are 1, 2, 4, 5 and 6
+ * within an octave, counted in white keys from that octave's C.
+ */
+export const WHITE_NAMES = ['C', 'D', 'E', 'F', 'G', 'A', 'B'] as const;
+
+/** The white keys of a board, left to right. */
+export function whitePitches(octaves: readonly number[]): string[] {
+  return octaves.flatMap(octave => WHITE_NAMES.map(name => `${name}${octave}`));
+}
+
+/** Each black key with the seam it straddles, in white keys from the left of the whole board. */
+export function blackKeySeams(octaves: readonly number[]): { pitch: string; seam: number }[] {
+  const perOctave: [string, number][] = [['C#', 1], ['D#', 2], ['F#', 4], ['G#', 5], ['A#', 6]];
+  return octaves.flatMap((octave, index) =>
+    perOctave.map(([name, seam]) => ({ pitch: `${name}${octave}`, seam: index * WHITE_NAMES.length + seam })),
+  );
+}
+
 /** Every pitch the computer keyboard can reach, for drawing labels. */
 export function mappedPitches(): string[] {
   return [...LETTER_BY_PITCH.keys()];
