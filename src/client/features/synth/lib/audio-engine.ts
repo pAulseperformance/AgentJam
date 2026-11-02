@@ -468,6 +468,11 @@ export class AudioEngine {
     // THE FADER MOVES THE BUS, not the velocity of the notes this page happens to send: scaling velocity
     // silenced your own keys and left every agent exactly as loud, which is the opposite of a master fader.
     this.masterGain?.gain.rampTo(this.masterVolumeLevel, 0.05);
+    // THE READING THE PANEL AND THE GATE CHECK. A fader that stores a number and does not move the bus
+    // looks identical on screen, so the value it actually set is published where a probe can read it.
+    if (typeof document !== 'undefined') {
+      document.body.dataset.masterGain = String(this.masterGain ? Number(this.masterGain.gain.value.toFixed(3)) : 'no-bus');
+    }
   }
 
   /** Get master volume */
