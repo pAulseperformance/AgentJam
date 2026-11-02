@@ -3,7 +3,7 @@
 **This is ONE self-pass, not the two the process asks for.** The mechanics pass was run in session, by the author, against the classes that survive a green rule pass (step order against the Files lists, baselines taken from the runner, the four mutation classes). The second read-only pass and the fix-verification pass are the gap, and the residual risk below names what they would have graded.
 
 Plan: `.hermes/plans/2026-11-02_115639-jam-vibe-and-style-registry.md`
-Checker: every rule passed on 10 tasks. Stamp b78d4d0ddbc4ea69, taken after the last edit to the plan and confirmed by re-hashing the file. Self-test: 11 rules fire.
+Checker: every rule passed on 11 tasks. Stamp 495167cc931cc611, taken after the last edit to the plan. Self-test: 11 rules fire.
 Artifact: `.hermes/plans/artifacts/2026-11-02-jam-vibe-panel.html`, structural check PASS, five states drawn.
 
 ## Claims, re-run in this pass
@@ -28,13 +28,14 @@ Artifact: `.hermes/plans/artifacts/2026-11-02-jam-vibe-panel.html`, structural c
 2. **The architecture line cited a file that does not exist yet without marking it new.** The checker caught it (R7), which is the one class a green reading of my own prose had missed.
 3. **A file count was wrong in the direction that flatters the argument.** The plan said the four style names appear in 12 files; the grep prints 26. Replaced, and the claim now says which grep produces which number.
 4. **The drawing showed a restyle button no task builds.** The page copy named an action outside the plan's scope, which is the failure the user-story rule exists to prevent in the other direction. The control is removed from the drawing, its note says plainly that a running bot keeps its part, and a bulk restyle became a non-goal with its reopen condition.
-5. **The verification step pressed that same button.** Replaced with a despawn and respawn, which is the action the tasks actually provide, and it is also the action that fails today.
+5. **The plan shipped no way to say what a bot IS.** It answered style, instrument and vibe and left the seat to the phrase arc, which is correct for a melodic part and wrong for a band: a person cannot ask for a bass, and nothing stops a bass bot doubling the room's own backing bass. Found by the owner's question rather than by this pass, which makes it the fifth defect a second pass would probably not have found either. Task 10 now carries a seat (drums, bass, lead, answer, ornament), the three melodic seats are a preference the arc still overrides, and the two rhythm seats hand the matching backing layer over. That is what moved the ladder from 356 to 360.
+6. **The verification step pressed a button the plan had removed.** Replaced with a despawn and respawn, which is the action the tasks actually provide, and it is also the action that fails today.
 
 ## Mechanics
 
 - Step order holds: the registry lands first, the wire enum derives from it second, the three consumers follow, the prompt sixth, the room's vibe seventh, the page eighth, the instrument ninth, the probe last. No task reads a file a later task creates.
 - Each mutation fails for the reason it was written: the registry's own completeness check (Task 1), a derived enum with a retyped row (Task 2), a pinned note (Tasks 3 and 4), a verb the prompt must carry (Task 5), a missing generator that must not fall back to jazz (Task 6), a room_state without peers (Task 7, the defect that took the live page down on 2026-11-01), a stale option list (Task 8), an ignored instrument request (Task 9), and two rows that measure the same (Task 10).
-- The ladder is arithmetic on the runner's baseline: 337, then 341, 343, 343, 343, 345, 349, 353, 353, 356, 356 with `FLOOR` raised on the six tasks that add tests.
+- The ladder is arithmetic on the runner's baseline: 337, then 341, 343, 343, 343, 345, 349, 353, 353, 356, 360, 360 with `FLOOR` raised on the seven tasks that add tests.
 - One prediction is left in the plan on purpose and it is the falsifier rather than an acceptance: the style probe must print four DIFFERENT distributions. A plan cannot know the numbers before the probe exists, so it asserts the property.
 
 ## Residual risk

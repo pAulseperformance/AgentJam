@@ -2,7 +2,7 @@
 
 **Goal:** a listener sets one vibe for the room and every bot born after it plays that style with that style's instrument, while a bot's own style stays its own field, and a new genre costs one registry row instead of edits in seven files.
 
-**Architecture:** one shared table, created in Task 1 at `src/shared/music/styles.ts`, owns what a style MEANS (its bar shape, note counts, velocity band, grid, cell shape, tempo range, the words the model is told, its fallback generator and its default instrument); `AgentStyle` and the protocol enum are DERIVED from that table's keys; `groove.ts`, `melody.ts`, `reaction.ts` and `llm-planner.ts` read the row instead of branching on the name; room state gains one optional `vibe` field that fills spawn defaults and drives the backing section; `spawn_agent` gains one optional `instrument` field, which the engine already routes per peer.
+**Architecture:** one shared table, created in Task 1 at `src/shared/music/styles.ts`, owns what a style MEANS (its bar shape, note counts, velocity band, grid, cell shape, tempo range, the words the model is told, its fallback generator and its default instrument); `AgentStyle` and the protocol enum are DERIVED from that table's keys; `groove.ts`, `melody.ts`, `reaction.ts` and `llm-planner.ts` read the row instead of branching on the name; room state gains one optional `vibe` field that fills spawn defaults and drives the backing section; `spawn_agent` gains an optional `instrument` field, which the engine already routes per peer, and an optional `seat` field whose rhythm seats hand the matching backing layer over so the kit and the low end are each played once.
 
 ## The user story
 
@@ -10,6 +10,7 @@
 |---|---|---|---|
 | A listener in the room | Pick a vibe and hear the band play it | The vibe control names the row, and a bot spawned after it is tagged with that style and that row's instrument | A style whose model call failed plays the room's own fill for that bar and the row says so, while the rest of the band keeps time |
 | A listener who wants one part different | Keep the band on funk but put one bot on ambient | The bot's own row carries ambient, the rest stay funk, and the vibe control still reads funk | The bot's own style list is fetched from the registry, so an unavailable row cannot be picked at all |
+| A listener who wants a bass | Take the bass seat instead of the room's own backing bass | The bot's row is tagged bass, the bots around it keep their parts, and the backing bass steps back so the low end is played once | The seat list marks bass as taken by the backing section until pressing it hands the seat over, and a second bot cannot take the same seat |
 | A guest, not signed in | Listen | The vibe and the rows are drawn and disabled, and the room plays | The controls stay disabled with the reason beside them, and nothing half-applies |
 | The person building this | Add a genre | One row in the registry, one generator, and the style appears in every list | The test that walks the registry names the row that is incomplete and which field it lacks |
 
@@ -23,7 +24,7 @@ The drawing is structural: no colour literals, no network reference, no script. 
 |---|---|---|
 | empty | The vibe control and key/tempo, no rows, and the note that the vibe is the default for whatever comes next | Task 7 |
 | one | One bot tagged funk with a plucked instrument, and the note that a later vibe change does not restyle it | Tasks 6, 8, 9 |
-| many | Four rows: a bot kept on funk, one born after the change, the drums and the bass reading the room's vibe, and the note that nothing restyles a running bot in place | Tasks 7, 8 |
+| many | Four rows, each carrying a seat (lead, ornament, drums, bass) beside its style and instrument, with the note that a seated bot keeps its part when the vibe moves | Tasks 7, 8, 10 |
 | error | A cinematic pad whose model call failed, playing the room's own fill, with the bar marked as the fill rather than the bot | Task 7 |
 | signed out | The same bar with every control disabled and the door named | Task 8 |
 
@@ -45,6 +46,7 @@ A person creates a BOT through the agent panel: a name, a style picked from the 
 | A style is one registry row, and `AgentStyle` derives from the row ids | A fifth case in each of the three switch files | Adding a genre today costs edits at 7 source files, 5 tools and 84 occurrences of the four names across 14 test files, measured with the greps in the claims table |
 | The room's vibe fills spawn defaults, and a bot's style stays its own field | The vibe live-binds every running bot | One listener's click would rewrite every bot's part with no undo; the per-part field is the two-way door and the restyle button is the third option made explicit |
 | The backing section reads the vibe first, then the first bot's style, then jazz | Leave first-bot-wins as it is today | The drummer must follow the room's groove, not whichever bot happened to spawn first |
+| A bot takes a SEAT (drums, bass, lead, answer, ornament) and the three melodic seats are a preference the phrase arc still overrides | A hard role lock, where a bot seated lead always leads | The room already hands the line to the turn holder and demotes a bot when a human just played, and a lock would make one bot talk over both; the seat is what a person can ask for, the arc stays what makes it a band |
 | The instrument is a per-part field, defaulted from the row | One synth for the whole band | Per-peer routing already exists in the engine and the page applies it for humans; the row only supplies the default |
 | Eight rows now, each carrying numbers | Twenty rows of prompt adjectives | The falsifier counts notes per bar and onsets per beat; rows that differ only in words measure the same and are renames |
 | A new style ships its own generator or names a fallback row | Let a missing generator fall back to jazz silently | The generator map already falls back to jazz, so a row with no generator would measure identical to jazz while wearing a new label |
@@ -62,6 +64,8 @@ A person creates a BOT through the agent panel: a name, a style picked from the 
 | Every agent peer is born PolySynth | READ FROM SOURCE | `grep -n "instrument: 'PolySynth'" src/server/jam-room.ts` prints line 881 |
 | The engine routes an instrument per peer and the page applies it | READ FROM SOURCE | `grep -n setPeerInstrument src/client/pages/JamRoom.tsx` prints the apply line |
 | The instrument union and its list live in the client only, and hold 5 entries | MEASURED | `sed -n '6p;8,13p' src/client/features/synth/lib/audio-engine.ts` prints the union and the 5 rows |
+| The role a bot plays is computed per bar, not chosen: alone it leads, the turn holder leads, a bot is demoted to answer when a human just played | READ FROM SOURCE | `sed -n '1738,1772p' src/server/jam-room.ts` prints the four rules in order |
+| The only seats a person can pick today are the room's two backing layers, drummer and bass | MEASURED | `grep -n 'drummer' src/server/jam-room.ts` prints the layer type at line 125 and the spawn at line 1201; `grep -c 'set_backing' src/shared/protocol/types.ts` prints 1 |
 | The visualizer is mounted, animates, and the gate now prints what it paints | MEASURED | `node tools/browser-smoke.mjs` prints the bright pixel count at the bar and 1.2 s later |
 | The four test files the extraction pins hold 8, 28, 10 and 13 tests, which is where every Run baseline below comes from | MEASURED | `bash ~/.hermes/scripts/cf_run.sh npx vitest run src/server/groove.test.ts src/server/melody.test.ts src/server/reaction.test.ts src/shared/music/pattern-generator.test.ts` prints 59 passed across the four files |
 
@@ -188,7 +192,21 @@ A person creates a BOT through the agent panel: a name, a style picked from the 
 
 **Run:** `npx vitest run src/server/spawn-instrument.test.ts` prints 3 passed (the peer carries the requested voice, an unimplemented one is refused, `agent_spawned` carries it) and the whole suite prints 356 passed (353 plus 3). Raise `FLOOR` to 356.
 
-### Task 10: The probe that grades the palette
+### Task 10: The seat a bot takes
+
+**Objective:** let a person seat a bot as drums, bass, lead, answer or ornament, defaulting to the first seat the roster does not cover, with the two rhythm seats handing the matching backing layer over so the low end and the kit are each played once.
+
+**Files:**
+- modify `src/shared/protocol/types.ts`
+- modify `src/server/jam-room.ts`
+- modify `src/client/features/room/ui/AgentPanel.tsx`
+- create `src/server/seat.test.ts`
+
+**Mutation:** seat a bot on bass and leave the backing bass playing and the new test must fail on two peers claiming one seat; a roster with no coverage rule is how a room ends up with two bass lines and no way to say which one is wrong.
+
+**Run:** `npx vitest run src/server/seat.test.ts` prints 4 passed (the default seat is the first uncovered one, a taken seat is refused, a bass seat stops the backing bass, a melodic seat is still overridden by the turn holder) and the whole suite prints 360 passed (356 plus 4). Raise `FLOOR` to 360.
+
+### Task 11: The probe that grades the palette
 
 **Objective:** build the instrument that measures one room per style and prints notes per bar, onsets on the beat grid and the velocity median, so a row that is a rename is visible as a row whose numbers match another row's.
 
@@ -199,17 +217,18 @@ A person creates a BOT through the agent panel: a name, a style picked from the 
 
 **Mutation:** point two styles at the same row in the registry and the probe must print two identical distributions, which is the reading the plan exists to make possible; a probe that cannot show sameness cannot show difference.
 
-**Run:** `node tools/style-probe.mjs --styles jazz,funk,ambient,latin --seconds 45` prints one line per style with its notes per bar, its share of onsets on the grid and its velocity median, and the whole suite prints 356 passed.
+**Run:** `node tools/style-probe.mjs --styles jazz,funk,ambient,latin --seconds 45` prints one line per style with its notes per bar, its share of onsets on the grid and its velocity median, and the whole suite prints 360 passed.
 
 ## Verification
 
 - `python3 ~/.hermes/skills/software-development/plan/scripts/check_plan.py .hermes/plans/2026-11-02_115639-jam-vibe-and-style-registry.md --repo .` prints every rule passed.
-- `bash check.sh` prints 356 passed against a floor of 356, and every live probe green.
+- `bash check.sh` prints 360 passed against a floor of 360, and every live probe green.
 - `node tools/style-probe.mjs --styles jazz,funk,ambient,latin --seconds 45` prints four lines whose numbers differ, which is the falsifier for the whole palette: any two styles that measure the same distribution are a rename and the row that duplicates another is the defect rather than the label.
 - Owner step 1: open https://zpe.vc/jam/ and read the vibe control beside the tempo. Before this work there is no such control at all.
 - Owner step 2: set the vibe to funk, spawn one bot, and read its row. It must be tagged funk and carry a plucked voice, where the last measured spawn in the smoke test was tagged nothing and played PolySynth.
 - Owner step 3: change the vibe to ambient with that bot still running. The bot must stay funk and the drums and bass must move, and the row must say which of the two it is doing.
-- Owner step 4: despawn and respawn the bot under the new vibe. It must come back tagged with the room's style and that row's instrument, which is the same press that failed before this work because the spawn form had four hardcoded options and no instrument.
+- Owner step 4: seat a second bot on bass. The backing bass must stop and the new bot must be tagged bass, where today the room plays two bass lines with no way to tell which one you are hearing.
+- Owner step 5: despawn and respawn the bot under the new vibe. It must come back tagged with the room's style and that row's instrument, which is the same press that failed before this work because the spawn form had four hardcoded options and no instrument.
 
 ## Non-goals
 
@@ -219,5 +238,7 @@ A person creates a BOT through the agent panel: a name, a style picked from the 
 | Broadcasting per-part volume so the band shares a balance | Volume is a listener's own ears today, and making it shared turns a private slider into a group decision with no consent step | Two listeners report they cannot hear the same part |
 | Instrument programs beyond the five the engine implements | The engine has five voices and each new one is a synthesiser, not a list entry | A style row needs a voice the engine does not have, named by him |
 | The vibe moving the room's tempo to fit its tempo range | Moving the tempo mid-bar is the exact class of change that once made the drummer lose the beat, and the room's tempo is a separate control with its own consent | He asks for a genre to clamp the tempo, and the change is scheduled at a bar line |
+| A vocalist part | The engine has five synth voices and none of them is a voice; a part called vocals over a PolySynth is a label on a synth | An instrument program that sings exists, and a seat is added for it |
+| A role the phrase arc cannot move, pinned at spawn | One bot pinned to lead talks over a human who just played, which is the one rule the room already enforces | He hears a room where the arc's turn taking is the problem rather than the band |
 | Restyling a bot that is already playing, in one press | The room's vibe deliberately sets defaults and a part keeps its own style, so a bulk restyle is a second write path over a band that is mid-phrase | A room has eight measured styles and he asks for one press that reformats every running bot |
 | A ninth style before eight are measured | Eight rows with numbers can already produce the falsifier's answer; more rows before the probe exists is a palette nobody has graded | The style probe has been run on all eight and every pair differs |
