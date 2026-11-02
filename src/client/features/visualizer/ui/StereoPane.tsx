@@ -103,9 +103,14 @@ export function StereoPane({ engine, width = 800, height = 200 }: StereoPaneProp
       // THE READOUT: correlation, width, and the two channel bars.
       context.fillStyle = correlation < -0.2 ? '#f472b6' : '#e0e7ff';
       context.font = '11px ui-sans-serif, system-ui, sans-serif';
-      context.fillText(`correlation ${correlation.toFixed(2)}`, 10, 18);
+      // PHASE AND WIDTH ARE TWO DIFFERENT READINGS. A mono source panned left has a WIDE image and a
+      // correlation of 1.0, because panning changes level rather than content; only two different
+      // sources on opposite sides lower the correlation. Reporting correlation alone as "mono" was
+      // wrong about a panned room, and the delta is what tells the two apart.
+      context.fillText(`phase ${correlation.toFixed(2)}`, 10, 18);
       context.fillStyle = '#8b8ba7';
-      context.fillText(`width ${(side * 100).toFixed(0)}  mid ${(mid * 100).toFixed(0)}`, 10, 34);
+      const deltaText = element.dataset.delta ?? '0.0000';
+      context.fillText(`width ${(side * 100).toFixed(0)}  delta ${deltaText}  mid ${(mid * 100).toFixed(0)}`, 10, 34);
 
       const barsX = width - 90;
       const meter = (value: number, y: number, colour: string) => {
