@@ -333,6 +333,8 @@ export class AudioEngine {
    * room had ears. This node is the only thing on the page that touches the signal.
    */
   private analyser: Tone.Analyser | null = null;
+  /** the loudness loop's handle, and the last peak it published on the document */
+  private meterLoop: number | null = null;
   /** The time-domain twin. A spectrum says which frequencies, a scope says the shape of the wave. */
   private scope: Tone.Analyser | null = null;
   /** Muted peers set */
@@ -380,6 +382,20 @@ export class AudioEngine {
     // of one buffer per channel.
     this.scope = new Tone.Analyser({ type: 'waveform', size: 512, channels: 2 });
     this.masterGain.connect(this.scope);
+
+    // THE LOUDNESS IS PUBLISHED ON THE DOCUMENT, not only painted into whichever pane happens to be open.
+    // A meter that exists only while its tab is visible cannot answer "is the room still playing" from the
+    // patch panel or from a gate, and that is exactly the question a voice that cuts out needs asked.
+    if (typeof document !== 'undefined' && this.meterLoop === null) {
+      const tick = () => {
+        const snapshot = this.analyserSnapshot();
+        const wave = snapshot?.wave ?? [];
+        const peak = wave.length ? Math.max(...Array.from(wave, Math.abs)) : 0;
+        document.body.dataset.meterPeak = String(Number(peak.toFixed(3)));
+        this.meterLoop = window.requestAnimationFrame(tick);
+      };
+      this.meterLoop = window.requestAnimationFrame(tick);
+    }
     if (isKitPreset(this.currentInstrument)) {
       this.localKit = createDrumKit(this.masterGain);
     } else {
