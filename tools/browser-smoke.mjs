@@ -188,6 +188,9 @@ let overlayTakenDown = false;
 /** what the "four bars per call" switch read after it was pressed (null when the press never happened) */
 let toggle = null;
 let toggleErrors = [];
+/** bright pixels on the visualizer canvas, at the bar and 1.2 s later (null when it was not read) */
+let canvasAtBar = null;
+let canvasLater = null;
 try {
   loadStartedAt = Date.now();
   // COMMIT, NOT DOMContentLoaded. The estate bar's script (zpe-bar.js in the shell head) holds
@@ -249,6 +252,23 @@ try {
   // undefined, and the next render spread it, so the listener saw "Something went wrong. Q is not
   // iterable". This run pressed nothing, so nothing in the gate could have said so. The reading is the
   // switch's own state after the round trip, plus the peer list that the defect emptied.
+  // AND WHAT THE VISUALIZER PAINTS while the bar that just landed is still inside its 5 s window. A
+  // grid alone never clears 90 on a channel, so bright pixels are notes: the reading exists because
+  // "there should be a visualizer" is asked about a canvas that is already mounted, and the answer is
+  // either that it draws or that it paints a grid and nothing else.
+  const brightPixels = async () => page.evaluate(() => {
+    const canvas = document.querySelector('canvas.visualizer');
+    const ctx = canvas instanceof HTMLCanvasElement ? canvas.getContext('2d') : null;
+    if (!ctx || !canvas) return null;
+    const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] > 90 || d[i + 1] > 90 || d[i + 2] > 90) n++;
+    return n;
+  });
+  canvasAtBar = await brightPixels();
+  await page.waitForTimeout(1200);
+  canvasLater = await brightPixels();
+
   const errorsBefore = pageErrors.length;
   await page.click('#phrase-ask', { timeout: Math.max(500, Math.min(remaining(), 4000)) });
   await page.waitForTimeout(700);
@@ -311,6 +331,8 @@ if (llmBars.length) {
 console.log(panelDrawn
   ? `panel drawn, state "${panelState ?? 'unknown'}"${panelState === 'signed out' ? ' (a guest: the panel draws its guest state and no rows)' : ''}`
   : 'panel not drawn (no .session-panel on the page)');
+console.log(`visualizer bright pixels ${canvasAtBar ?? 'n/a'} at the bar, ${canvasLater ?? 'n/a'} 1.2 s later` +
+  `${canvasAtBar === null ? ' (no canvas.visualizer on the page)' : ''}`);
 console.log(toggle
   ? `toggle     "four bars per call" pressed: checked ${toggle.checked}, peers ${toggle.peers}` +
     `${toggle.crashed ? ', PAGE SAYS SOMETHING WENT WRONG' : ''}${toggleErrors.length ? `, ${toggleErrors.length} page error(s)` : ''}` +
