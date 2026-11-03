@@ -618,6 +618,7 @@ body {
 .patch__chip--saved { display: inline-flex; align-items: center; gap: 2px; padding: 0 2px 0 0; }
 .patch__chip-load { border: 0; background: none; color: inherit; font: inherit; cursor: pointer; padding: 2px 6px; }
 .patch__chip-x { border: 0; background: none; color: inherit; opacity: 0.6; cursor: pointer; padding: 0 4px; }
+.patch__note { margin: 0; font-size: 10px; line-height: 1.5; opacity: 0.55; }
 .patch__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
 .patch__section {
   border: 1px solid var(--border); border-radius: 8px; padding: 7px 8px 9px;

@@ -225,8 +225,17 @@ export function PatchPanel({ name, patch, onChange, editable }: PatchPanelProps)
         </div>
       )}
 
+      {/* WHAT IS LIVE AND WHAT IS NOT, said on the panel. A knob that does nothing is worse than a knob that
+          says when it lands: the filter, the equaliser, the modulators, the effects and the level are written
+          into the running voice, and the oscillator and the envelope are construction arguments that cannot
+          change without rebuilding the bank under the note being held. */}
+      <p className="patch__note">
+        Filter, equaliser, modulators, effects and level are live. Waveform, unison, detune, octave, glide and
+        the envelope land when this bot&rsquo;s voice is next built.
+      </p>
+
       <div className="patch__grid">
-        <Section title="Oscillator" accent="#7dd3fc" hint="what the voice is made of">
+        <Section title="Oscillator" accent="#7dd3fc" hint="shape lands on the next voice build">
           <svg width="100%" height="52" viewBox="0 0 240 52" preserveAspectRatio="none" aria-label="waveform" data-patch-wave={patch.wave}>
             <rect x="0" y="0" width="240" height="52" rx="4" fill="rgba(255,255,255,0.04)" />
             <path d={wavePath(patch.wave, 240, 52)} stroke="#7dd3fc" strokeWidth="1.8" fill="none" />
@@ -277,7 +286,7 @@ export function PatchPanel({ name, patch, onChange, editable }: PatchPanelProps)
           </div>
         </Section>
 
-        <Section title="Amplifier" accent="#fcd34d" hint="the shape of one note">
+        <Section title="Amplifier" accent="#fcd34d" hint="envelope lands on the next voice build">
           <svg width="100%" height="52" viewBox="0 0 240 52" preserveAspectRatio="none" aria-label="envelope" data-env-curve={`${patch.env.attack}-${patch.env.release}`}>
             <rect x="0" y="0" width="240" height="52" rx="4" fill="rgba(255,255,255,0.04)" />
             <path d={envelopePath(patch, 240, 52)} stroke="#fcd34d" strokeWidth="1.8" fill="none" />
