@@ -643,6 +643,12 @@ body {
   display: inline-block; width: 9px; height: 9px; border-radius: 50%;
   margin-right: 6px; vertical-align: middle;
 }
+/* THE REMOVE BUTTON IS A TARGET, NOT A GLYPH: at 14x19 it was below the 24 px minimum and the easiest control
+   in the room to miss with a thumb. */
+.peer-list__kill {
+  min-width: 24px; min-height: 24px; display: inline-flex; align-items: center; justify-content: center;
+}
+
 .peer-list__fold {
   margin-left: auto; border: 0; background: none; color: inherit;
   opacity: 0.65; cursor: pointer; font: inherit; line-height: 1;
