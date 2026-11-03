@@ -780,13 +780,33 @@ export class AudioEngine {
    */
   setPeerPatch(peerId: string, patch: Patch): void {
     const existing = this.peerVoices.get(peerId);
-    // A SHAPE CHANGE IS NOT APPLIED TO A LIVE VOICE, and that is measured three ways now.
+    // A SHAPE CHANGE IS A CROSSFADE, NOT A SWAP.
     //
-    // 2026-11-02: writing the options into the live bank silences it (0.036 mean to 0.002, no recovery);
-    // swapping only the bank cuts the note being held; swapping the WHOLE CHAIN reads 0.127 before and 0.009
-    // after, and never recovers either. The one build that works is a fresh one, before any note is
-    // scheduled, which is why a listener who joins later hears the tuned voice and the person who tuned it
-    // does not. So a shape change is stored and lands on the next fresh build; the panel says so.
+    // Every previous attempt cut the room, measured on 2026-11-02: writing the options into the live bank
+    // silenced it (0.036 mean to 0.002), swapping the bank cut the note, and swapping the whole chain read
+    // 0.127 before and 0.009 after. What all three share is a moment with NO voice carrying the sound.
+    //
+    // So the new voice is built and CONNECTED BEFORE the old one goes, both feeding the same player gain, and
+    // the old one is faded out over 120 ms rather than disconnected. The held note fades on the old chain
+    // while the next note lands on the new one, which is what a hardware synth does when you turn the wave
+    // knob mid-phrase.
+    if (existing && shapeOf(patch) !== existing.shape) {
+      const gain = this.getOrCreatePeerGain(peerId);
+      const fresh = buildVoiceChain(patch, gain);
+      fresh.synth.maxPolyphony = 8;
+      const target = 10 ** (patch.level / 20);
+      fresh.level.gain.value = 0;
+      fresh.level.gain.rampTo(target, 0.12);
+      existing.level.gain.rampTo(0, 0.12);
+      this.peerVoices.set(peerId, fresh);
+      this.peerSynths.set(peerId, fresh.synth);
+      this.peerPatches.set(peerId, patch);
+      VOICE_REBUILDS += 1;
+      if (typeof document !== 'undefined') document.body.dataset.voiceRebuilds = String(VOICE_REBUILDS);
+      const retired = existing;
+      window.setTimeout(() => disposeVoiceChain(retired), 260);
+      return;
+    }
     if (existing) {
       // A KNOB MOVE IS A VALUE, NOT A REBUILD. This used to dispose the voice on every frame of a drag,
       // which is the silence the owner heard: "every time i move a knob the synth cuts out".
