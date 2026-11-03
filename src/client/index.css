@@ -728,6 +728,10 @@ body {
   max-height: none;
   min-height: 0;
   overflow: hidden;
+  background: var(--bg-primary, #0b0b10);
+  /* SHUT MEANS SHUT: the body does not scroll, so no part of the panel leaks past the strip and the page below
+     it is the room's, not a clipped ghost of a drawer nobody opened. */
+
 }
 .visualizer-dock__tabs { flex: 0 0 auto; }
 
@@ -747,6 +751,7 @@ body {
   border-top: 1px solid var(--border);
   box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.45);
 }
+.visualizer-dock[data-expanded='no'] .visualizer-dock__body { overflow: hidden; }
 .visualizer-dock__body {
   flex: 1 1 auto;
   min-height: 0;
