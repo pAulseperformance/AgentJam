@@ -309,7 +309,11 @@ body {
    own body, and the player column scrolls its own list. Below 900 px the layout stacks, and a phone keeps the
    page scroll it needs. */
 @media (min-width: 900px) {
-  .jam-room__main { height: calc(100dvh - 154px); overflow: hidden; }
+  /* `min-height: 100vh` made the room a second viewport UNDER the site header, so the room's own bottom sat
+     101 px past the fold and the dock was clipped by it. The room is the space that is left, measured once
+     from its own offset so a taller estate bar does not break it. */
+  .jam-room { min-height: 0; height: calc(100dvh - var(--room-top, 101px)); overflow: hidden; }
+  .jam-room__main { flex: 1 1 auto; min-height: 0; overflow: hidden; }
   .jam-room__content { height: 100%; min-height: 0; }
   .visualizer-dock { max-height: none; flex: 1 1 auto; }
 }

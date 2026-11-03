@@ -255,6 +255,18 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     localPeerId ? peerColorMapRef.current.get(localPeerId) : undefined
   , [localPeerId, peers]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // MEASURE WHERE THE ROOM STARTS. The stage is sized to the viewport minus the site chrome above it, and the
+  // chrome's height is not a constant anyone can hard-code: it changes with the estate bar and with sign-in.
+  useEffect(() => {
+    const publish = () => {
+      const room = document.querySelector('.jam-room');
+      if (room) document.documentElement.style.setProperty('--room-top', `${Math.round(room.getBoundingClientRect().top)}px`);
+    };
+    publish();
+    window.addEventListener('resize', publish);
+    return () => window.removeEventListener('resize', publish);
+  }, []);
+
   // THE PATCH OPENS ATTACHED TO THE FIRST USER. Nobody should have to learn that a card must be clicked before
   // the instrument answers: the panel starts on your own voice and follows a card when you pick one.
   useEffect(() => {
