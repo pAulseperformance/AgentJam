@@ -65,6 +65,7 @@ export function VisualizerDock({ engine, notesRef, names, width = 800, height = 
               font: 'inherit',
               fontSize: 12,
               padding: '3px 10px',
+              minHeight: 24,
               borderRadius: 999,
               cursor: 'pointer',
               color: 'inherit',

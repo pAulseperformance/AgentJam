@@ -715,8 +715,12 @@ body {
   /* The room above the dock is a fixed stack, so the dock's ceiling has to be the viewport minus that stack.
      A calc of that stack was wrong the moment a peer was added (708 + 302 = 1010 in a 900 px window), so above
      900 px the whole stage is height-bound instead and the dock simply takes the remainder. */
-  max-height: calc(100dvh - 598px);
-  min-height: 112px;
+  /* A STRIP, NOT A HALF-PANEL. max-height alone let the panel's own content pull the dock to its ceiling (302 px
+     in a 900 px window, 202 in an 800), which is the very height that pushed the stage past the fold. The strip
+     is a fixed 76 px and the drawer is where the panel is read. */
+  height: 76px;
+  max-height: none;
+  min-height: 0;
   overflow: hidden;
 }
 .visualizer-dock__tabs { flex: 0 0 auto; }
@@ -724,6 +728,7 @@ body {
 /* OPENED: a bottom sheet over the room. The strip keeps the keys on screen; the drawer is where a sound is
    shaped, and it covers rather than pushes, so the layout never moves under a player's hands. */
 .visualizer-dock[data-expanded='yes'] {
+  height: auto;
   position: fixed;
   left: 0;
   right: 0;
