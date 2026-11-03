@@ -290,8 +290,11 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 1.5rem;
-  gap: 1.5rem;
+  /* TIGHT STACK: at 1280x800 the four gaps above the dock were 96 px of nothing, and the dock is where the
+     room's instrument lives. The padding trims to 10 px and the gaps to 10, which is what buys the panel its
+     height back without shrinking the keyboard. */
+  padding: 10px 1.5rem 10px;
+  gap: 10px;
 }
 
 /* ─── Transport Bar ─────────────────────────────────────────────────────── */
@@ -689,8 +692,10 @@ body {
 .visualizer-dock {
   display: flex;
   flex-direction: column;
-  max-height: 44vh;
-  min-height: 0;
+  /* the room above the dock is a fixed stack, so the dock's ceiling is the viewport minus that stack: it fills
+     whatever is left, never less than 120 px, and scrolls its own body */
+  max-height: calc(100dvh - 590px);
+  min-height: 120px;
   overflow: hidden;
 }
 .visualizer-dock__tabs { flex: 0 0 auto; }
