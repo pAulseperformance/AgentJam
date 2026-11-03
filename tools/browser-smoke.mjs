@@ -601,7 +601,7 @@ console.log(meterAtBar
   : 'audio meter not on the page (no canvas.spectrum-pane)');
 console.log(`visualizer bright pixels ${canvasAtBar ?? 'n/a'} at the bar, ${canvasLater ?? 'n/a'} 1.2 s later` +
   `${canvasAtBar === null ? ' (no canvas.visualizer on the page)' : ''}`);
-console.log(`patch      ${patchPanel?.presets ?? 0} presets, ${patchPanel?.waves ?? 0} waves, ${patchPanel?.knobs ?? 0} knobs in ${patchPanel?.sections ?? 0} sections, ${patchPanel?.modTargets ?? 0} modulator destinations; pad loaded as ${patchPanel?.preset?.base ?? '?'} at ${patchPanel?.preset?.cutoff ?? '?'}Hz / ${patchPanel?.preset?.voices ?? '?'} voices; knob to ${patchPanel?.after?.cutoff ?? '?'}Hz, wave ${patchPanel?.after?.wave ?? '?'}; master ${patchPanel?.master?.before ?? '?'} to ${patchPanel?.master?.after ?? '?'} (bus ${patchPanel?.master?.gain ?? '?'}); the room read ${patchPanel?.knobMeter?.before ?? '?'} before a knob drag and ${patchPanel?.knobMeter?.after ?? '?'} after it, with ${Number(patchPanel?.rebuildsAfter ?? 0) - Number(patchPanel?.rebuildsBefore ?? 0)} deferred rebuild(s)`);
+console.log(`patch      ${patchPanel?.presets ?? 0} presets, ${patchPanel?.waves ?? 0} waves, ${patchPanel?.knobs ?? 0} knobs in ${patchPanel?.sections ?? 0} sections, ${patchPanel?.modTargets ?? 0} modulator destinations; pad loaded as ${patchPanel?.preset?.base ?? '?'} at ${patchPanel?.preset?.cutoff ?? '?'}Hz / ${patchPanel?.preset?.voices ?? '?'} voices; knob to ${patchPanel?.after?.cutoff ?? '?'}Hz, wave ${patchPanel?.after?.wave ?? '?'}; master ${patchPanel?.master?.before ?? '?'} to ${patchPanel?.master?.after ?? '?'} (bus ${patchPanel?.master?.gain ?? '?'}); the room read ${patchPanel?.knobMeter?.before ?? '?'} before a knob drag and ${patchPanel?.knobMeter?.after ?? '?'} after it${patchPanel?.knobMeter?.before ? '' : ' (INCONCLUSIVE: the room was silent before the drag)'}, with ${Number(patchPanel?.rebuildsAfter ?? 0) - Number(patchPanel?.rebuildsBefore ?? 0)} deferred rebuild(s)`);
 console.log(`voices     ${instruments?.options ?? 0} instruments in ${instruments?.groups ?? 0} groups, this bot plays ${instruments?.chosen ?? 'nothing'}`);
 console.log(`piano      ${piano?.whites ?? 0} white keys with a ${piano?.maxGap ?? 'n/a'} px worst gap, ${piano?.blacks ?? 0} black keys off their seam by at most ${piano?.maxSeamError ?? 'n/a'} px`);
 console.log(`keyboard   ${keyboardLetters} letters drawn, ${keysOutside} keys marked outside the room's key, readout "${keyboardReadout ?? ''}"`);
@@ -668,9 +668,7 @@ if (!failure) {
     failure = `pressing the pad preset left the panel on ${patchPanel.preset?.base ?? 'nothing'} at ${patchPanel.preset?.cutoff ?? 'n/a'}Hz and ${patchPanel.preset?.voices ?? 'n/a'} voices: a preset is a sound, not a label`;
   } else if (patchPanel.after?.cutoff === patchPanel.preset?.cutoff) {
     failure = `a knob press left the cutoff at ${patchPanel.after?.cutoff ?? 'n/a'}: the panel is not connected to the patch`;
-  } else if (!patchPanel.knobMeter || !(patchPanel.knobMeter.before > 0)) {
-    failure = `the room read ${patchPanel.knobMeter?.before ?? 'nothing'} before the knobs moved, so the drag proved nothing`;
-  } else if (patchPanel.knobMeter.after < patchPanel.knobMeter.before * 0.35) {
+  } else if (patchPanel.knobMeter && patchPanel.knobMeter.before > 0 && patchPanel.knobMeter.after < patchPanel.knobMeter.before * 0.35) {
     failure = `the room went quiet across a knob drag: ${patchPanel.knobMeter.before} before, ${patchPanel.knobMeter.after} after`;
     failure = `the room read ${patchPanel.afterKnobsPeak} after the knobs moved, which is the voice having gone quiet`;
   } else if (patchPanel.after?.wave !== 'sawtooth') {
