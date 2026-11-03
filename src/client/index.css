@@ -274,6 +274,13 @@ body {
   border-right: 1px solid var(--border);
   padding: 1.25rem;
   flex-shrink: 0;
+  /* THE SIDEBAR SCROLLS, NOT THE PAGE. Five player cards made the sidebar 1,200 px tall and dragged the whole
+     document with it, so the room scrolled even when the stage fitted: adding a fourth bot moved the keyboard.
+     A fixed column with its own scroll keeps the stage where a player left it. */
+  max-height: calc(100dvh - 150px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 .jam-room__section-title {
