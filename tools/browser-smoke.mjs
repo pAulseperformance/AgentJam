@@ -386,8 +386,17 @@ try {
   // room_state came back and the page re-rendered it, so a value that holds is the frame and the render.
   vibeBefore = await page.inputValue('#vibe-select').catch(() => null);
   await page.selectOption('#vibe-select', 'funk', { timeout: Math.max(500, Math.min(remaining(), 3000)) }).catch(() => {});
-  await page.waitForTimeout(700);
-  vibeAfter = await page.inputValue('#vibe-select').catch(() => null);
+  // WAIT FOR THE ROOM'S ANSWER, NOT FOR A FRAME. The select is controlled by room_state, so a value read one tick
+  // after the click is still the old one while the socket round trip is in flight; a single 700 ms read failed
+  // the live gate on a room that took the vibe (measured: jazz to funk in 1.2 s, unchanged in 700 ms).
+  vibeAfter = await (async () => {
+    for (let i = 0; i < 20; i += 1) {
+      const now = await page.inputValue('#vibe-select').catch(() => null);
+      if (now === 'funk') return now;
+      await page.waitForTimeout(150);
+    }
+    return page.inputValue('#vibe-select').catch(() => null);
+  })();
 
   // AND THE DOCK: four panes, each of which must paint when it is picked. The note roll above the
   // keyboard is untouched, so this is additive and the readings below are per pane rather than one.
