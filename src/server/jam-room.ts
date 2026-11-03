@@ -671,6 +671,23 @@ export class JamRoom implements DurableObject {
       peers: allPeers,
     });
 
+    // THE AGENTS, WITH THEIR VOICES, for the listener who has just arrived.
+    //
+    // room_state carries the peers and their instrument names, and that is enough to build a PRESET voice.
+    // A hand-built patch (the panel's whole surface) lives on the agent, so without this the second listener
+    // and the person who reloaded both hear a different band than the one that was tuned: measured on
+    // 2026-11-02, a joiner had zero patch voices and one plain synth per agent.
+    for (const agent of this.agents.values()) {
+      this.send(ws, {
+        type: 'agent_spawned',
+        peer: agent.peer,
+        style: agent.style,
+        seat: agent.seat,
+        tier: agent.tier,
+        patch: agent.patch,
+      });
+    }
+
     // Send event backfill if we have recent events
     this.sendBackfill(ws);
 
