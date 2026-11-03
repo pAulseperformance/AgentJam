@@ -304,6 +304,16 @@ body {
   gap: 10px;
 }
 
+/* THE STAGE IS A VIEWPORT-SIZED PANEL, not a document. Above 900 px wide the room's main row is exactly the
+   space under the header, so nothing inside it can push the page: the dock takes the remainder and scrolls its
+   own body, and the player column scrolls its own list. Below 900 px the layout stacks, and a phone keeps the
+   page scroll it needs. */
+@media (min-width: 900px) {
+  .jam-room__main { height: calc(100dvh - 154px); overflow: hidden; }
+  .jam-room__content { height: 100%; min-height: 0; }
+  .visualizer-dock { max-height: none; flex: 1 1 auto; }
+}
+
 /* ─── Transport Bar ─────────────────────────────────────────────────────── */
 
 .transport-bar {
@@ -704,8 +714,9 @@ body {
 .visualizer-dock {
   display: flex;
   flex-direction: column;
-  /* the room above the dock is a fixed stack, so the dock's ceiling is the viewport minus that stack: it fills
-     whatever is left, never less than 120 px, and scrolls its own body */
+  /* The room above the dock is a fixed stack, so the dock's ceiling has to be the viewport minus that stack.
+     A calc of that stack was wrong the moment a peer was added (708 + 302 = 1010 in a 900 px window), so above
+     900 px the whole stage is height-bound instead and the dock simply takes the remainder. */
   max-height: calc(100dvh - 598px);
   min-height: 112px;
   overflow: hidden;
