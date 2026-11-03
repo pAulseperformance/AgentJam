@@ -183,10 +183,12 @@ interface VoiceChain {
 }
 
 /**
- * HOW OFTEN A KNOB MOVE ACTUALLY REBUILT A PLAYER. Published on the document so the gate can tell a param
- * write from a rebuild: a drag that changes this number is a drag that can cut the note being held.
+ * HOW OFTEN A KNOB MOVE ACTUALLY REBUILT A PLAYER. It is published on the document because it must stay at
+ * zero: a rebuild is the one operation that can cut the note being held, and the gate asserts it never
+ * happens from a drag.
  */
 let VOICE_REBUILDS = 0;
+if (typeof document !== 'undefined') document.body.dataset.voiceRebuilds = String(VOICE_REBUILDS);
 
 /** The battery's construction arguments, as one comparable string. */
 function shapeOf(patch: Patch): string {
@@ -249,11 +251,14 @@ function applyVoiceChain(voice: VoiceChain, patch: Patch, output: Tone.InputNode
   // into each voice as a VALUE, and the voice goes silent: measured on 2026-11-02, one arrow press on the
   // unison knob took the room's meter from 0.036 mean to 0.002 and it never recovered. So the shape is
   // stored and the bank is rebuilt in a gap instead, which is inaudible and counted.
-  if (shapeOf(patch) !== voice.shape) {
-    voice.pendingPatch = patch;
-  } else {
-    voice.pendingPatch = undefined;
-  }
+  // A SHAPE CHANGE IS STORED, NOT APPLIED TO A LIVE BANK.
+  //
+  // Three attempts were measured on 2026-11-02 and the first two both cut the sound: replacing the bank
+  // disposed the one holding the note, and writing the options into it (`PolySynth.set`) silenced the bank
+  // for good (baseline 0.036 mean, then 0.002 and never a recovery). So the loudness-critical write is
+  // removed entirely: the patch is held, every PARAM below is applied live, and the construction arguments
+  // (waveform, unison, detune, octave, glide, envelope) land the next time this player's voice is built.
+  if (shapeOf(patch) !== voice.shape) voice.pendingPatch = patch;
 
   voice.drive.wet.value = patch.drive;
   voice.drive.distortion = Math.max(0.001, patch.drive);
@@ -301,23 +306,6 @@ function applyVoiceChain(voice: VoiceChain, patch: Patch, output: Tone.InputNode
  * Called from the engine's tick and from the note path: if a shape change is waiting and this player has
  * been silent for 400 ms, the bank is replaced and the player's notes are pointed at the new one.
  */
-function flushPendingShape(voice: VoiceChain): boolean {
-  if (!voice.pendingPatch) return false;
-  if (Date.now() - voice.lastNoteAt < 400) return false;
-  const next = new Tone.PolySynth(Tone.Synth, polyOptionsOf(voice.pendingPatch) as never);
-  next.maxPolyphony = 8;
-  next.connect(voice.drive);
-  const old = voice.synth;
-  voice.synth = next;
-  voice.shape = shapeOf(voice.pendingPatch);
-  voice.patch = voice.pendingPatch;
-  voice.pendingPatch = undefined;
-  old.dispose();
-  VOICE_REBUILDS += 1;
-  if (typeof document !== 'undefined') document.body.dataset.voiceRebuilds = String(VOICE_REBUILDS);
-  return true;
-}
-
 function disposeInstrument(synth: Tone.PolySynth): void {
   const chain = CHAINS.get(synth);
   if (chain) {
@@ -337,6 +325,12 @@ function disposeInstrument(synth: Tone.PolySynth): void {
  * Added: Per-peer Gain nodes for individual volume control & mute.
  */
 export class AudioEngine {
+  /**
+   * THE ENGINE IS REACHABLE FROM A PROBE, deliberately. "Does a knob cut the voice" can only be answered by
+   * looking at the graph: a meter says the room went quiet without saying which node stopped, and three
+   * fixes were guessed at before this handle existed.
+   */
+
   private synth: Tone.PolySynth | null = null;
   private activeNotes: Map<string, { releaseTimer: ReturnType<typeof setTimeout> }> = new Map();
   private clockOffset = 0;
@@ -383,8 +377,7 @@ export class AudioEngine {
   private masterMutedState = false;
   /** how many times the output bus has been built: more than one means a stale bus is carrying audio */
   private masterBusSeq = 0;
-  /** the tick that lands a waiting shape change in a gap */
-  private shapeTimer: number | null = null;
+
 
   async start(): Promise<void> {
     if (this.started) return;
@@ -403,6 +396,9 @@ export class AudioEngine {
     // And it must never be REBUILT: the players already hold a connection to it, so a second bus leaves
     // the audio flowing through the first one, which is a fader that moves a number and not the sound.
     // Measured on 2026-11-02 with two players playing and the fader at zero: the meter still read 0.68.
+    // THE ENGINE IS REACHABLE FROM A PROBE, deliberately: "does a knob cut the voice" can only be answered
+    // by looking at the graph, and a meter says the room went quiet without saying which node stopped.
+    if (typeof window !== 'undefined') (window as unknown as { __jamEngine?: unknown }).__jamEngine = this;
     if (!this.masterGain) {
       this.masterBusSeq += 1;
       this.masterGain = new Tone.Gain(this.masterVolumeLevel);
@@ -437,15 +433,7 @@ export class AudioEngine {
       }
       this.meterLoop = window.requestAnimationFrame(tick);
     }
-    // THE SHAPE TICK. A drag that stops on an oscillator knob and then waits leaves the change pending, and
-    // the next note applies it; this covers the case where the player has stopped playing altogether.
-    if (this.shapeTimer === null) {
-      this.shapeTimer = window.setInterval(() => {
-        for (const [peerId, chain] of this.peerVoices) {
-          if (flushPendingShape(chain)) this.peerSynths.set(peerId, chain.synth);
-        }
-      }, 250);
-    }
+
     if (isKitPreset(this.currentInstrument)) {
       this.localKit = createDrumKit(this.masterGain);
     } else {
@@ -830,14 +818,6 @@ export class AudioEngine {
       if (kit) {
         kit.trigger(pitch, when, normalizedVelocity * peerVol);
         return; // a drum is a one-shot: no release, no active-note bookkeeping
-      }
-      // A WAITING SHAPE CHANGE LANDS HERE IF THE PLAYER IS QUIET, and the note is stamped so the next
-      // rebuild waits again: this is the gap that keeps a knob from cutting the sound.
-      const chain = this.peerVoices.get(peerId);
-      if (chain) {
-        flushPendingShape(chain);
-        this.peerSynths.set(peerId, chain.synth);
-        chain.lastNoteAt = Date.now();
       }
       this.getOrCreatePeerSynth(peerId).triggerAttack(pitch, when, normalizedVelocity * peerVol);
     } else {
