@@ -259,6 +259,7 @@ function applyVoiceChain(voice: VoiceChain, patch: Patch, output: Tone.InputNode
   // removed entirely: the patch is held, every PARAM below is applied live, and the construction arguments
   // (waveform, unison, detune, octave, glide, envelope) land the next time this player's voice is built.
   if (shapeOf(patch) !== voice.shape) voice.pendingPatch = patch;
+  else voice.pendingPatch = undefined;
 
   voice.drive.wet.value = patch.drive;
   voice.drive.distortion = Math.max(0.001, patch.drive);
@@ -297,6 +298,18 @@ function applyVoiceChain(voice: VoiceChain, patch: Patch, output: Tone.InputNode
   voice.level.gain.value = 10 ** (patch.level / 20);
   voice.patch = patch;
   void output;
+}
+
+/**
+ * GIVE A WHOLE VOICE BACK: every node it owns, in one place. A chain is nine nodes and the gain it hangs off,
+ * and disposing only the bank leaves eight running into the bus every time a player leaves.
+ */
+function disposeVoiceChain(voice: VoiceChain): void {
+  try { voice.filterLfo.stop(); } catch { /* already stopped */ }
+  try { voice.filterLfo.dispose(); } catch { /* already gone */ }
+  for (const node of [voice.synth, voice.drive, voice.eqLow, voice.eqMid, voice.eqHigh, voice.filter, voice.vibrato, voice.tremolo, voice.chorus, voice.level]) {
+    try { node.dispose(); } catch { /* already gone */ }
+  }
 }
 
 /** Replace or drop a voice without leaking its effects into the master bus. */
@@ -377,6 +390,8 @@ export class AudioEngine {
   private masterMutedState = false;
   /** how many times the output bus has been built: more than one means a stale bus is carrying audio */
   private masterBusSeq = 0;
+  /** the tick that lands a waiting shape change in a rest, never over a note */
+  private shapeTimer: number | null = null;
 
 
   async start(): Promise<void> {
@@ -399,6 +414,27 @@ export class AudioEngine {
     // THE ENGINE IS REACHABLE FROM A PROBE, deliberately: "does a knob cut the voice" can only be answered
     // by looking at the graph, and a meter says the room went quiet without saying which node stopped.
     if (typeof window !== 'undefined') (window as unknown as { __jamEngine?: unknown }).__jamEngine = this;
+
+    // THE SHAPE TICK: a waiting construction change (waveform, unison, detune, octave, glide, envelope) lands
+    // in a REST, never over a note. Measured on 2026-11-02: applying it to a live bank silences it, and
+    // swapping the bank while notes are scheduled cuts them, so it waits for 1.2 s of silence.
+    if (this.shapeTimer === null && typeof window !== 'undefined') {
+      this.shapeTimer = window.setInterval(() => {
+        const now = Date.now();
+        for (const [peerId, chain] of this.peerVoices) {
+          if (!chain.pendingPatch) continue;
+          if (now - chain.lastNoteAt < 1200) continue;
+          const next = buildVoiceChain(chain.pendingPatch, this.getOrCreatePeerGain(peerId));
+          next.synth.maxPolyphony = 8;
+          const old = chain;
+          // the new chain takes the old one's place in every map the note path reads
+          this.peerVoices.set(peerId, next);
+          this.peerSynths.set(peerId, next.synth);
+          this.peerPatches.set(peerId, chain.pendingPatch);
+          disposeVoiceChain(old);
+        }
+      }, 500);
+    }
     if (!this.masterGain) {
       this.masterBusSeq += 1;
       this.masterGain = new Tone.Gain(this.masterVolumeLevel);
@@ -819,6 +855,9 @@ export class AudioEngine {
         kit.trigger(pitch, when, normalizedVelocity * peerVol);
         return; // a drum is a one-shot: no release, no active-note bookkeeping
       }
+      // THE PLAYER IS SOUNDING: a waiting shape change must not land on top of this note.
+      const sounding = this.peerVoices.get(peerId);
+      if (sounding) sounding.lastNoteAt = Date.now();
       this.getOrCreatePeerSynth(peerId).triggerAttack(pitch, when, normalizedVelocity * peerVol);
     } else {
       if (this.localKit) {
