@@ -549,7 +549,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
           <VisualizerDock
             patchPanel={selectedPeerId === localPeerId ? (
               <PatchPanel
-                name="Your voice"
+                name="your keyboard"
                 patch={localPatch}
                 editable
                 onChange={next => setLocalPatch(prev => next(prev))}

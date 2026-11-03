@@ -687,8 +687,8 @@ if (!failure) {
     failure = `the room read ${patchPanel.afterKnobsPeak} after the knobs moved, which is the voice having gone quiet`;
   } else if (patchPanel.after?.wave !== 'sawtooth') {
     failure = `the waveform reads ${patchPanel.after?.wave ?? 'nothing'} after choosing sawtooth`;
-  } else if (!patchPanel.local || !/Your voice/.test(patchPanel.local.title ?? '')) {
-    failure = `your own card opened \"${patchPanel.local?.title ?? 'nothing'}\" instead of your voice`;
+  } else if (!patchPanel.local || !/your keyboard/.test(patchPanel.local.title ?? '')) {
+    failure = `your own card opened \"${patchPanel.local?.title ?? 'nothing'}\" instead of your keyboard`;
   } else if (patchPanel.local.after === patchPanel.local.before) {
     failure = `a knob on your own voice left its cutoff at ${patchPanel.local?.before ?? '?'}: the keyboard is not patched`;
   } else if (!patchPanel.master || patchPanel.master.after !== '35') {
