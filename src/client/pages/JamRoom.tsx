@@ -250,6 +250,18 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     return me?.peerId;
   }, [peers, playerName]);
 
+  /**
+   * WHO AM I, DOWN TO ONE ID. Name matching is all the socket gives us, and it silently fails when the page's
+   * playerName is empty or two humans share a name: the panel then treated your own card as somebody else's and
+   * titled it "Voice of <your name>" instead of your keyboard. In a room with exactly one human, that human is
+   * you, so the single-human case is the fallback rather than a name that may not match.
+   */
+  const selfPeerId = useMemo(() => {
+    if (localPeerId) return localPeerId;
+    const humans = peers.filter(p => p.kind === 'human');
+    return humans.length === 1 ? humans[0]?.peerId : undefined;
+  }, [localPeerId, peers]);
+
   // Local peer's assigned color
   const localColor = useMemo(() =>
     localPeerId ? peerColorMapRef.current.get(localPeerId) : undefined
@@ -270,8 +282,8 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
   // THE PATCH OPENS ATTACHED TO THE FIRST USER. Nobody should have to learn that a card must be clicked before
   // the instrument answers: the panel starts on your own voice and follows a card when you pick one.
   useEffect(() => {
-    if (!selectedPeerId && localPeerId) setSelectedPeerId(localPeerId);
-  }, [localPeerId, selectedPeerId]);
+    if (!selectedPeerId && selfPeerId) setSelectedPeerId(selfPeerId);
+  }, [selfPeerId, selectedPeerId]);
 
   // Handle local note events from Keyboard → broadcast to peers
   const handleLocalNoteEvent = useCallback((type: 'note_on' | 'note_off', pitch: string, velocity: number) => {
@@ -522,7 +534,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
           <PeerList
             peers={peers}
             engine={engine}
-            localPeerId={localPeerId}
+            localPeerId={selfPeerId}
             agentParts={agentParts}
             onChangePart={(peerId, part) => sendMessage(JSON.stringify({ type: 'set_agent_part', agentPeerId: peerId, ...part }))}
             onDespawn={(peerId) => sendMessage(JSON.stringify({ type: 'despawn_agent', agentPeerId: peerId }))}
@@ -557,7 +569,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
           {/* THE DOCK SITS UNDER THE KEYS, which is where it was asked for twice. The roll above them got
               shorter to pay for it: at 1280 by 800 the keys and the dock both have to be on screen. */}
           <VisualizerDock
-            patchPanel={selectedPeerId === localPeerId ? (
+            patchPanel={selectedPeerId === selfPeerId ? (
               <PatchPanel
                 name="your keyboard"
                 patch={localPatch}
