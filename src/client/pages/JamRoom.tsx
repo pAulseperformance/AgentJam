@@ -29,6 +29,14 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
   // THE PATCH PANEL EDITS ONE CARD AT A TIME, and the edit is optimistic: the sliders move on the frame
   // you drag them, and the send that tells the room is throttled so a sweep is one message, not sixty.
   const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
+  /** YOUR VOICE, restored from the last session so a reload keeps the sound you built */
+  const [localPatch, setLocalPatch] = useState<Patch>(() => {
+    try {
+      const raw = window.localStorage.getItem('agentjam:local-patch');
+      if (raw) return JSON.parse(raw) as Patch;
+    } catch { /* a corrupt store falls through to the preset */ }
+    return defaultPatchFor(DEFAULT_INSTRUMENT);
+  });
   // THE MASTER FADER REMEMBERS. Kept in localStorage so a room does not open at full volume on a laptop at
   // midnight, and applied to the engine's bus the moment it exists.
   const [masterVolume, setMasterVolume] = useState<number>(() => {
@@ -48,6 +56,12 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     try { window.localStorage.setItem('agentjam:master', String(clamped)); } catch { /* storage blocked */ }
   }, [engine]);
   useEffect(() => { engine?.setMasterVolume(masterVolume); }, [engine, masterVolume]);
+  // YOUR PATCH REACHES THE ENGINE AND THE DISK. The engine builds the voice from it (or crossfades into a new
+  // one when a construction argument changed), and the store is what makes it yours rather than this tab's.
+  useEffect(() => {
+    engine?.setLocalPatch(localPatch);
+    try { window.localStorage.setItem('agentjam:local-patch', JSON.stringify(localPatch)); } catch { /* blocked */ }
+  }, [engine, localPatch]);
   const [draftPatches, setDraftPatches] = useState<Map<string, Patch>>(() => new Map());
   const patchSendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** what the engine already holds per peer, so a repeated frame does not cut a held note */
@@ -533,7 +547,14 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
           {/* THE DOCK SITS UNDER THE KEYS, which is where it was asked for twice. The roll above them got
               shorter to pay for it: at 1280 by 800 the keys and the dock both have to be on screen. */}
           <VisualizerDock
-            patchPanel={selectedPatch ? (
+            patchPanel={selectedPeerId === localPeerId ? (
+              <PatchPanel
+                name="Your voice"
+                patch={localPatch}
+                editable
+                onChange={next => setLocalPatch(prev => next(prev))}
+              />
+            ) : selectedPatch ? (
               <PatchPanel
                 name={selectedPeer?.name ?? 'this player'}
                 patch={selectedPatch}

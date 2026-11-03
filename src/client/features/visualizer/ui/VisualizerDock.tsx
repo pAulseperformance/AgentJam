@@ -73,7 +73,7 @@ export function VisualizerDock({ engine, notesRef, names, width = 800, height = 
       {pane === 'meters' && <MetersPane engine={engine} width={width} height={height} />}
       {pane === 'stereo' && <StereoPane engine={engine} width={width} height={height} />}
       {pane === 'atmos' && <AtmosGLPane engine={engine} width={width} height={height} />}
-      {pane === 'patch' && (patchPanel ?? <p style={{ fontSize: 12, opacity: 0.7 }}>Select a bot card to edit its voice.</p>)}
+      {pane === 'patch' && (patchPanel ?? <p style={{ fontSize: 12, opacity: 0.7 }}>Pick your own name to patch your keyboard, or a bot card to patch that player.</p>)}
     </section>
   );
 }

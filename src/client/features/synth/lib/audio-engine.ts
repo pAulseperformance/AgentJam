@@ -5,7 +5,7 @@ import { PLAYOUT_DELAY_MS, MAX_NOTE_HOLD_S } from '@/shared/protocol/constants';
 
 import { DEFAULT_INSTRUMENT, type InstrumentId } from '@/shared/music/instruments';
 import { PRESETS, presetById, presetsByFamily, type PresetPatch } from '@/shared/music/presets';
-import { normalizePatch, polyOptionsOf, type Patch } from '@/shared/music/patch';
+import { defaultPatchFor, normalizePatch, polyOptionsOf, type Patch } from '@/shared/music/patch';
 import { meterFromSpectrum } from './meter';
 
 // THE VOICE LIST IS SHARED. It lives in shared/music/instruments so the SERVER can validate a spawn and a
@@ -390,6 +390,10 @@ export class AudioEngine {
   private masterMutedState = false;
   /** how many times the output bus has been built: more than one means a stale bus is carrying audio */
   private masterBusSeq = 0;
+  /** THE PLAYER'S OWN VOICE: the same nine-node chain a bot gets, so your keyboard is patchable too. */
+  private localVoice: VoiceChain | null = null;
+  /** the patch your keyboard plays, kept so the bus can be built from it and a reload keeps it */
+  private localPatch: Patch | null = null;
   /** the tick that lands a waiting shape change in a rest, never over a note */
   private shapeTimer: number | null = null;
   /** when the last crossfade started, so a drag coalesces into one */
@@ -477,8 +481,9 @@ export class AudioEngine {
     if (isKitPreset(this.currentInstrument)) {
       this.localKit = createDrumKit(this.masterGain);
     } else {
-      this.synth = createInstrumentSynth(this.currentInstrument, this.masterGain);
-      this.synth.maxPolyphony = 16;
+      // THE VOICE IS BUILT FROM YOUR PATCH, not from a preset name: the panel's numbers are what the
+      // keyboard plays, and they survive a reload because the page restores them before audio starts.
+      this.setLocalPatch(this.localPatch ?? defaultPatchFor(this.currentInstrument));
     }
 
     this.started = true;
@@ -694,24 +699,59 @@ export class AudioEngine {
   // ── Instrument Management ──────────────────────────────────────────
 
   /** Change the local player's instrument */
-  changeInstrument(instrument: InstrumentType): void {
-    if (!this.masterGain) return;
-    this.currentInstrument = instrument;
+  /**
+   * YOUR VOICE, PATCHED LIKE A BOT'S.
+   *
+   * The panel used to reach only the bots, so the room had a synth panel and the owner's own keyboard went
+   * through a different engine path with none of it. The local player now owns a VoiceChain too: the same
+   * nine nodes, the same parameter writes, and the same crossfade when a construction argument changes.
+   */
+  setLocalPatch(patch: Patch): void {
+    this.localPatch = patch;
+    if (!this.masterGain) return; // built at init, from this patch
 
-    // Release all active notes, swap synth
-    if (this.synth) {
-      this.synth.releaseAll();
-      disposeInstrument(this.synth);
-      this.synth = null;
-    }
-    // Switching to drums swaps the melodic synth for a kit, and back again
+    // a kit is its own instrument and cannot hold a chain
     if (this.localKit) { this.localKit.dispose(); this.localKit = null; }
-    if (isKitPreset(instrument)) {
-      this.localKit = createDrumKit(this.masterGain);
+
+    if (!this.localVoice) {
+      const voice = buildVoiceChain(patch, this.masterGain);
+      voice.synth.maxPolyphony = 16;
+      this.localVoice = voice;
+      this.synth = voice.synth;
       return;
     }
-    this.synth = createInstrumentSynth(instrument, this.masterGain);
-    this.synth.maxPolyphony = 16;
+    if (shapeOf(patch) !== this.localVoice.shape) {
+      const fresh = buildVoiceChain(patch, this.masterGain);
+      fresh.synth.maxPolyphony = 16;
+      fresh.level.gain.value = 0;
+      fresh.level.gain.rampTo(10 ** (patch.level / 20), 0.12);
+      const retired = this.localVoice;
+      this.localVoice = fresh;
+      this.synth = fresh.synth;
+      window.setTimeout(() => disposeVoiceChain(retired), 1600);
+      return;
+    }
+    applyVoiceChain(this.localVoice, patch, this.masterGain);
+  }
+
+  /** the patch your keyboard is playing, for the panel and for a probe */
+  getLocalPatch(): Patch | null {
+    return this.localPatch;
+  }
+
+  changeInstrument(instrument: InstrumentType): void {
+    this.currentInstrument = instrument;
+    if (!this.masterGain) return;
+
+    if (isKitPreset(instrument)) {
+      this.synth?.releaseAll();
+      if (this.localVoice) { disposeVoiceChain(this.localVoice); this.localVoice = null; }
+      this.synth = null;
+      if (!this.localKit) this.localKit = createDrumKit(this.masterGain);
+      return;
+    }
+    // a melodic instrument is a fresh patch for your own voice, which crossfades rather than cutting
+    this.setLocalPatch(defaultPatchFor(instrument));
   }
 
   /**

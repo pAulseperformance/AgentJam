@@ -494,6 +494,20 @@ try {
   patchPanel.rebuildsAfter = await page.evaluate(() => Number(document.body.dataset.voiceRebuilds ?? 0));
   patchPanel.knobMeter = { before: beforeKnobs, after: afterKnobs };
   patchPanel.afterKnobsPeak = afterKnobs;
+  // YOUR OWN VOICE IS PATCHABLE TOO. The local card opens the panel on the keyboard, and a knob moves the
+  // patch the engine is holding, which is the difference between a panel for the band and a synth of your own.
+  await page.click('.peer-list__item:not(:has([data-agent-part]))').catch(() => {});
+  await page.waitForTimeout(350);
+  const localVoice = await page.evaluate(() => {
+    const before = window.__jamEngine?.getLocalPatch?.()?.filter?.cutoff ?? null;
+    document.querySelector('[data-patch="cutoff"]')?.focus();
+    return { title: document.querySelector('.patch__title')?.textContent?.trim() ?? null, before };
+  });
+  await page.keyboard.press('ArrowDown');
+  await page.waitForTimeout(400);
+  localVoice.after = await page.evaluate(() => window.__jamEngine?.getLocalPatch?.()?.filter?.cutoff ?? null);
+  if (patchPanel) patchPanel.local = localVoice;
+
   // THE MASTER FADER, because a room needs one control for the whole band.
   patchPanel.master = await page.evaluate(async () => {
     const el = document.querySelector('#master-volume');
@@ -601,7 +615,7 @@ console.log(meterAtBar
   : 'audio meter not on the page (no canvas.spectrum-pane)');
 console.log(`visualizer bright pixels ${canvasAtBar ?? 'n/a'} at the bar, ${canvasLater ?? 'n/a'} 1.2 s later` +
   `${canvasAtBar === null ? ' (no canvas.visualizer on the page)' : ''}`);
-console.log(`patch      ${patchPanel?.presets ?? 0} presets, ${patchPanel?.waves ?? 0} waves, ${patchPanel?.knobs ?? 0} knobs in ${patchPanel?.sections ?? 0} sections, ${patchPanel?.modTargets ?? 0} modulator destinations; pad loaded as ${patchPanel?.preset?.base ?? '?'} at ${patchPanel?.preset?.cutoff ?? '?'}Hz / ${patchPanel?.preset?.voices ?? '?'} voices; knob to ${patchPanel?.after?.cutoff ?? '?'}Hz, wave ${patchPanel?.after?.wave ?? '?'}; master ${patchPanel?.master?.before ?? '?'} to ${patchPanel?.master?.after ?? '?'} (bus ${patchPanel?.master?.gain ?? '?'}); the room read ${patchPanel?.knobMeter?.before ?? '?'} before a knob drag and ${patchPanel?.knobMeter?.after ?? '?'} after it${patchPanel?.knobMeter?.before ? '' : ' (INCONCLUSIVE: the room was silent before the drag)'}, with ${Number(patchPanel?.rebuildsAfter ?? 0) - Number(patchPanel?.rebuildsBefore ?? 0)} deferred rebuild(s)`);
+console.log(`patch      ${patchPanel?.presets ?? 0} presets, ${patchPanel?.waves ?? 0} waves, ${patchPanel?.knobs ?? 0} knobs in ${patchPanel?.sections ?? 0} sections, ${patchPanel?.modTargets ?? 0} modulator destinations; pad loaded as ${patchPanel?.preset?.base ?? '?'} at ${patchPanel?.preset?.cutoff ?? '?'}Hz / ${patchPanel?.preset?.voices ?? '?'} voices; knob to ${patchPanel?.after?.cutoff ?? '?'}Hz, wave ${patchPanel?.after?.wave ?? '?'}; master ${patchPanel?.master?.before ?? '?'} to ${patchPanel?.master?.after ?? '?'} (bus ${patchPanel?.master?.gain ?? '?'}); your own voice ${patchPanel?.local?.before ?? '?'} to ${patchPanel?.local?.after ?? '?'} at cutoff; the room read ${patchPanel?.knobMeter?.before ?? '?'} before a knob drag and ${patchPanel?.knobMeter?.after ?? '?'} after it${patchPanel?.knobMeter?.before ? '' : ' (INCONCLUSIVE: the room was silent before the drag)'}, with ${Number(patchPanel?.rebuildsAfter ?? 0) - Number(patchPanel?.rebuildsBefore ?? 0)} deferred rebuild(s)`);
 console.log(`voices     ${instruments?.options ?? 0} instruments in ${instruments?.groups ?? 0} groups, this bot plays ${instruments?.chosen ?? 'nothing'}`);
 console.log(`piano      ${piano?.whites ?? 0} white keys with a ${piano?.maxGap ?? 'n/a'} px worst gap, ${piano?.blacks ?? 0} black keys off their seam by at most ${piano?.maxSeamError ?? 'n/a'} px`);
 console.log(`keyboard   ${keyboardLetters} letters drawn, ${keysOutside} keys marked outside the room's key, readout "${keyboardReadout ?? ''}"`);
@@ -673,6 +687,10 @@ if (!failure) {
     failure = `the room read ${patchPanel.afterKnobsPeak} after the knobs moved, which is the voice having gone quiet`;
   } else if (patchPanel.after?.wave !== 'sawtooth') {
     failure = `the waveform reads ${patchPanel.after?.wave ?? 'nothing'} after choosing sawtooth`;
+  } else if (!patchPanel.local || !/Your voice/.test(patchPanel.local.title ?? '')) {
+    failure = `your own card opened \"${patchPanel.local?.title ?? 'nothing'}\" instead of your voice`;
+  } else if (patchPanel.local.after === patchPanel.local.before) {
+    failure = `a knob on your own voice left its cutoff at ${patchPanel.local?.before ?? '?'}: the keyboard is not patched`;
   } else if (!patchPanel.master || patchPanel.master.after !== '35') {
     failure = `the master fader reads ${patchPanel.master?.after ?? 'nothing'} after being set to 35`;
   } else if (patchPanel.master.gain !== '0.35') {
