@@ -172,6 +172,14 @@ interface VoiceChain {
   patch: Patch;
   /** what the oscillator bank was built as, so a rebuild happens only when that changes */
   shape: string;
+  /**
+   * A SHAPE CHANGE WAITING FOR A GAP. The five oscillator knobs are construction arguments, and a bank
+   * cannot be rebuilt while it is holding a note without cutting it: that is the silence the owner heard.
+   * The new shape waits here and lands in the first gap, 400 ms after the last note started.
+   */
+  pendingPatch?: Patch;
+  /** when this player last sounded, so a rebuild waits for silence rather than making it */
+  lastNoteAt: number;
 }
 
 /**
@@ -218,7 +226,7 @@ function buildVoiceChain(patch: Patch, output: Tone.InputNode): VoiceChain {
   chorus.connect(level);
   level.connect(output);
 
-  const voice: VoiceChain = { synth, drive, eqLow, eqMid, eqHigh, filter, vibrato, tremolo, chorus, filterLfo, level, patch, shape: shapeOf(patch) };
+  const voice: VoiceChain = { synth, drive, eqLow, eqMid, eqHigh, filter, vibrato, tremolo, chorus, filterLfo, level, patch, shape: shapeOf(patch), lastNoteAt: 0 };
   applyVoiceChain(voice, patch, output);
   return voice;
 }
@@ -237,23 +245,15 @@ function applyVoiceChain(voice: VoiceChain, patch: Patch, output: Tone.InputNode
   // that as "every time i move a knob the synth cuts out", and the five knobs in the oscillator section
   // were exactly the ones that did it. Tone's `set` writes those options into the live voices, so a held
   // note keeps its own oscillator and the next note is built with the new shape.
-  try {
-    voice.synth.set(polyOptionsOf(patch) as never);
-    voice.shape = shapeOf(patch);
-  } catch {
-    // A type change the engine genuinely refuses is the only case that rebuilds, and it is counted so the
-    // gate can tell a knob move from a construction change.
-    const old = voice.synth;
-    const next = new Tone.PolySynth(Tone.Synth, polyOptionsOf(patch) as never);
-    next.maxPolyphony = 8;
-    next.connect(voice.drive);
-    voice.synth = next;
-    voice.shape = shapeOf(patch);
-    old.dispose();
-    VOICE_REBUILDS += 1;
-    if (typeof document !== 'undefined') document.body.dataset.voiceRebuilds = String(VOICE_REBUILDS);
+  // A SHAPE CHANGE IS NOT APPLIED TO A LIVE BANK. `PolySynth.set({ oscillator })` writes the options object
+  // into each voice as a VALUE, and the voice goes silent: measured on 2026-11-02, one arrow press on the
+  // unison knob took the room's meter from 0.036 mean to 0.002 and it never recovered. So the shape is
+  // stored and the bank is rebuilt in a gap instead, which is inaudible and counted.
+  if (shapeOf(patch) !== voice.shape) {
+    voice.pendingPatch = patch;
+  } else {
+    voice.pendingPatch = undefined;
   }
-  voice.synth.maxPolyphony = 8;
 
   voice.drive.wet.value = patch.drive;
   voice.drive.distortion = Math.max(0.001, patch.drive);
@@ -295,6 +295,29 @@ function applyVoiceChain(voice: VoiceChain, patch: Patch, output: Tone.InputNode
 }
 
 /** Replace or drop a voice without leaking its effects into the master bus. */
+/**
+ * REBUILD THE BANK IN A GAP, never over a note.
+ *
+ * Called from the engine's tick and from the note path: if a shape change is waiting and this player has
+ * been silent for 400 ms, the bank is replaced and the player's notes are pointed at the new one.
+ */
+function flushPendingShape(voice: VoiceChain): boolean {
+  if (!voice.pendingPatch) return false;
+  if (Date.now() - voice.lastNoteAt < 400) return false;
+  const next = new Tone.PolySynth(Tone.Synth, polyOptionsOf(voice.pendingPatch) as never);
+  next.maxPolyphony = 8;
+  next.connect(voice.drive);
+  const old = voice.synth;
+  voice.synth = next;
+  voice.shape = shapeOf(voice.pendingPatch);
+  voice.patch = voice.pendingPatch;
+  voice.pendingPatch = undefined;
+  old.dispose();
+  VOICE_REBUILDS += 1;
+  if (typeof document !== 'undefined') document.body.dataset.voiceRebuilds = String(VOICE_REBUILDS);
+  return true;
+}
+
 function disposeInstrument(synth: Tone.PolySynth): void {
   const chain = CHAINS.get(synth);
   if (chain) {
@@ -360,6 +383,8 @@ export class AudioEngine {
   private masterMutedState = false;
   /** how many times the output bus has been built: more than one means a stale bus is carrying audio */
   private masterBusSeq = 0;
+  /** the tick that lands a waiting shape change in a gap */
+  private shapeTimer: number | null = null;
 
   async start(): Promise<void> {
     if (this.started) return;
@@ -409,8 +434,17 @@ export class AudioEngine {
         const peak = wave.length ? Math.max(...Array.from(wave, Math.abs)) : 0;
         document.body.dataset.meterPeak = String(Number(peak.toFixed(3)));
         this.meterLoop = window.requestAnimationFrame(tick);
-      };
+      }
       this.meterLoop = window.requestAnimationFrame(tick);
+    }
+    // THE SHAPE TICK. A drag that stops on an oscillator knob and then waits leaves the change pending, and
+    // the next note applies it; this covers the case where the player has stopped playing altogether.
+    if (this.shapeTimer === null) {
+      this.shapeTimer = window.setInterval(() => {
+        for (const [peerId, chain] of this.peerVoices) {
+          if (flushPendingShape(chain)) this.peerSynths.set(peerId, chain.synth);
+        }
+      }, 250);
     }
     if (isKitPreset(this.currentInstrument)) {
       this.localKit = createDrumKit(this.masterGain);
@@ -796,6 +830,14 @@ export class AudioEngine {
       if (kit) {
         kit.trigger(pitch, when, normalizedVelocity * peerVol);
         return; // a drum is a one-shot: no release, no active-note bookkeeping
+      }
+      // A WAITING SHAPE CHANGE LANDS HERE IF THE PLAYER IS QUIET, and the note is stamped so the next
+      // rebuild waits again: this is the gap that keeps a knob from cutting the sound.
+      const chain = this.peerVoices.get(peerId);
+      if (chain) {
+        flushPendingShape(chain);
+        this.peerSynths.set(peerId, chain.synth);
+        chain.lastNoteAt = Date.now();
       }
       this.getOrCreatePeerSynth(peerId).triggerAttack(pitch, when, normalizedVelocity * peerVol);
     } else {
