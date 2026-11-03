@@ -474,7 +474,14 @@ try {
   }
   await page.waitForTimeout(2500);
   patchPanel.rebuildsAfter = await page.evaluate(() => Number(document.body.dataset.voiceRebuilds ?? 0));
-  patchPanel.afterKnobsPeak = await page.evaluate(() => Number(document.body.dataset.meterPeak ?? 0));
+  // A ROOM THAT IS ALIVE HAS PEAKS. One sample can land in the gap between two notes, so the reading is
+  // the loudest of a dozen: a dead voice reads zero on every one of them.
+  patchPanel.afterKnobsPeak = 0;
+  for (let i = 0; i < 12; i += 1) {
+    const sample = await page.evaluate(() => Number(document.body.dataset.meterPeak ?? 0));
+    if (sample > patchPanel.afterKnobsPeak) patchPanel.afterKnobsPeak = sample;
+    await page.waitForTimeout(150);
+  }
   patchPanel.after.wave = await page.evaluate(() => document.querySelector('[data-patch-wave]')?.getAttribute('data-patch-wave') ?? null);
   // A KNOB MOVE MUST NOT SILENCE THE PLAYER. The first voice engine rebuilt the whole chain on every
   // patch frame, so dragging a cutoff disposed the PolySynth mid-phrase: the owner heard it as "every time
