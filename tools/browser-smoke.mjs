@@ -519,6 +519,13 @@ try {
   // patch the engine is holding, which is the difference between a panel for the band and a synth of your own.
   await page.click('.peer-list__item:not(:has([data-agent-part]))').catch(() => {});
   await page.waitForTimeout(350);
+  // CLICK YOUR OWN CARD FIRST. The panel follows the card that was picked last, so reading its title after the
+  // bot's card was picked measured the bot: the check has to do what a person does.
+  await page.evaluate(() => {
+    const mine = Array.from(document.querySelectorAll('.peer-list__item')).find(li => !li.querySelector('[data-agent-part]'));
+    if (mine && mine.getAttribute('data-selected') !== 'yes') mine.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  await page.waitForTimeout(500);
   const localVoice = await page.evaluate(() => {
     const before = window.__jamEngine?.getLocalPatch?.()?.filter?.cutoff ?? null;
     document.querySelector('[data-patch="cutoff"]')?.focus();
