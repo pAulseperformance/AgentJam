@@ -158,7 +158,10 @@ body {
 .jam-room {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  /* THE ROOM IS THE SPACE UNDER THE SITE HEADER, not a second viewport. `min-height: 100vh` put the room's own
+     bottom 101 px past the fold, so the strip at its foot sat half under it whatever the dock did. Measured
+     once from the room's offset (--room-top), so a taller estate bar does not reintroduce the overhang. */
+  min-height: calc(100vh - var(--room-top, 101px));
   position: relative;
 }
 
