@@ -33,6 +33,8 @@ interface PatchPanelProps {
   onChange: (updater: (prev: Patch) => Patch) => void;
   /** false when the selected card is not a bot, so the panel can say why it is inert */
   editable: boolean;
+  /** the selected player's colour: the panel is a portrait of one voice, and it says whose by colour */
+  accent?: string;
 }
 
 /** One bezelled section of the panel. */
@@ -131,7 +133,7 @@ function eqPath(patch: Patch, width: number, height: number): string {
   return points.join(' ');
 }
 
-export function PatchPanel({ name, patch, onChange, editable }: PatchPanelProps) {
+export function PatchPanel({ name, patch, onChange, editable, accent }: PatchPanelProps) {
   const full = normalizePatch(patch);
   const [library, setLibrary] = useState<SavedPatch[]>(() => savedPatches());
   const [saveName, setSaveName] = useState('');
@@ -153,7 +155,10 @@ export function PatchPanel({ name, patch, onChange, editable }: PatchPanelProps)
     <div className="patch" data-editable={editable ? 'yes' : 'no'}>
       <div className="patch__head">
         <div>
-          <strong className="patch__title">{editable ? `Voice of ${name}` : `${name} is a listener`}</strong>
+          <strong className="patch__title">
+            {accent ? <span className="patch__swatch" style={{ background: accent }} aria-hidden="true" /> : null}
+            {editable ? `Voice of ${name}` : `${name} is a listener`}
+          </strong>
           <span className="patch__sub">
             {editable ? 'everyone in the room hears every move' : 'pick a bot card to edit its voice'}
           </span>

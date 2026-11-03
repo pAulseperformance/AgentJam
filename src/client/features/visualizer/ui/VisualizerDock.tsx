@@ -38,7 +38,9 @@ interface VisualizerDockProps {
 export function VisualizerDock({ engine, notesRef, names, width = 800, height = 200, patchPanel }: VisualizerDockProps) {
   // SPECTRUM BY DEFAULT, because it is the pane a person expects to find and the one that answers
   // "is the room doing anything" in a glance.
-  const [pane, setPane] = useState<PaneId>('spectrum');
+  // THE PATCH IS THE DEFAULT PANE: the room is an instrument, and the first thing a person wants is the
+  // surface that shapes it, not a reading of it.
+  const [pane, setPane] = useState<PaneId>('patch');
 
   return (
     <section className="visualizer-dock" data-pane={pane} aria-label="Visualizers">

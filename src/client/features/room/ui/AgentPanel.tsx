@@ -70,7 +70,9 @@ export function AgentPanel({ sendMessage, peers, roomVibe, agentParts }: AgentPa
       sendMessage(JSON.stringify({ type: 'despawn_agent', agentPeerId: holder[0] }));
       return;
     }
-    sendMessage(JSON.stringify({ type: 'spawn_agent', name, style: roomVibe ?? 'jazz', seat }));
+    // NO STYLE IS SENT: the server applies the ROOM'S THEME, which is the one source of truth for what a new
+    // player is born into. Sending a client-side fallback is how a funk room spawned jazz drummers.
+    sendMessage(JSON.stringify({ type: 'spawn_agent', name, seat }));
   }, [sendMessage, agentParts, roomVibe]);
 
   const handleSpawn = useCallback(() => {

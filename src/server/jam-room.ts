@@ -922,10 +922,10 @@ export class JamRoom implements DurableObject {
     // room's own bass still playing has two bass lines and no way to say which one is wrong.
     const taken = new Set([...this.agents.values()].map(agent => agent.seat));
     const chosenSeat: AgentSeat = seat ?? SEAT_ORDER.find(candidate => !taken.has(candidate)) ?? 'ornament';
-    if (taken.has(chosenSeat)) {
-      this.sendError(ws, `the ${chosenSeat} seat is taken`);
-      return;
-    }
+    // A SEAT IS A HINT, NOT A LOCK. The first uncovered seat is still what a spawn fills by default, but a
+    // room may hold two drummers or two leads: refusing the second one made the room's own band impossible to
+    // build, which is the owner's report "its no longer possible to add more than one drumer".
+
 
     // A RHYTHM SEAT HANDS THE LAYER OVER. The kit and the low end are played once: a bot that takes the
     // bass seat stops the room's own bass rather than doubling it, and the section cannot come back and
@@ -1255,11 +1255,7 @@ export class JamRoom implements DurableObject {
     }
 
     if (msg.seat && msg.seat !== agent.seat) {
-      const taken = [...this.agents.values()].some(other => other.seat === msg.seat && other.peer.peerId !== agent.peer.peerId);
-      if (taken) {
-        this.sendError(ws, `the ${msg.seat} seat is taken`);
-        return;
-      }
+      // no refusal: two players may share a seat, and the seat only decides where the part sits in the mix
       agent.seat = msg.seat;
       if (msg.seat === 'bass') this.despawnLayer('bass');
       if (msg.seat === 'drums') this.despawnLayer('drummer');

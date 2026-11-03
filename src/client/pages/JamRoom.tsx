@@ -255,6 +255,12 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     localPeerId ? peerColorMapRef.current.get(localPeerId) : undefined
   , [localPeerId, peers]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // THE PATCH OPENS ATTACHED TO THE FIRST USER. Nobody should have to learn that a card must be clicked before
+  // the instrument answers: the panel starts on your own voice and follows a card when you pick one.
+  useEffect(() => {
+    if (!selectedPeerId && localPeerId) setSelectedPeerId(localPeerId);
+  }, [localPeerId, selectedPeerId]);
+
   // Handle local note events from Keyboard → broadcast to peers
   const handleLocalNoteEvent = useCallback((type: 'note_on' | 'note_off', pitch: string, velocity: number) => {
     const event: NoteEvent = {
@@ -552,6 +558,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
                 name="your keyboard"
                 patch={localPatch}
                 editable
+                accent={localColor}
                 onChange={next => setLocalPatch(prev => next(prev))}
               />
             ) : selectedPatch ? (
@@ -559,6 +566,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
                 name={selectedPeer?.name ?? 'this player'}
                 patch={selectedPatch}
                 editable={selectedPeer?.kind === 'agent'}
+                accent={selectedPeer?.color}
                 onChange={handlePatchChange}
               />
             ) : undefined}

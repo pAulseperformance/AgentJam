@@ -33,6 +33,12 @@ const SEATS = ['lead', 'answer', 'ornament', 'drums', 'bass'] as const;
  */
 export function PeerList({ peers, engine, localPeerId, agentParts, onChangePart, onDespawn, selectedPeerId, onSelect }: PeerListProps) {
   const [mixState, setMixState] = useState<Map<string, PeerMixState>>(new Map());
+  /**
+   * WHICH CARDS ARE FOLDED. A room with six players was six blocks of three dropdowns, so the sidebar became a
+   * wall and the mixer you actually use was pushed off it. A card opens on the player you are editing and folds
+   * otherwise; the chevron overrides, and the controls stay mounted so a probe can still count them.
+   */
+  const [folded, setFolded] = useState<Record<string, boolean>>({});
   const [masterMuted, setMasterMuted] = useState(false);
   const [masterVolume, setMasterVolume] = useState(1);
 
@@ -112,6 +118,7 @@ export function PeerList({ peers, engine, localPeerId, agentParts, onChangePart,
           // THE PART CONTROLS LIVE ON THE CARD, and only for a bot the room can actually change: a
           // backing drummer is a layer, not an agent in the roster, so it carries no style or seat.
           const part = agentParts?.get(peer.peerId);
+          const isFolded = folded[peer.peerId] ?? (selectedPeerId !== peer.peerId);
 
           return (
             <li
@@ -132,6 +139,20 @@ export function PeerList({ peers, engine, localPeerId, agentParts, onChangePart,
                 <span className="peer-list__badge">
                   {peer.kind === 'agent' ? '🤖' : '🎹'}
                 </span>
+                {part && (
+                  <button
+                    className="peer-list__fold"
+                    data-fold={peer.peerId}
+                    aria-expanded={!isFolded}
+                    title={isFolded ? `Show ${peer.name}'s controls` : `Hide ${peer.name}'s controls`}
+                    onClick={event => {
+                      event.stopPropagation();
+                      setFolded(prev => ({ ...prev, [peer.peerId]: !isFolded }));
+                    }}
+                  >
+                    {isFolded ? '▸' : '▾'}
+                  </button>
+                )}
                 {part && onDespawn && (
                   <button
                     className="peer-list__kill"
@@ -144,7 +165,7 @@ export function PeerList({ peers, engine, localPeerId, agentParts, onChangePart,
               </div>
 
               {part && onChangePart && (
-                <div className="peer-list__part" // STACKED, because these live in a narrow column: three selects side by side in a 240 px sidebar are
+                <div className="peer-list__part" hidden={isFolded} // STACKED, because these live in a narrow column: three selects side by side in a 240 px sidebar are
                 // three unreadable slivers.
                 style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 3, margin: '5px 0 2px' }}>
                   <select

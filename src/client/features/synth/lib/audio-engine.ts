@@ -710,7 +710,14 @@ export class AudioEngine {
     this.localPatch = patch;
     if (!this.masterGain) return; // built at init, from this patch
 
-    // a kit is its own instrument and cannot hold a chain
+    // A KIT IS NOT A CHAIN, AND A KNOB MUST NOT REPLACE IT. Choosing Drums and then touching any control used
+    // to dispose the drum map and build a melodic voice under it, which is the owner's report "the drum kit
+    // doesnt work": the transport still said Drums while a synth played. While the instrument is a kit the
+    // patch is stored and nothing else happens; switching to a melodic instrument builds the chain from it.
+    if (isKitPreset(this.currentInstrument)) {
+      if (!this.localKit) this.localKit = createDrumKit(this.masterGain);
+      return;
+    }
     if (this.localKit) { this.localKit.dispose(); this.localKit = null; }
 
     if (!this.localVoice) {

@@ -50,14 +50,17 @@ describe('the seat a bot takes', () => {
     });
   });
 
-  it('refuses a seat that is already taken rather than sharing it', async () => {
+  it('lets a second bot take the same seat, because two drummers are a section', async () => {
+    // A SEAT IS A HINT, NOT A LOCK. Refusing the second player in a seat made the room's own band impossible:
+    // no two drummers, no second lead answering in the same register. The seat decides where a part sits, and
+    // the first UNCOVERED seat is still what a spawn fills when it names none.
     await withRoom(async ({ send, frames }) => {
       send({ type: 'spawn_agent', name: 'Bot one', seat: 'lead' });
       await sleep(120);
       send({ type: 'spawn_agent', name: 'Bot two', seat: 'lead' });
       await sleep(120);
-      expect(spawns(frames).length, 'one bot takes the seat').toBe(1);
-      expect(errors(frames).join(' ')).toContain('lead seat is taken');
+      expect(spawns(frames).map(frame => frame.seat), 'both bots took the lead seat').toEqual(['lead', 'lead']);
+      expect(errors(frames).join(' '), 'and neither was refused').not.toContain('seat is taken');
     });
   });
 
