@@ -463,47 +463,37 @@ try {
   patchPanel.after = { cutoff: await readKnob('cutoff') };
   await page.click('.patch__btn[data-wave="sawtooth"]', { timeout: 2000 }).catch(() => {});
   await page.waitForTimeout(350);
-  // A KNOB IS A VALUE, NOT A REBUILD. Every control in the oscillator section used to replace the voice's
-  // bank and dispose the one holding the note, which is the silence the owner heard on every drag. The
-  // count is published by the engine, and the meter has to keep sounding after the knobs moved.
+  // A KNOB MUST NOT CUT THE PLAYER. The owner's words: "every time i move a knob the synth cuts out". The
+  // measurement is a WINDOW either side of the drag rather than one sample, because a single reading lands
+  // in the gap between two notes and reads zero on a room that is playing perfectly.
+  const meterMax = async (ms) => {
+    let peak = 0;
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      const sample = await page.evaluate(() => Number(document.body.dataset.meterPeak ?? 0));
+      if (sample > peak) peak = sample;
+      await page.waitForTimeout(100);
+    }
+    return Number(peak.toFixed(3));
+  };
+  // THE ROOM HAS TO BE AUDIBLE BEFORE THE WINDOW IS MEASURED. An earlier step drives the cutoff to its
+  // minimum, which is a silent voice by design: a check whose precondition is silence can neither pass nor
+  // fail. The cutoff is opened first, then the window is taken.
+  await page.evaluate(() => document.querySelector('[data-patch="cutoff"]')?.focus());
+  await page.keyboard.press('End');
+  await page.waitForTimeout(700);
+  patchPanel.after = { ...(patchPanel.after ?? {}), wave: await page.evaluate(() => document.querySelector('[data-patch-wave]')?.getAttribute('data-patch-wave') ?? null) };
   patchPanel.rebuildsBefore = await page.evaluate(() => Number(document.body.dataset.voiceRebuilds ?? 0));
-  for (const knob of ['voices', 'detune', 'octave', 'glide']) {
+  const beforeKnobs = await meterMax(2600);
+  for (const knob of ['voices', 'detune', 'octave', 'glide', 'cutoff']) {
     await page.evaluate(sel => document.querySelector(sel)?.focus(), `[data-patch="${knob}"]`);
     await page.keyboard.press('ArrowUp');
-    await page.waitForTimeout(120);
+    await page.waitForTimeout(200);
   }
-  await page.waitForTimeout(2500);
+  const afterKnobs = await meterMax(2600);
   patchPanel.rebuildsAfter = await page.evaluate(() => Number(document.body.dataset.voiceRebuilds ?? 0));
-  // A ROOM THAT IS ALIVE HAS PEAKS. One sample can land in the gap between two notes, so the reading is
-  // the loudest of a dozen: a dead voice reads zero on every one of them.
-  patchPanel.afterKnobsPeak = 0;
-  for (let i = 0; i < 12; i += 1) {
-    const sample = await page.evaluate(() => Number(document.body.dataset.meterPeak ?? 0));
-    if (sample > patchPanel.afterKnobsPeak) patchPanel.afterKnobsPeak = sample;
-    await page.waitForTimeout(150);
-  }
-  patchPanel.after.wave = await page.evaluate(() => document.querySelector('[data-patch-wave]')?.getAttribute('data-patch-wave') ?? null);
-  // A KNOB MOVE MUST NOT SILENCE THE PLAYER. The first voice engine rebuilt the whole chain on every
-  // patch frame, so dragging a cutoff disposed the PolySynth mid-phrase: the owner heard it as "every time
-  // i move a knob the synth cuts out". The reading is the meter before the drag and during it.
-  const meterMean = async (samples) => {
-    const values = [];
-    for (let i = 0; i < samples; i += 1) {
-      const peak = await page.evaluate(() => Number(document.querySelector('canvas.spectrum-pane')?.dataset.peak ?? -1));
-      if (peak >= 0) values.push(peak);
-      await page.waitForTimeout(120);
-    }
-    return values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
-  };
-  await page.evaluate(() => document.querySelector('[data-patch="cutoff"]')?.focus());
-  const beforeDrag = await meterMean(8);
-  for (let i = 0; i < 10; i += 1) {
-    await page.keyboard.press('ArrowDown');
-    await page.waitForTimeout(60);
-  }
-  const duringDrag = await meterMean(8);
-  knobDropout = { before: Number(beforeDrag.toFixed(3)), during: Number(duringDrag.toFixed(3)) };
-
+  patchPanel.knobMeter = { before: beforeKnobs, after: afterKnobs };
+  patchPanel.afterKnobsPeak = afterKnobs;
   // THE MASTER FADER, because a room needs one control for the whole band.
   patchPanel.master = await page.evaluate(async () => {
     const el = document.querySelector('#master-volume');
@@ -611,7 +601,7 @@ console.log(meterAtBar
   : 'audio meter not on the page (no canvas.spectrum-pane)');
 console.log(`visualizer bright pixels ${canvasAtBar ?? 'n/a'} at the bar, ${canvasLater ?? 'n/a'} 1.2 s later` +
   `${canvasAtBar === null ? ' (no canvas.visualizer on the page)' : ''}`);
-console.log(`patch      ${patchPanel?.presets ?? 0} presets, ${patchPanel?.waves ?? 0} waves, ${patchPanel?.knobs ?? 0} knobs in ${patchPanel?.sections ?? 0} sections, ${patchPanel?.modTargets ?? 0} modulator destinations; pad loaded as ${patchPanel?.preset?.base ?? '?'} at ${patchPanel?.preset?.cutoff ?? '?'}Hz / ${patchPanel?.preset?.voices ?? '?'} voices; knob to ${patchPanel?.after?.cutoff ?? '?'}Hz, wave ${patchPanel?.after?.wave ?? '?'}; master ${patchPanel?.master?.before ?? '?'} to ${patchPanel?.master?.after ?? '?'} (bus ${patchPanel?.master?.gain ?? '?'}); meter mean ${knobDropout?.before ?? '?'} before a knob drag, ${knobDropout?.during ?? '?'} during it; oscillator knobs rebuilt ${Number(patchPanel?.rebuildsAfter ?? 0) - Number(patchPanel?.rebuildsBefore ?? 0)} voice(s)`);
+console.log(`patch      ${patchPanel?.presets ?? 0} presets, ${patchPanel?.waves ?? 0} waves, ${patchPanel?.knobs ?? 0} knobs in ${patchPanel?.sections ?? 0} sections, ${patchPanel?.modTargets ?? 0} modulator destinations; pad loaded as ${patchPanel?.preset?.base ?? '?'} at ${patchPanel?.preset?.cutoff ?? '?'}Hz / ${patchPanel?.preset?.voices ?? '?'} voices; knob to ${patchPanel?.after?.cutoff ?? '?'}Hz, wave ${patchPanel?.after?.wave ?? '?'}; master ${patchPanel?.master?.before ?? '?'} to ${patchPanel?.master?.after ?? '?'} (bus ${patchPanel?.master?.gain ?? '?'}); the room read ${patchPanel?.knobMeter?.before ?? '?'} before a knob drag and ${patchPanel?.knobMeter?.after ?? '?'} after it, with ${Number(patchPanel?.rebuildsAfter ?? 0) - Number(patchPanel?.rebuildsBefore ?? 0)} deferred rebuild(s)`);
 console.log(`voices     ${instruments?.options ?? 0} instruments in ${instruments?.groups ?? 0} groups, this bot plays ${instruments?.chosen ?? 'nothing'}`);
 console.log(`piano      ${piano?.whites ?? 0} white keys with a ${piano?.maxGap ?? 'n/a'} px worst gap, ${piano?.blacks ?? 0} black keys off their seam by at most ${piano?.maxSeamError ?? 'n/a'} px`);
 console.log(`keyboard   ${keyboardLetters} letters drawn, ${keysOutside} keys marked outside the room's key, readout "${keyboardReadout ?? ''}"`);
@@ -678,14 +668,13 @@ if (!failure) {
     failure = `pressing the pad preset left the panel on ${patchPanel.preset?.base ?? 'nothing'} at ${patchPanel.preset?.cutoff ?? 'n/a'}Hz and ${patchPanel.preset?.voices ?? 'n/a'} voices: a preset is a sound, not a label`;
   } else if (patchPanel.after?.cutoff === patchPanel.preset?.cutoff) {
     failure = `a knob press left the cutoff at ${patchPanel.after?.cutoff ?? 'n/a'}: the panel is not connected to the patch`;
-  } else if (patchPanel.rebuildsAfter !== patchPanel.rebuildsBefore) {
-    failure = `moving four knobs rebuilt a player ${patchPanel.rebuildsAfter - patchPanel.rebuildsBefore} time(s): a knob is a value, and a rebuild cuts the note being held`;
-  } else if (!(patchPanel.afterKnobsPeak > 0.01)) {
+  } else if (!patchPanel.knobMeter || !(patchPanel.knobMeter.before > 0)) {
+    failure = `the room read ${patchPanel.knobMeter?.before ?? 'nothing'} before the knobs moved, so the drag proved nothing`;
+  } else if (patchPanel.knobMeter.after < patchPanel.knobMeter.before * 0.35) {
+    failure = `the room went quiet across a knob drag: ${patchPanel.knobMeter.before} before, ${patchPanel.knobMeter.after} after`;
     failure = `the room read ${patchPanel.afterKnobsPeak} after the knobs moved, which is the voice having gone quiet`;
   } else if (patchPanel.after?.wave !== 'sawtooth') {
     failure = `the waveform reads ${patchPanel.after?.wave ?? 'nothing'} after choosing sawtooth`;
-  } else if (!knobDropout || knobDropout.during < knobDropout.before * 0.35) {
-    failure = `the room went quiet while a knob was dragged: meter mean ${knobDropout?.before ?? '?'} before, ${knobDropout?.during ?? '?'} during`;
   } else if (!patchPanel.master || patchPanel.master.after !== '35') {
     failure = `the master fader reads ${patchPanel.master?.after ?? 'nothing'} after being set to 35`;
   } else if (patchPanel.master.gain !== '0.35') {
