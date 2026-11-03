@@ -364,11 +364,12 @@ try {
   // analyser on the master gain, so a peak above zero is the only reading that says the page can hear
   // the room. A meter that stays at zero while notes play is drawing the event stream again.
   const meterPeak = async () => page.evaluate(() => {
-    // THE DEFAULT PANE IS THE SPECTRUM, and it is the only loudness reading on the page now: the
-    // separate meter under the roll was removed because the Meters pane answers the same question.
-    const canvas = document.querySelector('canvas.spectrum-pane');
-    if (!(canvas instanceof HTMLCanvasElement)) return null;
-    return { peak: Number(canvas.dataset.peak ?? '0'), armed: canvas.dataset.armed === 'yes' };
+    // THE PUBLISHED PEAK, NOT A CANVAS. The dock now opens on the Patch pane, so a reading taken from the
+    // spectrum canvas is "no reading" whenever the panel is up, and the check would fail on a page that is
+    // playing perfectly. The engine writes the master peak on the document every frame, whatever is drawn.
+    const peak = Number(document.body.dataset.meterPeak ?? -1);
+    if (peak < 0) return null;
+    return { peak, armed: true };
   });
   meterAtBar = await meterPeak();
   await page.waitForTimeout(1500);
@@ -612,7 +613,7 @@ console.log(vibeBefore === null
 console.log(meterAtBar
   ? `audio meter ${meterAtBar.armed ? 'armed' : 'NOT ARMED'}: peak ${meterAtBar.peak} at the bar, ` +
     `${meterLater ? meterLater.peak : 'n/a'} 1.5 s later`
-  : 'audio meter not on the page (no canvas.spectrum-pane)');
+  : 'audio meter not on the page (no published peak)');
 console.log(`visualizer bright pixels ${canvasAtBar ?? 'n/a'} at the bar, ${canvasLater ?? 'n/a'} 1.2 s later` +
   `${canvasAtBar === null ? ' (no canvas.visualizer on the page)' : ''}`);
 console.log(`patch      ${patchPanel?.presets ?? 0} presets, ${patchPanel?.waves ?? 0} waves, ${patchPanel?.knobs ?? 0} knobs in ${patchPanel?.sections ?? 0} sections, ${patchPanel?.modTargets ?? 0} modulator destinations; pad loaded as ${patchPanel?.preset?.base ?? '?'} at ${patchPanel?.preset?.cutoff ?? '?'}Hz / ${patchPanel?.preset?.voices ?? '?'} voices; knob to ${patchPanel?.after?.cutoff ?? '?'}Hz, wave ${patchPanel?.after?.wave ?? '?'}; master ${patchPanel?.master?.before ?? '?'} to ${patchPanel?.master?.after ?? '?'} (bus ${patchPanel?.master?.gain ?? '?'}); your own voice ${patchPanel?.local?.before ?? '?'} to ${patchPanel?.local?.after ?? '?'} at cutoff; the room read ${patchPanel?.knobMeter?.before ?? '?'} before a knob drag and ${patchPanel?.knobMeter?.after ?? '?'} after it${patchPanel?.knobMeter?.before ? '' : ' (INCONCLUSIVE: the room was silent before the drag)'}, with ${Number(patchPanel?.rebuildsAfter ?? 0) - Number(patchPanel?.rebuildsBefore ?? 0)} deferred rebuild(s)`);
