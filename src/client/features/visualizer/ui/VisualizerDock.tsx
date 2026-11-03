@@ -70,12 +70,14 @@ export function VisualizerDock({ engine, notesRef, names, width = 800, height = 
           </button>
         ))}
       </div>
+      <div className="visualizer-dock__body">
       {pane === 'band' && <BandViewPane engine={engine} notesRef={notesRef} names={names} width={width} height={height} />}
       {pane === 'spectrum' && <SpectrumPane engine={engine} width={width} height={height} />}
       {pane === 'meters' && <MetersPane engine={engine} width={width} height={height} />}
       {pane === 'stereo' && <StereoPane engine={engine} width={width} height={height} />}
       {pane === 'atmos' && <AtmosGLPane engine={engine} width={width} height={height} />}
       {pane === 'patch' && (patchPanel ?? <p style={{ fontSize: 12, opacity: 0.7 }}>Pick your own name to patch your keyboard, or a bot card to patch that player.</p>)}
+      </div>
     </section>
   );
 }

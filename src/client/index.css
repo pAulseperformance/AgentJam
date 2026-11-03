@@ -607,7 +607,8 @@ body {
   font-size: 9px; text-transform: uppercase; letter-spacing: 0.12em; opacity: 0.5; margin-right: 2px;
 }
 .patch__chip, .patch__btn, .patch__btn-row button {
-  font: inherit; font-size: 10px; padding: 2px 7px; line-height: 1.5;
+  font: inherit; font-size: 11px; padding: 2px 8px; line-height: 1.5; min-height: 24px;
+  display: inline-flex; align-items: center;
   color: inherit; background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--border); border-radius: 999px; cursor: pointer;
 }
@@ -626,12 +627,13 @@ body {
 }
 .peer-list__fold {
   margin-left: auto; border: 0; background: none; color: inherit;
-  opacity: 0.65; cursor: pointer; font: inherit; line-height: 1; padding: 0 2px;
+  opacity: 0.65; cursor: pointer; font: inherit; line-height: 1;
+  min-width: 24px; min-height: 24px; display: inline-flex; align-items: center; justify-content: center;
 }
 .peer-list__fold:hover { opacity: 1; }
-.patch__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+.patch__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 6px; }
 .patch__section {
-  border: 1px solid var(--border); border-radius: 8px; padding: 7px 8px 9px;
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 7px 6px;
   background: linear-gradient(180deg, rgba(0, 0, 0, 0.22), rgba(0, 0, 0, 0.1));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
@@ -649,7 +651,7 @@ body {
 }
 .patch__knobs { display: flex; flex-wrap: wrap; gap: 5px 7px; }
 .knob { display: grid; justify-items: center; gap: 1px; min-width: 50px; }
-.knob__label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.6; }
+.knob__label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.7; }
 .knob__value { font-size: 10px; font-variant-numeric: tabular-nums; }
 .knob--off { opacity: 0.45; }
 .knob svg:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 50%; }
@@ -678,6 +680,27 @@ body {
   outline: 1px solid currentColor;
   outline-offset: 1px;
   border-radius: var(--radius-sm);
+}
+
+/* ── the dock has a ceiling ───────────────────────────────────────────────────
+   At 1440x900 the patch panel measured 678 px and grew the page to 1,639: the transport sat at -406 and the
+   KEYBOARD at -44, so the instrument a person came to play was above the fold. The dock is a panel of the
+   room, not the room: it takes at most 44% of the viewport, its tabs stay put, and its body scrolls. */
+.visualizer-dock {
+  display: flex;
+  flex-direction: column;
+  max-height: 44vh;
+  min-height: 0;
+  overflow: hidden;
+}
+.visualizer-dock__tabs { flex: 0 0 auto; }
+.visualizer-dock__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* a visible edge, so a scrollable panel reads as scrollable rather than clipped */
+  scrollbar-width: thin;
 }
 
 /* ONE STRIP, NO GAPS BETWEEN OCTAVES: a seam the black keys can straddle. No flex gap, because the black
