@@ -694,11 +694,27 @@ body {
   flex-direction: column;
   /* the room above the dock is a fixed stack, so the dock's ceiling is the viewport minus that stack: it fills
      whatever is left, never less than 120 px, and scrolls its own body */
-  max-height: calc(100dvh - 590px);
-  min-height: 120px;
+  max-height: calc(100dvh - 598px);
+  min-height: 112px;
   overflow: hidden;
 }
 .visualizer-dock__tabs { flex: 0 0 auto; }
+
+/* OPENED: a bottom sheet over the room. The strip keeps the keys on screen; the drawer is where a sound is
+   shaped, and it covers rather than pushes, so the layout never moves under a player's hands. */
+.visualizer-dock[data-expanded='yes'] {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  max-height: 66dvh;
+  min-height: 0;
+  padding: 0 1.5rem 12px;
+  background: color-mix(in srgb, var(--card, #111) 97%, black);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.45);
+}
 .visualizer-dock__body {
   flex: 1 1 auto;
   min-height: 0;

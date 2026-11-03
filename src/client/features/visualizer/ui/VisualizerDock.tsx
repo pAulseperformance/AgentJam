@@ -41,9 +41,16 @@ export function VisualizerDock({ engine, notesRef, names, width = 800, height = 
   // THE PATCH IS THE DEFAULT PANE: the room is an instrument, and the first thing a person wants is the
   // surface that shapes it, not a reading of it.
   const [pane, setPane] = useState<PaneId>('patch');
+  /**
+   * THE STRIP IS IN FLOW, THE PANEL IS A DRAWER. A patch surface needs ~600 px of height and the room above it
+   * needs ~680, so a panel that pushes the page puts the keyboard above the fold. Closed, the dock is a 120 px
+   * strip showing the top of the pane; opened, it is a bottom sheet over the room. Tuning a sound is a
+   * different act from playing one, so it gets its own mode instead of stealing the keys' space.
+   */
+  const [expanded, setExpanded] = useState(false);
 
   return (
-    <section className="visualizer-dock" data-pane={pane} aria-label="Visualizers">
+    <section className="visualizer-dock" data-pane={pane} data-expanded={expanded ? 'yes' : 'no'} aria-label="Visualizers">
       <div className="visualizer-dock__tabs" role="tablist" style={{ display: 'flex', gap: 6, margin: '8px 0 4px' }}>
         {PANES.map(entry => (
           <button
@@ -69,6 +76,21 @@ export function VisualizerDock({ engine, notesRef, names, width = 800, height = 
             {entry.label}
           </button>
         ))}
+        <button
+          type="button"
+          id="dock-expand"
+          data-dock-expand={expanded ? 'yes' : 'no'}
+          aria-expanded={expanded}
+          title={expanded ? 'Close the panel' : 'Open the panel'}
+          onClick={() => setExpanded(open => !open)}
+          style={{
+            marginLeft: 'auto', font: 'inherit', fontSize: 12, padding: '2px 9px', minHeight: 24, minWidth: 24,
+            borderRadius: 999, cursor: 'pointer', color: 'inherit', background: 'transparent',
+            border: '1px solid var(--border)', opacity: 0.8,
+          }}
+        >
+          {expanded ? '⤡' : '⤢'}
+        </button>
       </div>
       <div className="visualizer-dock__body">
       {pane === 'band' && <BandViewPane engine={engine} notesRef={notesRef} names={names} width={width} height={height} />}
