@@ -780,24 +780,13 @@ export class AudioEngine {
    */
   setPeerPatch(peerId: string, patch: Patch): void {
     const existing = this.peerVoices.get(peerId);
-    // A SHAPE CHANGE REBUILDS THE WHOLE VOICE, the same way a listener who joins later builds it.
+    // A SHAPE CHANGE IS NOT APPLIED TO A LIVE VOICE, and that is measured three ways now.
     //
-    // Measured on 2026-11-02: a late joiner received the tuned patch and built a working voice from it, while
-    // the person who tuned it kept the old shape, so the two heard different bands. Writing the options into
-    // the live bank silences it (0.036 mean to 0.002), and swapping only the bank leaves the note cut. A full
-    // chain rebuild replaces nine nodes rather than one, which is the operation that is known to work.
-    if (existing && shapeOf(patch) !== existing.shape) {
-      const fresh = buildVoiceChain(patch, this.getOrCreatePeerGain(peerId));
-      fresh.synth.maxPolyphony = 8;
-      this.peerVoices.set(peerId, fresh);
-      this.peerSynths.set(peerId, fresh.synth);
-      this.peerPatches.set(peerId, patch);
-      VOICE_REBUILDS += 1;
-      if (typeof document !== 'undefined') document.body.dataset.voiceRebuilds = String(VOICE_REBUILDS);
-      // the old chain goes only after the new one is connected, so there is no moment with no voice at all
-      disposeVoiceChain(existing);
-      return;
-    }
+    // 2026-11-02: writing the options into the live bank silences it (0.036 mean to 0.002, no recovery);
+    // swapping only the bank cuts the note being held; swapping the WHOLE CHAIN reads 0.127 before and 0.009
+    // after, and never recovers either. The one build that works is a fresh one, before any note is
+    // scheduled, which is why a listener who joins later hears the tuned voice and the person who tuned it
+    // does not. So a shape change is stored and lands on the next fresh build; the panel says so.
     if (existing) {
       // A KNOB MOVE IS A VALUE, NOT A REBUILD. This used to dispose the voice on every frame of a drag,
       // which is the silence the owner heard: "every time i move a knob the synth cuts out".
