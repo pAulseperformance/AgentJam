@@ -174,6 +174,12 @@ interface VoiceChain {
   shape: string;
 }
 
+/**
+ * HOW OFTEN A KNOB MOVE ACTUALLY REBUILT A PLAYER. Published on the document so the gate can tell a param
+ * write from a rebuild: a drag that changes this number is a drag that can cut the note being held.
+ */
+let VOICE_REBUILDS = 0;
+
 /** The battery's construction arguments, as one comparable string. */
 function shapeOf(patch: Patch): string {
   return [patch.wave, patch.voices, patch.detune, patch.octave, patch.glide].join('|');
@@ -226,9 +232,17 @@ function applyVoiceChain(voice: VoiceChain, patch: Patch, output: Tone.InputNode
   const full = normalizePatch(patch);
   const eq = full.eq;
 
-  if (shapeOf(patch) !== voice.shape) {
-    // THE ONE REBUILD. A unison count or a waveform is not a param: the bank is replaced, and it is
-    // reconnected INTO the chain that is already running, so the filter, the EQ and the level survive.
+  // NO REBUILD ON A KNOB. The bank used to be replaced whenever the waveform, the unison count, the detune,
+  // the octave or the glide changed, and replacing it DISPOSED the one holding the note: the owner heard
+  // that as "every time i move a knob the synth cuts out", and the five knobs in the oscillator section
+  // were exactly the ones that did it. Tone's `set` writes those options into the live voices, so a held
+  // note keeps its own oscillator and the next note is built with the new shape.
+  try {
+    voice.synth.set(polyOptionsOf(patch) as never);
+    voice.shape = shapeOf(patch);
+  } catch {
+    // A type change the engine genuinely refuses is the only case that rebuilds, and it is counted so the
+    // gate can tell a knob move from a construction change.
     const old = voice.synth;
     const next = new Tone.PolySynth(Tone.Synth, polyOptionsOf(patch) as never);
     next.maxPolyphony = 8;
@@ -236,6 +250,8 @@ function applyVoiceChain(voice: VoiceChain, patch: Patch, output: Tone.InputNode
     voice.synth = next;
     voice.shape = shapeOf(patch);
     old.dispose();
+    VOICE_REBUILDS += 1;
+    if (typeof document !== 'undefined') document.body.dataset.voiceRebuilds = String(VOICE_REBUILDS);
   }
   voice.synth.maxPolyphony = 8;
 
