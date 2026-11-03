@@ -392,6 +392,10 @@ export class AudioEngine {
   private masterBusSeq = 0;
   /** the tick that lands a waiting shape change in a rest, never over a note */
   private shapeTimer: number | null = null;
+  /** when the last crossfade started, so a drag coalesces into one */
+  private lastCrossfadeAt = 0;
+  /** one coalescing timer per player */
+  private crossfadeTimers: Map<string, number> = new Map();
 
 
   async start(): Promise<void> {
@@ -790,7 +794,23 @@ export class AudioEngine {
     // the old one is faded out over 120 ms rather than disconnected. The held note fades on the old chain
     // while the next note lands on the new one, which is what a hardware synth does when you turn the wave
     // knob mid-phrase.
+    // ONE CROSSFADE PER DRAG, NOT ONE PER FRAME. A drag sends about seven frames a second and each one would
+    // start its own fade, which is why a rapid tweak sounded quiet until the hand stopped (measured: 0.131
+    // before a change, 0.072 during a run of them, 0.138 three seconds after). A shape change inside 400 ms
+    // of the last one is COALESCED: it is stored and a single crossfade runs when the hand stops.
+    if (existing && shapeOf(patch) !== existing.shape && Date.now() - this.lastCrossfadeAt < 400) {
+      existing.pendingPatch = patch;
+      const pending = this.crossfadeTimers.get(peerId);
+      if (pending) window.clearTimeout(pending);
+      this.crossfadeTimers.set(peerId, window.setTimeout(() => {
+        this.crossfadeTimers.delete(peerId);
+        const voice = this.peerVoices.get(peerId);
+        if (voice?.pendingPatch) this.setPeerPatch(peerId, voice.pendingPatch);
+      }, 420));
+      return;
+    }
     if (existing && shapeOf(patch) !== existing.shape) {
+      this.lastCrossfadeAt = Date.now();
       const gain = this.getOrCreatePeerGain(peerId);
       const fresh = buildVoiceChain(patch, gain);
       fresh.synth.maxPolyphony = 8;
