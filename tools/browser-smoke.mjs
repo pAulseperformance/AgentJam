@@ -229,7 +229,10 @@ try {
   if (!response) throw new Error(`GET ${pageUrl.href} answered nothing`);
   if (response.status() >= 400) throw new Error(`GET ${pageUrl.href} answered ${response.status()}`);
   mark('commit');
-  await page.waitForSelector('#player-name', { timeout: remaining() });
+  // THE JOIN FORM HAS ITS OWN BOOT BUDGET. `remaining()` is the budget for the run's real work (a socket, a
+  // model bar), and a cold bundle plus a socket handshake can eat most of it: the live gate failed on a page
+  // that was two seconds from rendering, not on a defect. 30 s is the boot allowance, once.
+  await page.waitForSelector('#player-name', { timeout: Math.max(remaining(), 30000) });
   mark('form');
   await page.fill('#player-name', 'Smoke');
   await page.fill('#room-id', room);
