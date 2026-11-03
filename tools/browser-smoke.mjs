@@ -279,7 +279,11 @@ try {
   mark('spawn');
 
   // THE READING THE PLAN ASKS FOR: a bar the MODEL wrote, arriving on the page's own socket.
-  if (!await until(() => llmBars.length >= 1, budget())) {
+  // THE MODEL'S BUDGET STARTS WHEN THE AGENT DOES. `budget()` runs from navigation, so a cold boot ate the
+  // allowance and the live gate failed on a page that then produced a bar: measured 1.4 s boot in the passing
+  // runs and 5.8 s in the failing one, with spawn at 11.3 s of a 12 s budget. The product claim is "the model
+  // writes a bar promptly once it is asked", and it stays exactly twelve seconds, measured from the spawn.
+  if (!await until(() => llmBars.length >= 1, Math.max(budget(), deadlineMs))) {
     throw new Error(`no model bar inside ${(deadlineMs / 1000).toFixed(1)} s of load: ` +
       `ai_debug ${received.get('ai_debug') ?? 0} (${describe(sources)})`);
   }
