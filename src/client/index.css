@@ -652,7 +652,12 @@ body {
   font: inherit; font-size: 10px; padding: 2px 4px; color: inherit;
   background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border); border-radius: 6px;
 }
-.patch__knobs { display: flex; flex-wrap: wrap; gap: 5px 7px; }
+/* KNOBS FILL THEIR CARD. Wrapped left-aligned knobs left a ragged hole at the right of every row (a two-knob
+   row in a three-knob card), which is what made the panel read as a prototype. Space-around distributes them,
+   and a section is a column so its knob row sits on a common baseline across the whole row of cards. */
+.patch__knobs { display: flex; flex-wrap: wrap; justify-content: space-around; gap: 6px 6px; }
+.patch__section { display: flex; flex-direction: column; }
+.patch__section > .patch__knobs:last-child { margin-top: auto; }
 .knob { display: grid; justify-items: center; gap: 1px; min-width: 50px; }
 .knob__label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.7; }
 .knob__value { font-size: 10px; font-variant-numeric: tabular-nums; }
