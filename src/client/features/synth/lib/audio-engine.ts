@@ -817,14 +817,18 @@ export class AudioEngine {
       const target = 10 ** (patch.level / 20);
       fresh.level.gain.value = 0;
       fresh.level.gain.rampTo(target, 0.12);
-      existing.level.gain.rampTo(0, 0.12);
+      // THE OLD CHAIN FINISHES WHAT IT IS HOLDING, at full level. Fading it out was the mistake: the notes
+      // already scheduled on it are the only sound there is until the next note lands on the new chain, so a
+      // fade is a hole (measured: 0.09 baseline, 0.014 during a drag). It is left running for 1.6 s and then
+      // disposed, by which time its notes have rung out and the new chain owns every new one.
+      existing.level.gain.rampTo(existing.level.gain.value, 0.01);
       this.peerVoices.set(peerId, fresh);
       this.peerSynths.set(peerId, fresh.synth);
       this.peerPatches.set(peerId, patch);
       VOICE_REBUILDS += 1;
       if (typeof document !== 'undefined') document.body.dataset.voiceRebuilds = String(VOICE_REBUILDS);
       const retired = existing;
-      window.setTimeout(() => disposeVoiceChain(retired), 260);
+      window.setTimeout(() => disposeVoiceChain(retired), 1600);
       return;
     }
     if (existing) {
