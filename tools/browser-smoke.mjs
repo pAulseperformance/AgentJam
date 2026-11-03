@@ -400,6 +400,10 @@ try {
 
   // AND THE DOCK: four panes, each of which must paint when it is picked. The note roll above the
   // keyboard is untouched, so this is additive and the readings below are per pane rather than one.
+  // OPEN THE DRAWER FIRST: the strip is a tab bar, the panes are drawn in the drawer, which is where a person
+  // reads them. Reading a pane while it is collapsed measured nothing and called it a missing canvas.
+  await page.click('#dock-expand', { timeout: Math.max(500, Math.min(remaining(), 3000)) }).catch(() => {});
+  await page.waitForTimeout(400);
   dockReadings = {};
   for (const tab of ['spectrum', 'band', 'meters', 'stereo', 'atmos']) {
     await page.click(`[data-pane-tab="${tab}"]`, { timeout: Math.max(400, Math.min(remaining(), 2500)) }).catch(() => {});
