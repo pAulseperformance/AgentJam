@@ -269,6 +269,7 @@ body {
   display: flex;
   flex: 1;
   gap: 0;
+  align-items: flex-start;
 }
 
 .jam-room__sidebar {
@@ -304,6 +305,9 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* THE STAGE IS AS TALL AS ITS PARTS. Stretched to match a tall player column it left a dead panel-sized void
+     under the dock, which reads as a broken pane rather than a room. The column takes its own height and the
+     player list is the thing that scrolls when it does not fit. */
   /* TIGHT STACK: at 1280x800 the four gaps above the dock were 96 px of nothing, and the dock is where the
      room's instrument lives. The padding trims to 10 px and the gaps to 10, which is what buys the panel its
      height back without shrinking the keyboard. */

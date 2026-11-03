@@ -535,36 +535,7 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
             peers={peers}
           />
 
-        <MetricsPanel
-          metrics={metrics}
-          wsRtt={wsRtt}
-          clockOffset={clockOffset}
-        />
 
-        <AiDebugPanel
-          entries={aiDebugEntries}
-          signedIn={who?.signedIn ?? false}
-          onModelChange={handleModelChange}
-        />
-
-        {/* THE SESSION PANEL sits at the page foot, after the other after-the-fact card, so a listener
-            never scrolls past a retrospective summary to reach the live surface. It takes the same `who`
-            answer the debug panel takes, and `aiDebugEntries` doubles as its change trigger: the
-            recorder has no event of its own (see the panel's own comment). */}
-        <SessionPanel
-          signedIn={who ? who.signedIn : null}
-          entries={aiDebugEntries}
-        />
-
-          {/* MIDI status (TAS-116) */}
-          {midiConnected && (
-            <div className="midi-status">
-              <h2 className="jam-room__section-title">🎛️ MIDI</h2>
-              {midiDevices.map(d => (
-                <p key={d.id} className="midi-status__device">✅ {d.name}</p>
-              ))}
-            </div>
-          )}
         </aside>
 
         <div className="jam-room__content">
@@ -611,6 +582,37 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
           />
         </div>
       </div>
+
+      <MetricsPanel
+        metrics={metrics}
+        wsRtt={wsRtt}
+        clockOffset={clockOffset}
+      />
+
+      <AiDebugPanel
+        entries={aiDebugEntries}
+        signedIn={who?.signedIn ?? false}
+        onModelChange={handleModelChange}
+      />
+
+      {/* THE SESSION PANEL sits at the page foot, after the other after-the-fact card, so a listener
+          never scrolls past a retrospective summary to reach the live surface. It takes the same `who`
+          answer the debug panel takes, and `aiDebugEntries` doubles as its change trigger: the
+          recorder has no event of its own (see the panel's own comment). */}
+      <SessionPanel
+        signedIn={who ? who.signedIn : null}
+        entries={aiDebugEntries}
+      />
+
+        {/* MIDI status (TAS-116) */}
+        {midiConnected && (
+          <div className="midi-status">
+            <h2 className="jam-room__section-title">🎛️ MIDI</h2>
+            {midiDevices.map(d => (
+              <p key={d.id} className="midi-status__device">✅ {d.name}</p>
+            ))}
+          </div>
+        )}
 
     </div>
   );
