@@ -81,8 +81,22 @@ serving_rows() {
   '
 }
 
-# ── 1. The suite, with a floor ────────────────────────────────────────────────
-step "[1/6] suite"
+# ── 1. The build manifest, checked against THIS tree ─────────────────────────
+# A build manifest is a claim about the tree in front of you, so this gate recomputes the digest from
+# this source and re-verifies the signature. An app change that shipped without re-running
+# `python3 ~/.hermes/scripts/attest_page.py --build` reds here, rather than serving a manifest that
+# names a build this address no longer renders.
+step "[1/7] build manifest"
+man_log="$(mktemp -t jam-manifest.XXXXXX)"
+if python3 "$HOME/.hermes/scripts/attest_page.py" --build --check >"$man_log" 2>&1; then
+  green "      ok (the manifest describes the tree in front of you)"
+else
+  cat "$man_log"
+  note_failure "the build manifest does not describe this tree (python3 ~/.hermes/scripts/attest_page.py --build, then commit it)"
+fi
+
+# ── 2. The suite, with a floor ────────────────────────────────────────────────
+step "[2/7] suite"
 suite_log="$(mktemp -t jam-suite.XXXXXX)"
 npx vitest run >"$suite_log" 2>&1
 suite_rc=$?
@@ -98,8 +112,8 @@ else
   green "      ok"
 fi
 
-# ── 2. The mount answers its shell ───────────────────────────────────────────
-step "[2/6] live: the mount shell"
+# ── 3. The mount answers its shell ───────────────────────────────────────────
+step "[3/7] live: the mount shell"
 # A FRESH file every run: reading a shell fetched by an earlier run is a pass over a stale artifact,
 # and the first version of this script did exactly that when the base was dead.
 shell_file="$(mktemp -t jam-shell.XXXXXX)"
@@ -119,8 +133,8 @@ else
   note_failure "GET /jam/ answered ${code} and the shell named no AgentJam"
 fi
 
-# ── 3. The shell's own asset resolves, and it is THIS tree's build ──────────
-step "[3/6] live: the shell's asset"
+# ── 4. The shell's own asset resolves, and it is THIS tree's build ──────────
+step "[4/7] live: the shell's asset"
 asset=""
 [ "$shell_ok" -eq 1 ] && asset="$(grep -oE '/jam/assets/[^"]+\.js' "$shell_file" | head -1)"
 if [ "$shell_ok" -eq 0 ]; then
@@ -158,8 +172,8 @@ else
   fi
 fi
 
-# ── 4. The room route exists on the app's own host (426, not 404) ────────────
-step "[4/6] live: the room socket route"
+# ── 5. The room route exists on the app's own host (426, not 404) ────────────
+step "[5/7] live: the room socket route"
 code="$(curl -s -o /dev/null -w '%{http_code}' "https://${APP_HOST}/api/room/check/ws")"
 if [ "$code" = "426" ]; then
   green "      ok (426 Expected WebSocket upgrade)"
@@ -167,8 +181,8 @@ else
   note_failure "GET https://${APP_HOST}/api/room/check/ws answered ${code}, not 426"
 fi
 
-# ── 5. The tier endpoint ─────────────────────────────────────────────────────
-step "[5/6] live: the tier endpoint"
+# ── 6. The tier endpoint ─────────────────────────────────────────────────────
+step "[6/7] live: the tier endpoint"
 body="$(curl -s "${BASE}/jam/api/whoami")"
 if printf '%s' "$body" | grep -q '"tier":"public"'; then
   green "      ok (anonymous reads the public tier)"
@@ -176,8 +190,8 @@ else
   note_failure "whoami answered without the public tier: ${body:0:120}"
 fi
 
-# ── 6. The version serving, and whether it is the one the caller named ──────
-step "[6/6] live: the version serving"
+# ── 7. The version serving, and whether it is the one the caller named ──────
+step "[7/7] live: the version serving"
 # THE VERSION GATE. `wrangler deploy` prints success whether or not the build meant to ship is the
 # build serving traffic, so an id is the only thing that settles it: this reads Cloudflare's own
 # answer, and with --version it fails unless that exact id carries 100% of the traffic.
