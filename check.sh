@@ -153,11 +153,16 @@ else
     unverified=$((unverified + 1))
     green "      ok (${asset} 200)"
     step "      not asserted: no build in dist/ (bash deploy.sh builds it), so the live bundle is not compared to this tree"
-  elif [ -n "$(find src -newer dist/jam/index.html -name '*.ts*' -print -quit 2>/dev/null)" ]; then
+  elif [ -n "$(find src -newer dist/jam/index.html -name '*.ts*' ! -name 'build-manifest.ts' -print -quit 2>/dev/null)" ]; then
     # A PARITY READING AGAINST A STALE BUILD IS NOT A READING. This script never builds, so dist/ is
     # whatever the last deploy left: a checkout three commits behind reports "the bundle this tree
     # builds" for a tree that builds something else. Newer sources than the build means the comparison
     # proves nothing, so it is reported as unverified instead of green.
+    #
+    # THE GENERATED MANIFEST IS NOT A SOURCE, which is why it is excluded above: `attest_page.py --build`
+    # writes it AFTER the build it describes, so counting it would make every signed tree look stale and
+    # the parity reading would never be taken again. It is emptied during the digest build, so it cannot
+    # change the bundle either.
     unverified=$((unverified + 1))
     green "      ok (${asset} 200)"
     step "      not asserted: dist/ is older than src/, so this tree has no build to compare the live bundle to"
