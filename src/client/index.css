@@ -739,7 +739,10 @@ body {
      spectrum, the meters, the stereo scope and the atmosphere behind a black box: the DOM had all of it and a
      person saw nothing. A pane is the reason the dock exists, so it opens at a real height and grows on demand.
      34vh is 306 px at 900 and 272 at 800, which puts every section's knobs on screen. */
-  height: clamp(220px, 34vh, 360px);
+  /* AS TALL AS FITS, AND NO TALLER. At a flat 34vh the dock ran to 987 in a 900 px window, so the panel showed
+     its section headers and the knobs sat under the fold. Its height is now the space left under the keyboard,
+     floored at 180 px so a short laptop window still shows a pane, and the body scrolls inside it. */
+  height: clamp(180px, calc(100dvh - 715px), 380px);
   max-height: none;
   min-height: 0;
   overflow: hidden;
