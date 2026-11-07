@@ -215,6 +215,20 @@ if [ "$live_rc" -ne 0 ]; then
   exit 1
 fi
 
+# ── 7b. Provenance: the address serves the build this tree signs ────────────
+# NOTHING ABOVE CAN ANSWER THIS. `--build --check` compares the signed constant to the tree; `--verify`
+# proves the manifest is signed, delegated and belongs to its address; the version gate names what
+# Cloudflare moves traffic to. None of them says the manifest the address SERVES is the one this tree
+# signs — a deploy that shipped an older build would pass all three. This reads the digest the address
+# actually serves and refuses when it is not the signed one (measured on zpe-blog: it exits 0 on the
+# matching tree and 1 when the constant is moved by one hex character).
+step "[7/7] provenance (python3 ~/.hermes/scripts/attest_page.py --build --deployed)"
+if ! python3 "$HOME/.hermes/scripts/attest_page.py" --build --deployed; then
+  note_failure "the address does not serve the build this tree signs: the manifest and the deployment have drifted"
+  step "way back: ${way_back}"
+  exit 1
+fi
+
 green "deploy.sh: ${id} is serving 100% and the live gate passed"
 step "rollback: ${way_back}"
 step "          (the version serving before this deploy was ${serving_before})"

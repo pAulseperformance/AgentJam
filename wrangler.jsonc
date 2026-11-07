@@ -4,6 +4,10 @@
   "name": "agent-jam",
   "compatibility_date": "2025-03-15",
   "workers_dev": true,
+  // THE DEPLOY'S OWN ID, readable at request time. A bundle cannot contain the id the platform
+  // assigns it, so `/jam/index.json` reports `served_by` from this binding and the manifest declares
+  // that field unsigned: the signature covers the build, and this says which deploy is answering it.
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
   // A PREVIEW URL per uploaded version, so a change is exercised on Cloudflare's edge (real AI,
   // real routes) before it takes the live traffic. Set by `wrangler versions upload`.
   "preview_urls": true,

@@ -1,0 +1,17 @@
+{
+  "//": "The app's half of the estate provenance contract. This repo has no page bytes to sign: the worker composes the shell per request, so what is signed is the BUILD. `python3 ~/.hermes/scripts/attest_page.py --build` runs scripts/attest-build.sh (npm run build + wrangler deploy --dry-run, then a sorted inventory of both halves), signs that, and rewrites the constant the worker serves at /jam/index.json. `--build --check` recomputes it inside check.sh; `--build --deployed` runs after deploy.sh moves traffic.",
+  "mode": "build",
+  "base_url": "https://zpe.vc/jam",
+  "id_prefix": "zpe:jam",
+  "web_path": "/jam",
+  "manifest_file": "src/server/build-manifest.ts",
+  "export": "BUILD",
+  "build_command": ["sh", "scripts/attest-build.sh"],
+  "bundle": "index.js",
+  "digest_scope": "the worker bundle wrangler deploy --dry-run builds from this commit plus a sorted sha256 inventory of every file `npm run build` emits, taken with the build manifest emptied",
+  "delegation": "https://zpe.vc/answers/.well-known/attest/delegation.json",
+  "signers_url": "https://zpe.vc/answers/.well-known/attest/allowed_signers",
+  "key": "~/.hermes/agent-identity/zpe-attest",
+  "namespace": "zpe-attest",
+  "key_id": "zpe-attest-2026"
+}
