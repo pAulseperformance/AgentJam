@@ -735,10 +735,11 @@ body {
   /* A STRIP, NOT A HALF-PANEL. max-height alone let the panel's own content pull the dock to its ceiling (302 px
      in a 900 px window, 202 in an 800), which is the very height that pushed the stage past the fold. The strip
      is a fixed 76 px and the drawer is where the panel is read. */
-  /* THE STRIP IS THE TAB BAR AND NOTHING ELSE. At 76 px it showed the tabs plus 30 px of clipped panel, which
-     reads as a dead band under the keyboard. The body is collapsed to zero height while shut and the drawer is
-     where a pane is looked at, so the bar is exactly as tall as its buttons. */
-  height: 46px;
+  /* THE PANEL IS VISIBLE BY DEFAULT. Collapsing the body to win a page-height number hid the patch, the
+     spectrum, the meters, the stereo scope and the atmosphere behind a black box: the DOM had all of it and a
+     person saw nothing. A pane is the reason the dock exists, so it opens at a real height and grows on demand.
+     34vh is 306 px at 900 and 272 at 800, which puts every section's knobs on screen. */
+  height: clamp(220px, 34vh, 360px);
   max-height: none;
   min-height: 0;
   overflow: hidden;
@@ -765,9 +766,7 @@ body {
   border-top: 1px solid var(--border);
   box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.45);
 }
-.visualizer-dock[data-expanded='no'] .visualizer-dock__body { height: 0; overflow: hidden; }
-/* the tabs sit on the strip's own edge while shut, so the bar is one clean row */
-.visualizer-dock[data-expanded='no'] .visualizer-dock__tabs { margin: 0; }
+.visualizer-dock__body { overflow-y: auto; }
 .visualizer-dock__body {
   flex: 1 1 auto;
   min-height: 0;
