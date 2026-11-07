@@ -47,7 +47,10 @@ export function VisualizerDock({ engine, notesRef, names, width = 800, height = 
    * strip showing the top of the pane; opened, it is a bottom sheet over the room. Tuning a sound is a
    * different act from playing one, so it gets its own mode instead of stealing the keys' space.
    */
-  const [expanded, setExpanded] = useState(false);
+  // OPEN ON ARRIVAL. A pane that has to be discovered behind a chevron is a pane nobody sees: the dock opened
+  // collapsed and a person reported every visualizer as hidden behind a black box. The drawer is up when the
+  // room loads, and one press folds it back so the keys are free.
+  const [expanded, setExpanded] = useState(true);
 
   return (
     <section className="visualizer-dock" data-pane={pane} data-expanded={expanded ? 'yes' : 'no'} aria-label="Visualizers">
