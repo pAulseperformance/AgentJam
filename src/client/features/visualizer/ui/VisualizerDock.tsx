@@ -56,19 +56,30 @@ export function VisualizerDock({ engine, notesRef, names, width = 800, height = 
    * and playing one were mutually exclusive. It now ends at the top of the keyboard, which keeps the instrument
    * visible under the panel and makes the staff the thing it covers.
    */
-  const [drawerBottom, setDrawerBottom] = useState(0);
+  // null = "the keys are not on screen to measure", which is a different state from 0 and must not fall through
+  // to `bottom: 0`: on a 390px phone the keys start 971px down, the old clamp produced 0, `expanded && 0` was
+  // falsy, and the drawer painted a 557px sheet over the whole room.
+  const [drawerBottom, setDrawerBottom] = useState<number | null>(null);
   useEffect(() => {
     if (!expanded) return;
     const measure = () => {
       const keys = document.querySelector('.keyboard-wrap') ?? document.querySelector('.keyboard');
       if (!keys) return;
       const top = keys.getBoundingClientRect().top;
+      if (top <= 0 || top > window.innerHeight) { setDrawerBottom(null); return; }
       setDrawerBottom(Math.max(0, Math.round(window.innerHeight - top + 8)));
     };
     measure();
     window.addEventListener('resize', measure);
+    // A PINNED DRAWER MUST TRACK THE PAGE. Measured once, a page with 87px of scroll left the drawer ending at
+    // 437 while the keys had moved up to 358: 79px of keys under the panel. The scroll listener re-measures.
+    window.addEventListener('scroll', measure, { passive: true });
     const timer = window.setTimeout(measure, 250); // the keyboard lays out after the first paint
-    return () => { window.removeEventListener('resize', measure); window.clearTimeout(timer); };
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure);
+      window.clearTimeout(timer);
+    };
   }, [expanded]);
 
   return (
@@ -77,7 +88,7 @@ export function VisualizerDock({ engine, notesRef, names, width = 800, height = 
       data-pane={pane}
       data-expanded={expanded ? 'yes' : 'no'}
       aria-label="Visualizers"
-      style={expanded && drawerBottom
+      style={expanded && drawerBottom !== null
         ? { bottom: drawerBottom, maxHeight: `calc(100dvh - ${drawerBottom + 8}px)` }
         : undefined}
     >

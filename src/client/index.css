@@ -281,11 +281,10 @@ body {
   /* THE SIDEBAR SCROLLS, NOT THE PAGE. Five player cards made the sidebar 1,200 px tall and dragged the whole
      document with it, so the room scrolled even when the stage fitted: adding a fourth bot moved the keyboard.
      A fixed column with its own scroll keeps the stage where a player left it. */
-  /* THE COLUMN IS CAPPED BY THE SPACE UNDER THE STAGE CHROME, not by the viewport. `100dvh - 150px` was 750 in
-     a 900 px window, and the stage starts at 297: the column ran 50 px past the fold on its own, and the three
-     after-the-fact panels below the stage added another 144. Those panels live in this column now (it scrolls),
-     so the cap is the measured room head: 297 px above the stage plus 3 px. */
-  max-height: calc(100dvh - 300px);
+  /* THE COLUMN IS CAPPED BY WHERE THE STAGE ACTUALLY STARTS, published as --main-top. A hard-coded 300 was
+     measured against a 324 px head the moment a bot joined, which put the column 24 px past the fold and made
+     the last card reachable only by scrolling the page the cap exists to stop. */
+  max-height: calc(100dvh - var(--main-top, 324px));
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;

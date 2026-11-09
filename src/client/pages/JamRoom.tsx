@@ -273,11 +273,15 @@ export function JamRoom({ roomId, playerName }: JamRoomProps) {
     const publish = () => {
       const room = document.querySelector('.jam-room');
       if (room) document.documentElement.style.setProperty('--room-top', `${Math.round(room.getBoundingClientRect().top)}px`);
+      // the peer column is capped by the stage's own top, which moves when a player joins
+      const main = document.querySelector('.jam-room__main');
+      if (main) document.documentElement.style.setProperty('--main-top', `${Math.round(main.getBoundingClientRect().top)}px`);
     };
     publish();
     window.addEventListener('resize', publish);
+    // the stage's top moves when a player joins, and the peer column's cap is derived from it
     return () => window.removeEventListener('resize', publish);
-  }, []);
+  }, [peers.length]);
 
   // THE PATCH OPENS ATTACHED TO THE FIRST USER. Nobody should have to learn that a card must be clicked before
   // the instrument answers: the panel starts on your own voice and follows a card when you pick one.

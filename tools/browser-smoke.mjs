@@ -208,6 +208,8 @@ let controlsInCard = 0;
 let stack = null;
 /** the same reading with the drawer open: the pane and the keyboard both on screen */
 let stackOpen = null;
+/** the open drawer with the page scrolled: a pinned panel that does not re-measure lands on the keys */
+let stackScrolled = null;
 /** the piano's helpers: letters drawn, keys outside the room's key, the spawn form's style buttons, the note readout */
 let keyboardLetters = 0;
 let keysOutside = 0;
@@ -368,6 +370,13 @@ try {
     return { keyboard: box('.keyboard'), dock: box('.visualizer-dock'), viewport: window.innerHeight };
   });
   stackOpen = await readStack();
+  // A PINNED DRAWER IS EXERCISED SCROLLED. Measured once, the drawer ended at 437 while the keys had moved to
+  // 358 after 87px of scroll, and a viewport-only assertion accepted 79px of keys under the panel.
+  await page.evaluate(() => window.scrollTo(0, 120));
+  await page.waitForTimeout(250);
+  stackScrolled = await readStack();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(200);
   const drawerUp = await page.evaluate(() => document.querySelector('.visualizer-dock')?.getAttribute('data-expanded') === 'yes');
   if (drawerUp) {
     await page.click('#dock-expand', { timeout: 3000 }).catch(() => {});
@@ -760,6 +769,10 @@ if (!failure) {
     failure = `the open panel is not on screen (dock ${stackOpen?.dock?.top} to ${stackOpen?.dock?.bottom}, viewport ${stackOpen?.viewport})`;
   } else if (!stackOpen.keyboard.bottom || stackOpen.keyboard.bottom > stackOpen.viewport) {
     failure = `the open panel covers the keyboard (keys end ${stackOpen?.keyboard?.bottom}, viewport ${stackOpen?.viewport})`;
+  } else if (stackOpen.dock.bottom > stackOpen.keyboard.top + 1) {
+    failure = `the open panel lies over the keys (dock ends ${stackOpen?.dock?.bottom}, keys start ${stackOpen?.keyboard?.top})`;
+  } else if (!stackScrolled?.dock || !stackScrolled?.keyboard || stackScrolled.dock.bottom > Math.max(0, stackScrolled.keyboard.top) + 1) {
+    failure = `a scrolled page put the panel on the keys (dock ends ${stackScrolled?.dock?.bottom}, keys start ${stackScrolled?.keyboard?.top})`;
   } else if (!stack?.dock || !stack?.keyboard || stack.dock.top < stack.keyboard.top) {
     failure = `the dock is not under the keys (keyboard ${stack?.keyboard?.top}, dock ${stack?.dock?.top})`;
   } else if (toggleDefault !== true) {
