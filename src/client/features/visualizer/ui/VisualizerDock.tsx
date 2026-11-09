@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { AudioEngine } from '@/client/features/synth';
 import { AtmosGLPane } from './AtmosGLPane';
 import { BandViewPane, type BandNote } from './BandViewPane';
@@ -47,10 +47,54 @@ export function VisualizerDock({ engine, notesRef, names, width = 800, height = 
    * strip showing the top of the pane; opened, it is a bottom sheet over the room. Tuning a sound is a
    * different act from playing one, so it gets its own mode instead of stealing the keys' space.
    */
-  const [expanded, setExpanded] = useState(false);
+  // OPEN ON ARRIVAL. A pane that has to be discovered behind a chevron is a pane nobody sees: the dock opened
+  // collapsed and a person reported every visualizer as hidden behind a black box. The drawer is up when the
+  // room loads, and one press folds it back so the keys are free.
+  // A PHONE CANNOT SHOW THE PANE AND THE KEYS AT ONCE. Measured at 390x844 the keys start 997px down, so an
+  // open drawer with no measurable bottom painted a 557px sheet over the whole room; under 900px wide the strip
+  // starts folded and the panel is a press away.
+  const [expanded, setExpanded] = useState(() => (typeof window === 'undefined' ? true : window.innerWidth >= 900));
+  /**
+   * THE DRAWER STOPS AT THE KEYBOARD. Opened to the bottom of the window it covered the keys, so reading a pane
+   * and playing one were mutually exclusive. It now ends at the top of the keyboard, which keeps the instrument
+   * visible under the panel and makes the staff the thing it covers.
+   */
+  // null = "the keys are not on screen to measure", which is a different state from 0 and must not fall through
+  // to `bottom: 0`: on a 390px phone the keys start 971px down, the old clamp produced 0, `expanded && 0` was
+  // falsy, and the drawer painted a 557px sheet over the whole room.
+  const [drawerBottom, setDrawerBottom] = useState<number | null>(null);
+  useEffect(() => {
+    if (!expanded) return;
+    const measure = () => {
+      const keys = document.querySelector('.keyboard-wrap') ?? document.querySelector('.keyboard');
+      if (!keys) return;
+      const top = keys.getBoundingClientRect().top;
+      if (top <= 0 || top > window.innerHeight) { setDrawerBottom(null); return; }
+      setDrawerBottom(Math.max(0, Math.round(window.innerHeight - top + 8)));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    // A PINNED DRAWER MUST TRACK THE PAGE. Measured once, a page with 87px of scroll left the drawer ending at
+    // 437 while the keys had moved up to 358: 79px of keys under the panel. The scroll listener re-measures.
+    window.addEventListener('scroll', measure, { passive: true });
+    const timer = window.setTimeout(measure, 250); // the keyboard lays out after the first paint
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure);
+      window.clearTimeout(timer);
+    };
+  }, [expanded]);
 
   return (
-    <section className="visualizer-dock" data-pane={pane} data-expanded={expanded ? 'yes' : 'no'} aria-label="Visualizers">
+    <section
+      className="visualizer-dock"
+      data-pane={pane}
+      data-expanded={expanded ? 'yes' : 'no'}
+      aria-label="Visualizers"
+      style={expanded && drawerBottom !== null
+        ? { bottom: drawerBottom, maxHeight: `calc(100dvh - ${drawerBottom + 8}px)` }
+        : undefined}
+    >
       <div className="visualizer-dock__tabs" role="tablist" style={{ display: 'flex', gap: 6, margin: '8px 0 4px' }}>
         {PANES.map(entry => (
           <button

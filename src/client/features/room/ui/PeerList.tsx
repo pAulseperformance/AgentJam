@@ -165,9 +165,11 @@ export function PeerList({ peers, engine, localPeerId, agentParts, onChangePart,
               </div>
 
               {part && onChangePart && (
-                <div className="peer-list__part" hidden={isFolded} // STACKED, because these live in a narrow column: three selects side by side in a 240 px sidebar are
-                // three unreadable slivers.
-                style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 3, margin: '5px 0 2px' }}>
+                <div className="peer-list__part" data-folded={isFolded ? 'yes' : 'no'} // STACKED, because these live in a narrow column: three selects side by side in a
+                // 240 px sidebar are three unreadable slivers. `display` is set here rather than left to the
+                // `hidden` attribute, which an inline `display: grid` overrides: measured, the chevron flipped
+                // its arrow while the 114px block of controls stayed on screen.
+                style={{ display: isFolded ? 'none' : 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 3, margin: '5px 0 2px' }}>
                   <select
                     aria-label={`${peer.name} style`}
                     data-agent-part={`${peer.peerId}-style`}

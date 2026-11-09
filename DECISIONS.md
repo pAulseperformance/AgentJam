@@ -370,3 +370,28 @@ keeps its one line of `text/plain`, because a missing script is a resource error
 Falsifier: a client route that must survive a hard refresh, which would mean the app reads the
 pathname and this decision has to become a named list of routes rather than the mount root.
 
+
+## 2026-11-03 The dock's pane opens on arrival, and the drawer stops at the keyboard
+
+Loser: keeping the pane collapsed to a strip and treating the chevron as the way in. Reason: collapsing the
+body was a way to win a page-height number this session had invented as a test, and the measured cost was that
+every visualizer and the whole synth panel existed in the DOM while a person saw a black box. Two readings
+settled it: `querySelector('canvas.spectrum-pane')` answered on the collapsed build (which is why the smoke
+called it healthy), and a person reported all five panes plus the patch as missing. The pane is up when the room
+loads, its `bottom` is measured from `.keyboard-wrap`'s top, and `maxHeight: calc(100dvh - bottom - 8px)` caps
+it: measured 1440x900 with four players, dock 8 to 437 and keys 445 to 671, both fully on screen, 23 knobs and
+seven sections inside the drawer.
+
+Falsifier: a person who wants the tabs in front and the keys uncovered on arrival would mean the drawer should
+start folded and open on a tab press; the toggle already exists, so that is a default to change and not a
+mechanism to build.
+
+## 2026-11-03 Text panels do not live in the 220px peer column
+
+Loser: moving the metrics, AI debug and session panels into the sidebar so the page stopped scrolling. Reason: a
+two-column table in a 220px column wraps into slivers, and the stage stretched to match the taller column, which
+left a panel-sized void under the dock. Measured after the revert: all three panels are 1392px wide at the page
+foot and the session rows read on one line each.
+
+Falsifier: a sidebar that grows to a second column, where the width argument stops holding.
+
