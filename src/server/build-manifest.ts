@@ -4,11 +4,11 @@ export const BUILD = {
   "id": "zpe:jam",
   "url": "https://zpe.vc/jam",
   "mode": "build",
-  "digest": "sha256:c44fc03b4d40f1a473ec44ac62789859c394bb93b3d25d473b7b909882f97175",
+  "digest": "sha256:0f1ac6cd9a44a8fa25bcfed6ec6c2a8b76412bfaa39725e278ca2577faec7693",
   "digest_scope": "the worker bundle wrangler deploy --dry-run builds from this commit plus a sorted sha256 inventory of every file `npm run build` emits, taken with the build manifest emptied",
-  "version": "1.3",
-  "published_at": "2026-11-07T16:21:06Z",
-  "generated_at": "2026-11-07T16:24:34Z",
+  "version": "1.4",
+  "published_at": "2026-11-09T06:16:04Z",
+  "generated_at": "2026-11-09T06:16:04Z",
   "author": "ZPE",
   "approver": "ZPE",
   "signing_key": {
@@ -16,9 +16,9 @@ export const BUILD = {
     "key_id": "zpe-attest-2026"
   },
   "delegation": "https://zpe.vc/answers/.well-known/attest/delegation.json",
-  "commit": "1ea97ede24b2d2b11131f4d7da847b6521c46c26",
+  "commit": "cc04fcfd0461550971c9358200837c36f3529688",
   "source_clean": true,
-  "review_by": "2027-05-06",
+  "review_by": "2027-05-08",
   "status": "live",
   "superseded_by": null,
   "attests": "the build that renders this address",
@@ -30,6 +30,6 @@ export const BUILD = {
     "alg": "ssh-ed25519",
     "key_id": "zpe-attest-2026",
     "namespace": "zpe-attest",
-    "value": "-----BEGIN SSH SIGNATURE-----\nU1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgRCfGJhdKT0VuerRVksPY52b6yD\nNelR+L+94736m1tZsAAAAKenBlLWF0dGVzdAAAAAAAAAAGc2hhNTEyAAAAUwAAAAtzc2gt\nZWQyNTUxOQAAAEDfKq8KzmvHIscsn7Pj5AFKajxvmNmcvRTVNdvO6PPc5d5FT+r3YeSH9m\nW5QI/Ad1HPqsWE/cbHH6n0VLqCRD8J\n-----END SSH SIGNATURE-----"
+    "value": "-----BEGIN SSH SIGNATURE-----\nU1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgRCfGJhdKT0VuerRVksPY52b6yD\nNelR+L+94736m1tZsAAAAKenBlLWF0dGVzdAAAAAAAAAAGc2hhNTEyAAAAUwAAAAtzc2gt\nZWQyNTUxOQAAAEBu/Yk1YOErD1dtfqzgGGwv2954TaMjGOC6YJjlJwfhQTsUkts3U9Xsx/\nb57zSKNyD9bMMUEeHTKfS4EO+YWFYE\n-----END SSH SIGNATURE-----"
   }
 };
