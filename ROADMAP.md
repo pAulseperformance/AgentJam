@@ -10,6 +10,11 @@
 
 ## Next
 
+- **The drawer's default is a standing question.** It opens on arrival because the owner reported the panes as
+  missing when it did not; whether it should instead start folded, with the keys in front and the panel opening on
+  a tab press, is his call and one line to change (`useState(true)` in `VisualizerDock.tsx`).
+- **The push rule on `pAulseperformance/AgentJam` declines `main`.** The deploy ships the tree, so the site is current,
+  but the remote falls behind by every commit this lane makes. Gate: a rule the owner can read; owner: him.
 - **A two-bar arc.** The agent's memory is one bar, so it cannot build a phrase the way a person does.
   The listener already summarises the last two bars; the motif needs the same depth.
 - **Dynamics that follow.** Velocity is read from the human's notes and never shaped by them. A partner
