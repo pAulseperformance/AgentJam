@@ -77,7 +77,9 @@ export function VisualizerDock({ engine, notesRef, names, width = 800, height = 
       data-pane={pane}
       data-expanded={expanded ? 'yes' : 'no'}
       aria-label="Visualizers"
-      style={expanded && drawerBottom ? { bottom: drawerBottom } : undefined}
+      style={expanded && drawerBottom
+        ? { bottom: drawerBottom, maxHeight: `calc(100dvh - ${drawerBottom + 8}px)` }
+        : undefined}
     >
       <div className="visualizer-dock__tabs" role="tablist" style={{ display: 'flex', gap: 6, margin: '8px 0 4px' }}>
         {PANES.map(entry => (
