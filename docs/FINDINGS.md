@@ -246,3 +246,28 @@ consecutive deploy attempts failed on this, and one `--check` after a fresh atte
 Also: a Playwright upgrade on this host left `chromium_headless_shell-1248` missing while 1148 sat in the cache,
 so every browser probe failed with "Executable doesn't exist". `npx playwright install chromium-headless-shell`
 fixes it, and the deploy gate had already been failing for the same reason.
+
+## 2026-11-09 The critic found five, and four were mine
+
+A separate agent reviewed commits `9ba41f4..HEAD` and returned FIX FIRST with five defects, each measured on the
+live page. All five are fixed and re-measured.
+
+1. **A pinned drawer that measured once.** With 87px of scroll the keys moved to 358 while the drawer still
+   ended at 437, so 79px of keys sat under the panel. The effect now re-measures on a passive `scroll` listener:
+   measured at 1280x800, at top the drawer ends 437 and the keys start 445, and scrolled 130px the drawer ends
+   350 and the keys start 358. Eight pixels either way, which is the intended gap.
+2. **`0` read as "not measured".** On a 390px phone the keys start 971px down, `Math.max(0, …)` produced 0,
+   `expanded && 0` was falsy, and the CSS fallback painted a 557px sheet over the room. The value is now
+   `number | null`, and under 900px wide the strip starts folded: measured at 390x844 the dock is folded at
+   1087 to 1267, below the keys at 971 to 1077.
+3. **The fold chevron never folded.** `hidden` was overridden by an inline `display: grid`: the arrow flipped
+   while a 114px block of controls stayed on screen. The inline display is now `none` when folded, measured
+   `display: none` at height 0, then `grid` at 114px after the press.
+4. **The peer column's cap was a constant.** Hard-coded 300 against a head that measured 324 once a bot joined,
+   which put the column 24px past the fold. The stage's top is published as `--main-top` and re-published when
+   the room's player count changes; measured at 1280x800, column 297 to 707 inside an 800px window.
+5. **The gate compared both against the viewport and neither against each other.** A drawer lying over the keys
+   passed. It now fails on `dock.bottom > keyboard.top` and reads the open state again after scrolling 120px.
+
+Gate after the fixes: `bash check.sh --live` every check passed, smoke green with 9 model bars, suite unchanged.
+
