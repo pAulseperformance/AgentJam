@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { AudioEngine } from '@/client/features/synth';
 import { AtmosGLPane } from './AtmosGLPane';
 import { BandViewPane, type BandNote } from './BandViewPane';
@@ -51,9 +51,34 @@ export function VisualizerDock({ engine, notesRef, names, width = 800, height = 
   // collapsed and a person reported every visualizer as hidden behind a black box. The drawer is up when the
   // room loads, and one press folds it back so the keys are free.
   const [expanded, setExpanded] = useState(true);
+  /**
+   * THE DRAWER STOPS AT THE KEYBOARD. Opened to the bottom of the window it covered the keys, so reading a pane
+   * and playing one were mutually exclusive. It now ends at the top of the keyboard, which keeps the instrument
+   * visible under the panel and makes the staff the thing it covers.
+   */
+  const [drawerBottom, setDrawerBottom] = useState(0);
+  useEffect(() => {
+    if (!expanded) return;
+    const measure = () => {
+      const keys = document.querySelector('.keyboard-wrap') ?? document.querySelector('.keyboard');
+      if (!keys) return;
+      const top = keys.getBoundingClientRect().top;
+      setDrawerBottom(Math.max(0, Math.round(window.innerHeight - top + 8)));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    const timer = window.setTimeout(measure, 250); // the keyboard lays out after the first paint
+    return () => { window.removeEventListener('resize', measure); window.clearTimeout(timer); };
+  }, [expanded]);
 
   return (
-    <section className="visualizer-dock" data-pane={pane} data-expanded={expanded ? 'yes' : 'no'} aria-label="Visualizers">
+    <section
+      className="visualizer-dock"
+      data-pane={pane}
+      data-expanded={expanded ? 'yes' : 'no'}
+      aria-label="Visualizers"
+      style={expanded && drawerBottom ? { bottom: drawerBottom } : undefined}
+    >
       <div className="visualizer-dock__tabs" role="tablist" style={{ display: 'flex', gap: 6, margin: '8px 0 4px' }}>
         {PANES.map(entry => (
           <button
