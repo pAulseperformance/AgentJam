@@ -50,7 +50,10 @@ export function VisualizerDock({ engine, notesRef, names, width = 800, height = 
   // OPEN ON ARRIVAL. A pane that has to be discovered behind a chevron is a pane nobody sees: the dock opened
   // collapsed and a person reported every visualizer as hidden behind a black box. The drawer is up when the
   // room loads, and one press folds it back so the keys are free.
-  const [expanded, setExpanded] = useState(true);
+  // A PHONE CANNOT SHOW THE PANE AND THE KEYS AT ONCE. Measured at 390x844 the keys start 997px down, so an
+  // open drawer with no measurable bottom painted a 557px sheet over the whole room; under 900px wide the strip
+  // starts folded and the panel is a press away.
+  const [expanded, setExpanded] = useState(() => (typeof window === 'undefined' ? true : window.innerWidth >= 900));
   /**
    * THE DRAWER STOPS AT THE KEYBOARD. Opened to the bottom of the window it covered the keys, so reading a pane
    * and playing one were mutually exclusive. It now ends at the top of the keyboard, which keeps the instrument

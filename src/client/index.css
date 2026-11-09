@@ -761,7 +761,7 @@ body {
   right: 0;
   bottom: 0;
   z-index: 60;
-  max-height: 66dvh;
+  max-height: 55dvh;
   min-height: 0;
   padding: 0 1.5rem 12px;
   background: color-mix(in srgb, var(--card, #111) 97%, black);
