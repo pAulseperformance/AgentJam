@@ -218,3 +218,31 @@ control the gate never touched. It now presses `#phrase-ask` after the bar readi
 things: the switch comes back checked, its note reads the ON copy, the peer list still holds rows, and
 no page error was raised. Read the note from `textContent` with care: the label and the note are
 adjacent inline elements and concatenate (`Four bars per callon: ...`), so match a phrase, not `on:`.
+## 2026-11-03 The panel was hidden behind a number I set myself
+
+The dock's pane was collapsed to 46 px so the room could fit a viewport I had chosen as the test. The DOM held
+the whole synth, the spectrum, the meters, the stereo scope and the atmosphere; a person saw a black strip and
+reported every one of them as missing. A gate cannot catch this: the smoke queried the canvas, found it and drew
+it, because a collapsed element still exists.
+
+What holds now: the drawer is up when the room loads, capped by the space above the keyboard
+(`maxHeight: calc(100dvh - bottom - 8px)`, measured 8 to 437 with the keys at 445 to 671 at 1440x900), and one
+press on the chevron folds it back to a tab strip under the keys. Measured with four players: dock 8 to 437,
+keys 445 to 671, both fully on screen, 23 knobs inside the drawer, seven sections.
+
+Two gate corrections that came with it, both recorded rather than quietly widened: the smoke's stack reading is
+taken with the drawer FOLDED (the strip-under-the-keys claim only exists in that state), and the open state has
+its own reading (the drawer on screen AND the keyboard not covered). The panes are read while the drawer is up,
+which is now the default, so the step that used to open it would have closed it.
+
+## The attest manifest is the last step before a commit, not the first
+
+`attest_page.py --build` writes `src/server/build-manifest.ts`, and that file is an input to the next build. A
+build-then-attest sequence leaves the manifest describing the tree before its own regeneration, so the gate reds
+with "a source change shipped without re-running --build" even though it was just run. The sequence that holds is
+build, attest, then `--build --check` until it prints `ok`, and only then `git add` and commit. Measured: three
+consecutive deploy attempts failed on this, and one `--check` after a fresh attest passed immediately.
+
+Also: a Playwright upgrade on this host left `chromium_headless_shell-1248` missing while 1148 sat in the cache,
+so every browser probe failed with "Executable doesn't exist". `npx playwright install chromium-headless-shell`
+fixes it, and the deploy gate had already been failing for the same reason.

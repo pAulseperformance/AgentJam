@@ -206,6 +206,8 @@ let spawnLabel = null;
 let agentControls = 0;
 let controlsInCard = 0;
 let stack = null;
+/** the same reading with the drawer open: the pane and the keyboard both on screen */
+let stackOpen = null;
 /** the piano's helpers: letters drawn, keys outside the room's key, the spawn form's style buttons, the note readout */
 let keyboardLetters = 0;
 let keysOutside = 0;
@@ -353,15 +355,25 @@ try {
   keyboardReadout = await page.evaluate(() => document.querySelector('.keyboard__readout')?.getAttribute('data-last-note') ?? null);
 
   // THE STACK: the roll above the keys, the dock below them, both on the visible page.
-  stack = await page.evaluate(() => {
+  // THE PANEL NOW OPENS OVER THE ROOM, so the strip-under-the-keys reading is taken with the drawer FOLDED. The
+  // open state gets its own reading below: both the pane and the keyboard on screen at once, which is the claim
+  // that matters when a person is shaping a sound while the band plays.
+  const readStack = () => page.evaluate(() => {
     const box = (selector) => {
       const el = document.querySelector(selector);
       if (!el) return null;
       const r = el.getBoundingClientRect();
-      return { top: Math.round(r.top), height: Math.round(r.height) };
+      return { top: Math.round(r.top), bottom: Math.round(r.bottom), height: Math.round(r.height) };
     };
     return { keyboard: box('.keyboard'), dock: box('.visualizer-dock'), viewport: window.innerHeight };
   });
+  stackOpen = await readStack();
+  const drawerUp = await page.evaluate(() => document.querySelector('.visualizer-dock')?.getAttribute('data-expanded') === 'yes');
+  if (drawerUp) {
+    await page.click('#dock-expand', { timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(400);
+  }
+  stack = await readStack();
 
   canvasAtBar = await brightPixels();
   await page.waitForTimeout(1200);
@@ -400,9 +412,8 @@ try {
 
   // AND THE DOCK: four panes, each of which must paint when it is picked. The note roll above the
   // keyboard is untouched, so this is additive and the readings below are per pane rather than one.
-  // OPEN THE DRAWER FIRST: the strip is a tab bar, the panes are drawn in the drawer, which is where a person
-  // reads them. Reading a pane while it is collapsed measured nothing and called it a missing canvas.
-  await page.click('#dock-expand', { timeout: Math.max(500, Math.min(remaining(), 3000)) }).catch(() => {});
+  // THE DRAWER IS UP ON ARRIVAL, so the panes are read where a person reads them. (It used to be folded, and this
+  // block opened it; pressing the toggle now would close it and measure nothing.)
   await page.waitForTimeout(400);
   dockReadings = {};
   for (const tab of ['spectrum', 'band', 'meters', 'stereo', 'atmos']) {
@@ -745,6 +756,10 @@ if (!failure) {
     failure = `${controlsInCard} of ${agentControls} part controls are inside a peer card, and they belong on the card`;
   } else if (agentControls !== 3) {
     failure = `an agent card carries ${agentControls} part controls, not three (style, voice, seat)`;
+  } else if (!stackOpen?.dock || !stackOpen?.keyboard || stackOpen.dock.top < 0 || stackOpen.dock.bottom > stackOpen.viewport) {
+    failure = `the open panel is not on screen (dock ${stackOpen?.dock?.top} to ${stackOpen?.dock?.bottom}, viewport ${stackOpen?.viewport})`;
+  } else if (!stackOpen.keyboard.bottom || stackOpen.keyboard.bottom > stackOpen.viewport) {
+    failure = `the open panel covers the keyboard (keys end ${stackOpen?.keyboard?.bottom}, viewport ${stackOpen?.viewport})`;
   } else if (!stack?.dock || !stack?.keyboard || stack.dock.top < stack.keyboard.top) {
     failure = `the dock is not under the keys (keyboard ${stack?.keyboard?.top}, dock ${stack?.dock?.top})`;
   } else if (toggleDefault !== true) {
