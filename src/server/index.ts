@@ -218,7 +218,10 @@ export default {
     // sheets, and a way back to the mount. A FILE PATH gets one line of text, because a missing script or
     // image is a resource error and an HTML document under `content-type: image/png` is not an answer.
     if (!FILE_PATH.test(url.pathname)) {
-      return new Response(notFound({ mount }), {
+      // THE SAME OPT-IN THE PAGE TAKES, forwarded on the 404: a helper that takes its own options object
+      // drops `estateFoot` unless it passes the flag through, and the estate then names the operator on
+      // every page but the ones nobody planned to serve.
+      return new Response(notFound({ mount, estateFoot: true }), {
         status: 404,
         headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
       });

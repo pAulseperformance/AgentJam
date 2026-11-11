@@ -38,6 +38,16 @@ describe('pageFromIndex', () => {
     expect(page).toContain('data-zpe-bar');
   });
 
+  it('ends with the estate footer row (D46)', () => {
+    // Measured 2026-11-11: /jam carried the bar and no `data-zpe-foot`, so the page ended on the app's
+    // own line. The row is the kit's static one, below `footer.foot`, and it is a div: a second <footer>
+    // would put two contentinfo landmarks on one page.
+    expect(page).toContain('href="https://zpe.vc/assets/bar/zpe-foot.css"');
+    expect(page).toContain('data-zpe-foot');
+    expect(page).toContain('Zero-Point Energy Ventures');
+    expect(page.match(/<footer/g)).toHaveLength(1);
+  });
+
   it("carries the app's own bundle, its mount point, and its own title once", () => {
     expect(page).toContain('src="/jam/assets/index-DCPGJOPJ.js"');
     expect(page).toContain('href="/jam/assets/index-D2Vxshma.css"');
