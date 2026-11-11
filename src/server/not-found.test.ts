@@ -76,6 +76,14 @@ describe('an address that never existed', () => {
     expect((await get('/jam/room/demo')).status).toBe(404);
   });
 
+  it('names the operator on the 404 as well as the page', async () => {
+    // THE OPT-IN IS FORWARDED, not re-decided: `notFound()` takes its own options object, so an app that
+    // opted in and did not pass the flag named the operator on every page but its 404s.
+    const body = await (await get('/jam/zz-page-values-20261101')).text();
+    expect(body).toContain('data-zpe-foot');
+    expect(body).toContain('Zero-Point Energy Ventures');
+  });
+
   it('answers a missing file with one line of text, not a page', async () => {
     const res = await get('/jam/assets/missing.js');
     expect(res.status).toBe(404);

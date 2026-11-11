@@ -50,5 +50,10 @@ export function pageFromIndex(indexHtml: string, mount = '/jam/'): string {
     head: sheets.join('\n'),
     body: `<div id="root"></div>\n${scripts.join('\n')}`,
     bar: { host: BAR_HOST },
+    // THE ESTATE FOOT (D46), as the kit's own option: `shell()` closes every document with its
+    // `footer.foot` line, so the row goes below that on the page's floor rather than becoming a second
+    // close. Measured 2026-11-11: /jam carried the bar and no `data-zpe-foot`, and the page's only close
+    // was the app's own line.
+    estateFoot: true,
   });
 }
