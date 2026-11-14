@@ -15,6 +15,8 @@
  */
 
 import { shell } from 'zpe-kit/shell';
+import { about } from 'zpe-kit';
+import { BUILD } from './build-manifest.ts';
 
 /** The bar's sheet and script, served from the zone root: same origin as the page, so no CSP entry is owed. */
 const BAR_HOST = 'https://zpe.vc/assets/bar';
@@ -38,6 +40,17 @@ function bundleTags(indexHtml: string): { scripts: string[]; sheets: string[] } 
  * shell around an empty `#root` would look like a healthy page until the visitor typed a room name.
  */
 export function pageFromIndex(indexHtml: string, mount = '/jam/'): string {
+  // THE FIVE BUILD FACTS, from the signed manifest. `about()` renders them three ways from one
+  // object (head tags, the row inside the footer, JSON); the shell takes the object and draws the
+  // row, so a page cannot claim a version its own tags disagree with.
+  const facts = about({
+    app: 'jam',
+    version: BUILD.version,
+    commit: BUILD.commit,
+    checkout: BUILD.commit,
+    built: BUILD.published_at,
+    license: '',
+  });
   const { scripts, sheets } = bundleTags(indexHtml);
   if (scripts.length === 0) throw new Error('index.html names no bundle script: the page would render blank');
   const title = (indexHtml.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1] ?? 'AgentJam').trim();
@@ -55,5 +68,6 @@ export function pageFromIndex(indexHtml: string, mount = '/jam/'): string {
     // close. Measured 2026-11-11: /jam carried the bar and no `data-zpe-foot`, and the page's only close
     // was the app's own line.
     estateFoot: true,
+    about: facts,
   });
 }
