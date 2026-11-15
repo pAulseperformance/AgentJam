@@ -4,7 +4,7 @@
 import { machineRefusal } from 'zpe-kit';
 import { FONT_NAME, SHEET_PATH, fontResponse, notFound, sheetResponse } from 'zpe-kit/shell';
 import { doorWho, doorSignIn } from './door';
-import { pageFromIndex } from './page';
+import { pageFromIndex, FACTS } from './page';
 import { BUILD } from './build-manifest';
 
 export { JamRoom } from './jam-room';
@@ -221,7 +221,12 @@ export default {
       // THE SAME OPT-IN THE PAGE TAKES, forwarded on the 404: a helper that takes its own options object
       // drops `estateFoot` unless it passes the flag through, and the estate then names the operator on
       // every page but the ones nobody planned to serve.
-      return new Response(notFound({ mount, estateFoot: true }), {
+      //
+      // AND THE SAME FIVE FACTS, for the same reason one layer down. Measured live 2026-11-15 03:02 ICT:
+      // `GET https://zpe.vc/jam/__footer_sweep_miss` answered 404 carrying `data-zpe-foot` and no
+      // `data-zpe-about`, so the estate's sweep read jam's miss page as a page with no build facts while
+      // its root read OK — one app, two verdicts, and the worse one is the page a mistyped link lands on.
+      return new Response(notFound({ mount, estateFoot: true, about: FACTS }), {
         status: 404,
         headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
       });

@@ -34,23 +34,48 @@ function bundleTags(indexHtml: string): { scripts: string[]; sheets: string[] } 
 }
 
 /**
+ * THE MANIFEST AS THE DIGEST STEP SEES IT.
+ *
+ * `attest_page.py --build` empties this constant to `export const BUILD = {}` before it builds, because a
+ * digest of a bundle that contains its own hash is not computable. `tsc -b` then refuses `BUILD.version`
+ * on the empty object, so `npm run build` failed inside the digest, the error was swallowed by the build
+ * command's own redirection, and `attest_page.py --build` reported only "the bundle could not be produced".
+ * Measured 2026-11-15 on 845e6fd, before any of this card's changes: the app could not re-sign its build,
+ * so `deploy.sh` refused every deploy at its first gate.
+ *
+ * Declaring the shape here costs nothing at runtime and lets the emptied object type-check: an absent
+ * value renders empty through `about()`, which is the honest answer, and the hash is taken over bytes
+ * nobody serves.
+ */
+type ManifestFacts = { version?: string; commit?: string; published_at?: string }
+const MANIFEST = BUILD as ManifestFacts
+
+/**
+ * THE FIVE BUILD FACTS, from the signed manifest. `about()` renders them three ways from one
+ * object (head tags, the row inside the footer, JSON); the shell takes the object and draws the
+ * row, so a page cannot claim a version its own tags disagree with.
+ *
+ * MODULE-LEVEL, because there are TWO pages now and one set of facts: the app's, and the 404 a
+ * mistyped link lands on. Measured 2026-11-15: the 404 carried the estate's links and no facts at
+ * all, so the one page nobody planned to serve was the one page that could not name its build.
+ */
+export const FACTS = about({
+  app: 'jam',
+  version: MANIFEST.version ?? '',
+  commit: MANIFEST.commit ?? '',
+  checkout: MANIFEST.commit ?? '',
+  built: MANIFEST.published_at ?? '',
+  license: '',
+});
+
+/**
  * The document for a client route under the mount.
  *
  * A blank page is the failure this guards: an index.html with no bundle script means the build did not land, and a
  * shell around an empty `#root` would look like a healthy page until the visitor typed a room name.
  */
 export function pageFromIndex(indexHtml: string, mount = '/jam/'): string {
-  // THE FIVE BUILD FACTS, from the signed manifest. `about()` renders them three ways from one
-  // object (head tags, the row inside the footer, JSON); the shell takes the object and draws the
-  // row, so a page cannot claim a version its own tags disagree with.
-  const facts = about({
-    app: 'jam',
-    version: BUILD.version,
-    commit: BUILD.commit,
-    checkout: BUILD.commit,
-    built: BUILD.published_at,
-    license: '',
-  });
+  const facts = FACTS
   const { scripts, sheets } = bundleTags(indexHtml);
   if (scripts.length === 0) throw new Error('index.html names no bundle script: the page would render blank');
   const title = (indexHtml.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1] ?? 'AgentJam').trim();

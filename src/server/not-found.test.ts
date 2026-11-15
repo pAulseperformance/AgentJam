@@ -84,6 +84,21 @@ describe('an address that never existed', () => {
     expect(body).toContain('Zero-Point Energy Ventures');
   });
 
+  it('ends once, in the estate band, carrying the five build facts', async () => {
+    // Measured live 2026-11-15 03:02 ICT: `GET https://zpe.vc/jam/__footer_sweep_miss` answered 404 with
+    // `data-zpe-foot`=1 and `data-zpe-about`=0, so `tools/footer_sweep.py` in app-registry read jam as
+    // NO-FOOTER on the miss path while its root read OK — one app, two verdicts. The band is the whole
+    // footer (one element), not a second one beside the shell's own line.
+    const body = await (await get('/jam/__footer_sweep_miss')).text();
+    expect((body.match(/<footer\b/gi) ?? []).length).toBe(1);
+    expect(body).toContain('data-zpe-about');
+    for (const fact of ['app', 'version', 'commit', 'built']) {
+      expect(body).toMatch(new RegExp(`data-zpe="${fact}"[^>]*>[^<]+`));
+    }
+    // the sha is the full one, never a prefix: the sweep refuses anything shorter
+    expect(body).toMatch(/data-zpe="commit"[^>]*>[0-9a-f]{40}</);
+  });
+
   it('answers a missing file with one line of text, not a page', async () => {
     const res = await get('/jam/assets/missing.js');
     expect(res.status).toBe(404);
