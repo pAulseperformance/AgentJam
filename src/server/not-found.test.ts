@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import worker from './index';
+import { BUILD } from './build-manifest';
 
 /**
  * A PATH THAT NEVER EXISTED MUST BE A 404, AT THE ADDRESS THAT ASKED.
@@ -39,6 +40,41 @@ const env = () => ({
 
 const get = (path: string) => worker.fetch(new Request(`https://zpe.vc${path}`), env() as never);
 
+/**
+ * THE BAND IS ONE ELEMENT, AND IT IS THE PAGE'S ONLY CLOSE.
+ *
+ * The same shape zpe-tv shipped for its miss page (assertEndsInTheEstateBand, card t_9e6696bf): one `<footer>`,
+ * one `data-zpe-foot`, the `data-zpe-about` element, the band's own sheet and operator, no pre-band `mfoot`, and
+ * the five facts read back against the signed manifest. Written once and called by BOTH pages, because the defect
+ * this card fixed was one page reading OK while its sibling drifted: the landing page's assertions could not see
+ * the 404's.
+ */
+const fact = (html: string, name: string): string => {
+  const found = html.match(new RegExp(`<span[^>]*data-zpe="${name}"[^>]*>([^<]*)</span>`, 'i'));
+  return found ? found[1].trim() : '';
+};
+
+function assertEndsInTheEstateBand(html: string, page: string): void {
+  expect((html.match(/<footer\b/gi) ?? []).length, `${page}: a page ends once`).toBe(1);
+  // the boundary matters: `data-zpe-foot-sheet` on a <link> is a sheet, not a band
+  expect((html.match(/data-zpe-foot(?=[\s>"'])/g) ?? []).length, `${page}: one estate band, and it is the footer`).toBe(1);
+  expect(html, `${page}: the footer is the about element`).toMatch(/<footer[^>]*\bdata-zpe-about\b[^>]*>/);
+  expect(html, `${page}: the band links its own sheet`).toContain('href="https://zpe.vc/assets/bar/zpe-foot.css"');
+  expect(html, `${page}: the band names the operator`).toContain('Zero-Point Energy Ventures');
+  expect((html.match(/class="mfoot"/g) ?? []).length, `${page}: the pre-band footer is gone`).toBe(0);
+
+  expect(fact(html, 'app'), `${page}: the band names the app`).toBe('jam');
+  expect(fact(html, 'version'), `${page}: the band carries the manifest's version`).toBe(BUILD.version);
+  expect(fact(html, 'commit'), `${page}: the footer carries a full sha, never a short one`).toMatch(/^[0-9a-f]{40}$/);
+  expect(fact(html, 'commit'), `${page}: the band carries the manifest's commit`).toBe(BUILD.commit);
+  // `built` is not a <span>: the row shows a human date inside a machine-readable <time>
+  const built = html.match(/<time[^>]*data-zpe="built"[^>]*datetime="([^"]+)"/);
+  expect(built, `${page}: the build time is on the page`).not.toBeNull();
+  expect(new Date(built?.[1] ?? '').toISOString(), `${page}: the date is the manifest's`).toBe(
+    new Date(BUILD.published_at).toISOString(),
+  );
+}
+
 describe('the mount root is the only page', () => {
   it('serves the shell at /jam/', async () => {
     const res = await get('/jam/');
@@ -46,6 +82,8 @@ describe('the mount root is the only page', () => {
     const body = await res.text();
     expect(body).toContain('<title>AgentJam — Web DAW Jam Room</title>');
     expect(body).toContain('/jam/assets/index-abc.js');
+    // THE PAGE AND ITS 404 WEAR THE SAME BAND, asserted by the same helper so one cannot drift from the other
+    assertEndsInTheEstateBand(body, '/jam/');
   });
 
   it('serves the shell at /jam too, because the mount names one address', async () => {
@@ -89,14 +127,11 @@ describe('an address that never existed', () => {
     // `data-zpe-foot`=1 and `data-zpe-about`=0, so `tools/footer_sweep.py` in app-registry read jam as
     // NO-FOOTER on the miss path while its root read OK — one app, two verdicts. The band is the whole
     // footer (one element), not a second one beside the shell's own line.
-    const body = await (await get('/jam/__footer_sweep_miss')).text();
-    expect((body.match(/<footer\b/gi) ?? []).length).toBe(1);
-    expect(body).toContain('data-zpe-about');
-    for (const fact of ['app', 'version', 'commit', 'built']) {
-      expect(body).toMatch(new RegExp(`data-zpe="${fact}"[^>]*>[^<]+`));
-    }
-    // the sha is the full one, never a prefix: the sweep refuses anything shorter
-    expect(body).toMatch(/data-zpe="commit"[^>]*>[0-9a-f]{40}</);
+    const res = await get('/jam/__footer_sweep_miss');
+    // the sentinel the sweep asks MUST stay an HTML 404: a 200 here would be the shell pretending to be a page
+    expect(res.status).toBe(404);
+    expect(res.headers.get('content-type')).toContain('text/html');
+    assertEndsInTheEstateBand(await res.text(), 'the miss page');
   });
 
   it('answers a missing file with one line of text, not a page', async () => {
