@@ -34,11 +34,22 @@ function bundleTags(indexHtml: string): { scripts: string[]; sheets: string[] } 
 }
 
 /**
- * The document for a client route under the mount.
+ * THE MANIFEST AS THE DIGEST STEP SEES IT.
  *
- * A blank page is the failure this guards: an index.html with no bundle script means the build did not land, and a
- * shell around an empty `#root` would look like a healthy page until the visitor typed a room name.
+ * `attest_page.py --build` empties this constant to `export const BUILD = {}` before it builds, because a
+ * digest of a bundle that contains its own hash is not computable. `tsc -b` then refuses `BUILD.version`
+ * on the empty object, so `npm run build` failed inside the digest, the error was swallowed by the build
+ * command's own redirection, and `attest_page.py --build` reported only "the bundle could not be produced".
+ * Measured 2026-11-15 on 845e6fd, before any of this card's changes: the app could not re-sign its build,
+ * so `deploy.sh` refused every deploy at its first gate.
+ *
+ * Declaring the shape here costs nothing at runtime and lets the emptied object type-check: an absent
+ * value renders empty through `about()`, which is the honest answer, and the hash is taken over bytes
+ * nobody serves.
  */
+type ManifestFacts = { version?: string; commit?: string; published_at?: string }
+const MANIFEST = BUILD as ManifestFacts
+
 /**
  * THE FIVE BUILD FACTS, from the signed manifest. `about()` renders them three ways from one
  * object (head tags, the row inside the footer, JSON); the shell takes the object and draws the
@@ -50,13 +61,19 @@ function bundleTags(indexHtml: string): { scripts: string[]; sheets: string[] } 
  */
 export const FACTS = about({
   app: 'jam',
-  version: BUILD.version,
-  commit: BUILD.commit,
-  checkout: BUILD.commit,
-  built: BUILD.published_at,
+  version: MANIFEST.version ?? '',
+  commit: MANIFEST.commit ?? '',
+  checkout: MANIFEST.commit ?? '',
+  built: MANIFEST.published_at ?? '',
   license: '',
 });
 
+/**
+ * The document for a client route under the mount.
+ *
+ * A blank page is the failure this guards: an index.html with no bundle script means the build did not land, and a
+ * shell around an empty `#root` would look like a healthy page until the visitor typed a room name.
+ */
 export function pageFromIndex(indexHtml: string, mount = '/jam/'): string {
   const facts = FACTS
   const { scripts, sheets } = bundleTags(indexHtml);
