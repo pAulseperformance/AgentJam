@@ -39,18 +39,26 @@ function bundleTags(indexHtml: string): { scripts: string[]; sheets: string[] } 
  * A blank page is the failure this guards: an index.html with no bundle script means the build did not land, and a
  * shell around an empty `#root` would look like a healthy page until the visitor typed a room name.
  */
+/**
+ * THE FIVE BUILD FACTS, from the signed manifest. `about()` renders them three ways from one
+ * object (head tags, the row inside the footer, JSON); the shell takes the object and draws the
+ * row, so a page cannot claim a version its own tags disagree with.
+ *
+ * MODULE-LEVEL, because there are TWO pages now and one set of facts: the app's, and the 404 a
+ * mistyped link lands on. Measured 2026-11-15: the 404 carried the estate's links and no facts at
+ * all, so the one page nobody planned to serve was the one page that could not name its build.
+ */
+export const FACTS = about({
+  app: 'jam',
+  version: BUILD.version,
+  commit: BUILD.commit,
+  checkout: BUILD.commit,
+  built: BUILD.published_at,
+  license: '',
+});
+
 export function pageFromIndex(indexHtml: string, mount = '/jam/'): string {
-  // THE FIVE BUILD FACTS, from the signed manifest. `about()` renders them three ways from one
-  // object (head tags, the row inside the footer, JSON); the shell takes the object and draws the
-  // row, so a page cannot claim a version its own tags disagree with.
-  const facts = about({
-    app: 'jam',
-    version: BUILD.version,
-    commit: BUILD.commit,
-    checkout: BUILD.commit,
-    built: BUILD.published_at,
-    license: '',
-  });
+  const facts = FACTS
   const { scripts, sheets } = bundleTags(indexHtml);
   if (scripts.length === 0) throw new Error('index.html names no bundle script: the page would render blank');
   const title = (indexHtml.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1] ?? 'AgentJam').trim();
