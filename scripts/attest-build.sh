@@ -18,10 +18,20 @@ cd "$(dirname "$0")/.."
 out="$1"
 [ -n "$out" ] || { echo "attest-build: needs an output directory as \$1" >&2; exit 1; }
 
+# THE KIT GOES IN BEFORE ANYTHING IMPORTS IT, AND THE BUNDLE IS READ BACK AFTER. `node_modules/zpe-kit`
+# was a link to the checkout beside the projects directory; esbuild names a module by its realpath, so
+# the bundle carried `// ../../zpe-kit/dist/index.js` here and `// ../../../../../zpe-kit/dist/index.js`
+# three directories deeper, and the same commit signed two digests (measured 2026-11-16 at 4b327ce:
+# sha256:cdbcafc5… and sha256:1e3ab2bf…). tools/zpe_kit.py puts real bytes at node_modules/zpe-kit,
+# which pins the comment to one path at any depth, and its `gate` refuses a bundle that names a module
+# outside the repo - the door this build must never leave open again.
+python3 tools/zpe_kit.py install
+
 npm run build >/dev/null
 mkdir -p "$out/worker"
 npx --no-install wrangler deploy --dry-run --outdir "$out/worker" >/dev/null
 [ -f "$out/worker/index.js" ] || { echo "attest-build: wrangler produced no worker/index.js" >&2; exit 1; }
+python3 tools/zpe_kit.py gate "$out/worker/index.js"
 
 {
   echo "zpe jam deploy artifact v1"

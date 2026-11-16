@@ -2,6 +2,25 @@
 
 Append-only. One entry per decision, with what it beat and the fact that would overturn it.
 
+## 2026-11-16 The kit is installed inside the repo, because the signed digest was a property of the directory
+
+**Pick:** `tools/zpe_kit.py install` copies the kit's bytes to `node_modules/zpe-kit` as real files before
+`scripts/attest-build.sh` builds anything; that script reads the bundle back and refuses a module comment
+resolving outside the repo (`tools/zpe_kit.py gate`); and `bash deploy.sh` refuses a tree whose kit is still a
+link (`require-installed`). **Loser:** keeping the `node_modules/zpe-kit -> ../../../zpe-kit` link and
+stripping the `//` module comments before hashing, which would sign a description of bytes the deploy never
+uploads. **Falsifier:** the same commit builds to two digests from two directories after this lands, or a
+build in the room stops finding the kit.
+
+**What forced it.** Measured 2026-11-16 at `4b327ce` with
+`python3 ~/.hermes/scripts/attest_page.py --build --check`: `sha256:cdbcafc5…` in
+`/data/Projects/Music/agentJam` (green, the manifest's own digest) and `sha256:1e3ab2bf…` in a worktree of the
+same commit three directories deeper. The two bundles differ in exactly two lines, the module comments
+esbuild writes for the kit: `// ../../zpe-kit/dist/index.js` here and `// ../../../../../zpe-kit/dist/index.js`
+there, because esbuild names a module by its realpath relative to the build root and the link's realpath is
+the checkout beside the projects directory. The room at zpe.vc/jam could be rebuilt from one directory only.
+Re-signed at `sha256:284eaab0a02f…` (v1.11).
+
 ## 2026-10-29 The renderer is Workers AI on the same Worker, not an external provider
 
 Loser: a hosted LLM API called from the Durable Object with its own key. Reason: the AI binding is
