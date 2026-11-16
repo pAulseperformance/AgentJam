@@ -24,6 +24,13 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
+# THE TREE THAT SHIPS HAS TO BE THE TREE THE MANIFEST SIGNED. `node_modules/zpe-kit` as a link makes
+# esbuild name the kit by the checkout's own location, so this tree builds a different bundle from the
+# one the signed manifest names (measured 2026-11-16: sha256:cdbcafc5… here, sha256:1e3ab2bf… at
+# another depth). `attest_page.py --build` installs the kit inside the repo; until it has run, this
+# refuses rather than upload bytes nobody signed.
+python3 tools/zpe_kit.py require-installed || exit 1
+
 NAME="${NAME:-agent-jam}"
 ZONE="${ZONE:-zpe.vc}"
 WRAPPER="${CF_RUN:-$HOME/.hermes/scripts/cf_run.sh}"
