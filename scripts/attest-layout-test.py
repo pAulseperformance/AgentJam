@@ -20,6 +20,10 @@ import subprocess
 import sys
 import tempfile
 
+# THE GATE MUST NOT LEAVE THE TREE DIRTY. Loading the signer by path writes scripts/__pycache__/attest_page.pyc,
+# which then shows up as an untracked file in every repo that runs this. Nothing here needs the cache.
+sys.dont_write_bytecode = True
+
 FAILED = []
 
 
