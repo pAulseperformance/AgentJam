@@ -229,8 +229,8 @@ fi
 # signs — a deploy that shipped an older build would pass all three. This reads the digest the address
 # actually serves and refuses when it is not the signed one (measured on zpe-blog: it exits 0 on the
 # matching tree and 1 when the constant is moved by one hex character).
-step "[7/7] provenance (python3 ~/.hermes/scripts/attest_page.py --build --deployed)"
-if ! python3 "$HOME/.hermes/scripts/attest_page.py" --build --deployed; then
+step "[7/7] provenance (python3 scripts/attest_page.py --build --deployed)"
+if ! python3 "scripts/attest_page.py" --build --deployed; then
   note_failure "the address does not serve the build this tree signs: the manifest and the deployment have drifted"
   step "way back: ${way_back}"
   exit 1
