@@ -84,15 +84,15 @@ serving_rows() {
 # ── 1. The build manifest, checked against THIS tree ─────────────────────────
 # A build manifest is a claim about the tree in front of you, so this gate recomputes the digest from
 # this source and re-verifies the signature. An app change that shipped without re-running
-# `python3 ~/.hermes/scripts/attest_page.py --build` reds here, rather than serving a manifest that
+# `python3 scripts/attest_page.py --build` reds here, rather than serving a manifest that
 # names a build this address no longer renders.
 step "[1/7] build manifest"
 man_log="$(mktemp -t jam-manifest.XXXXXX)"
-if python3 "$HOME/.hermes/scripts/attest_page.py" --build --check >"$man_log" 2>&1; then
+if python3 "scripts/attest_page.py" --build --check >"$man_log" 2>&1; then
   green "      ok (the manifest describes the tree in front of you)"
 else
   cat "$man_log"
-  note_failure "the build manifest does not describe this tree (python3 ~/.hermes/scripts/attest_page.py --build, then commit it)"
+  note_failure "the build manifest does not describe this tree (python3 scripts/attest_page.py --build, then commit it)"
 fi
 
 # ── 2. The suite, with a floor ────────────────────────────────────────────────
@@ -312,3 +312,10 @@ else
 fi
 [ "$WALK" -eq 1 ] && step "          the probe, the browser smoke and the walk ran with --live"
 exit 0
+
+# THE SIGNER'S OWN GUARD, DRIVEN BOTH WAYS. scripts/attest_page.py refuses a layout it cannot vouch for and a
+# bundle whose module comments name a path outside this repo; scripts/attest-layout-test.py runs both answers
+# through those functions against fixtures, then reads this checkout's own `--layout`. It runs after the
+# manifest leg because that leg's build is what installs the kit inside the checkout where an app does that.
+echo "== the signer refuses a digest it cannot vouch for"
+python3 scripts/attest-layout-test.py
