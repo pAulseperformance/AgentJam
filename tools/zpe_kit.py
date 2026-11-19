@@ -115,12 +115,12 @@ def require_installed() -> int:
     if os.path.islink(KIT_DIR):
         print(f"zpe-kit: node_modules/zpe-kit is a link to {os.path.realpath(KIT_DIR)}, so this tree "
               "builds a bundle no signed manifest names, and a deploy from it would ship bytes nobody "
-              "signed. Run `python3 ~/.hermes/scripts/attest_page.py --build`, then deploy that tree.",
+              "signed. Run `python3 scripts/attest_page.py --build`, then deploy that tree.",
               file=sys.stderr)
         return 1
     if not os.path.isfile(os.path.join(KIT_DIR, "package.json")):
         print("zpe-kit: no installed copy at node_modules/zpe-kit. Run "
-              "`python3 ~/.hermes/scripts/attest_page.py --build` first.", file=sys.stderr)
+              "`python3 scripts/attest_page.py --build` first.", file=sys.stderr)
         return 1
     print("zpe-kit: installed inside the repo, so this tree's bundle is the one the manifest names")
     return 0
